@@ -1,10 +1,10 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-if not exist "source\run.bat" (
+if not exist "run.bat" (
   echo Extract ALL files from the ZIP first. Keep START.bat next to the source folder.
   pause
   exit /b 1
 )
-call "source\run.bat" %*
+call "run.bat" %*
 exit /b %errorlevel%
