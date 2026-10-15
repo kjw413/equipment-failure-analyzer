@@ -7,3 +7,4 @@ build/
 *.log
 *.bak
 wheels/*.whl
+*.exe
