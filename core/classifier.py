@@ -8,11 +8,19 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 from core.i18n import K
 from core.models import UserError
+from version import VERSION
 
 REQUIRED_COLUMNS = ['id','enabled','priority','major','middle','minor','context','symptom','exclude']
 # role: component = a named part; fallback = only when no part is named; override = cause statement.
 RULE_COLUMNS = REQUIRED_COLUMNS + ['role']
 ROLES = ('component','fallback','override')
+
+# Rules workbook format. Schema 1 = single 'rules' sheet (v1.4.0 and earlier).
+# Schema 2 = rules in 'rules_v2'; hidden 'rules' guard sheet for older programs; hidden 'meta'.
+RULES_SCHEMA = 2
+MIN_APP_VERSION = '1.5.0'
+RULES_SHEET, LEGACY_SHEET, META_SHEET = 'rules_v2', 'rules', 'meta'
+LEGACY_GUARD = '이 분류 규칙은 v1.5.0 이상 전용입니다. 최신 프로그램(START.bat 또는 v1.5.0 이상 EXE)으로 실행하세요'
 
 DEFAULT_ENGINE = {
     # Max characters (spaces removed) between a part and its symptom in one clause.
@@ -73,11 +81,25 @@ def validate_rules(rules: list[dict[str,Any]]) -> list[dict[str,Any]]:
         result.append(row)
     return result
 
+def file_schema(wb) -> tuple[int,str]:
+    """(schema, minimum program version) of a rules workbook. A single 'rules' sheet is schema 1."""
+    if META_SHEET not in wb.sheetnames:
+        return (RULES_SCHEMA if RULES_SHEET in wb.sheetnames else 1),''
+    meta={str(row[0]).strip():row[1] for row in wb[META_SHEET].iter_rows(min_row=2,values_only=True) if row and row[0]}
+    try:
+        return int(meta.get('schema',RULES_SCHEMA)),str(meta.get('min_app_version') or '')
+    except (TypeError,ValueError):
+        return RULES_SCHEMA,''
+
 def read_rules(path: Path) -> list[dict[str,Any]]:
     try:
         wb = openpyxl.load_workbook(path,read_only=True,data_only=True)
         try:
-            ws = wb['rules'] if 'rules' in wb.sheetnames else wb.active
+            schema,minimum = file_schema(wb)
+            if schema > RULES_SCHEMA:
+                raise UserError(f'classification_config.xlsx는 더 새로운 프로그램(v{minimum or "?"} 이상)에서 저장한 분류 규칙입니다.\n'
+                                f'현재 프로그램은 v{VERSION}입니다. 최신 버전으로 실행하세요.')
+            ws = wb[RULES_SHEET] if RULES_SHEET in wb.sheetnames else wb[LEGACY_SHEET] if LEGACY_SHEET in wb.sheetnames else wb.active
             it = ws.iter_rows(values_only=True)
             headers = [str(x or '').strip() for x in next(it,())]
             if not set(REQUIRED_COLUMNS).issubset(headers):
@@ -93,7 +115,16 @@ def read_rules(path: Path) -> list[dict[str,Any]]:
 
 def write_rules(path: Path, rules: list[dict[str,Any]]) -> None:
     checked = validate_rules(rules)
-    wb=openpyxl.Workbook();ws=wb.active;ws.title='rules';ws.append(RULE_COLUMNS)
+    wb=openpyxl.Workbook();ws=wb.active;ws.title=RULES_SHEET;ws.append(RULE_COLUMNS)
+    # Programs before v1.5.0 read the 'rules' sheet with a different engine and would misclassify
+    # silently. That sheet holds one deliberately invalid row, so they stop with this message instead.
+    guard=wb.create_sheet(LEGACY_SHEET);guard.append(REQUIRED_COLUMNS)
+    guard.append([LEGACY_GUARD,f'v{MIN_APP_VERSION}',0,'-','-','-','-','-',''])
+    guard.sheet_state='hidden'
+    meta=wb.create_sheet(META_SHEET);meta.append(['key','value'])
+    for key,value in (('schema',RULES_SCHEMA),('min_app_version',MIN_APP_VERSION),('saved_by',VERSION)):
+        meta.append([key,value])
+    meta.sheet_state='hidden'
     for row in checked:
         ws.append([int(row[k]) if k=='enabled' else row[k] for k in RULE_COLUMNS])
     for cell in ws[1]:
@@ -117,6 +148,21 @@ def write_rules(path: Path, rules: list[dict[str,Any]]) -> None:
         os.replace(tmp,path)
     finally:
         Path(tmp).unlink(missing_ok=True)
+
+def needs_format_upgrade(path: Path) -> bool:
+    """True for a rules file older programs can still read (no rules_v2 sheet or an older schema)."""
+    wb = openpyxl.load_workbook(path,read_only=True)
+    try:
+        return RULES_SHEET not in wb.sheetnames or file_schema(wb)[0] < RULES_SCHEMA
+    finally:
+        wb.close()
+
+def upgrade_rules_format(path: Path) -> bool:
+    """Rewrite an older-format rules file in the current format, rules unchanged."""
+    if not path.exists() or not needs_format_upgrade(path):
+        return False
+    write_rules(path,read_rules(path))
+    return True
 
 def clauses(text: str) -> list[str]:
     """Split a record into clauses and drop spaces, so '센서 교체' == '센서교체'."""

@@ -2,7 +2,7 @@
 
 1. Windows PC에 Python이 설치되어 있으면 START.bat 더블클릭.
 2. Python이 없는 PC에서는 BUILD_EXE.bat를 Python 설치 PC에서 실행하여 실행 파일을 빌드한 후 전달하세요.
-   폴더에 있는 EquipmentFailureAnalyzer.exe는 BUILD_EXE.bat으로 다시 빌드하기 전까지 이전 버전입니다.
+   빌드한 EXE에는 버전이 붙습니다(EquipmentFailureAnalyzer_v1.5.0.exe). 버전 없는 EquipmentFailureAnalyzer.exe는 이전 빌드입니다.
 3. Excel을 업로드해 분석을 실행하고 [검토필요] 탭을 선택하세요.
 4. '검토 사유 / 수정 방법 / 현재 집계 영향'과 분류 근거·후보를 확인하세요.
 5. 해당 행 클릭 > 상단 [선택 행 수동 수정] > 바꿀 항목만 입력 > 저장.
@@ -13,6 +13,7 @@
 
 주의: 검토필요 = 분석에서 제외된 행이 아닙니다. 건수·정지시간에 포함되며, 복수 후보는 임시 1순위 유형으로 집계됩니다.
 고장대상 미기재는 설비 분석 기준이 '고장대상 설비'일 때만 검토필요로 집계합니다.
+v1.5.0 이상을 한 번 실행한 PC에서 예전(v1.4.0 이하) 프로그램을 열면 "v1.5.0 이상 전용" 안내 후 멈춥니다. 최신 버전으로 실행하세요.
 새 버전 첫 실행 때 기본 분류 규칙이 자동 병합됩니다. 직접 수정한 규칙은 보존되고, 이전 설정은 config\backup에 백업됩니다.
 기존 수동수정 내역과 설비명은 사용자 설정 경로에 보존됩니다.
-자세한 내용: USER_GUIDE.pdf, source\docs\UPDATE_v1.5.0.txt
+자세한 내용: USER_GUIDE.pdf, docs\UPDATE_v1.5.0.txt

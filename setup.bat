@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 if exist ".venv\Scripts\python.exe" goto check_python
-call find_python.bat
+call "%~dp0find_python.bat"
 if errorlevel 1 goto python_error
 echo Creating the local Python environment...
 %EFA_PYTHON% -m venv .venv
@@ -20,13 +20,13 @@ if exist "wheels\*.whl" (
 if errorlevel 1 goto failure
 ".venv\Scripts\python.exe" -c "import PySide6, pandas, numpy, openpyxl, matplotlib, PIL, reportlab"
 if errorlevel 1 goto failure
-echo Setup complete. Use START.bat in the top-level folder.
+echo Setup complete. Use START.bat in the project folder.
 if /i not "%~1"=="--no-pause" pause
 exit /b 0
 :python_error
 echo Python 3.11, 3.12 or 3.13 - 64-bit is required on this PC.
 echo Contact IT for approved Python installation. See USER_GUIDE.pdf.
-echo If an incompatible local environment exists, ask IT to recreate source\.venv.
+echo If an incompatible local environment exists, ask IT to recreate the .venv folder.
 if /i not "%~1"=="--no-pause" pause
 exit /b 1
 :failure

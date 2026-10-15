@@ -28,11 +28,13 @@ MES 비가동 내보내기(Excel)를 읽어 고장 기록을 표준 유형으로
 
 ## 실행
 
-ZIP을 모두 푼 후 맨 위의 **START.bat**을 더블클릭하세요. Python 3.11~3.13 (64-bit)이 필요합니다.
-최초 실행은 인터넷 또는 source/wheels의 사전 준비 파일로 라이브러리를 설치합니다. 설치 후에는 오프라인으로 동작합니다.
+ZIP을 모두 풀거나 저장소를 내려받은 후 프로젝트 폴더의 **START.bat**을 더블클릭하세요. Python 3.11~3.13 (64-bit)이 필요합니다.
+최초 실행은 인터넷 또는 wheels 폴더의 사전 준비 파일로 라이브러리를 프로젝트 폴더의 .venv에 설치합니다. 설치 후에는 오프라인으로 동작합니다.
 
-Python이 없는 현장 PC용: 준비된 Windows PC에서 **BUILD_EXE.bat**을 실행하면 테스트 후 상위 폴더에 **EquipmentFailureAnalyzer.exe**가 생성됩니다.
-폴더에 이미 있는 EXE는 BUILD_EXE.bat으로 다시 빌드하기 전까지 이전 버전일 수 있습니다. 사내 설치·배포는 IT 정책을 따르세요.
+Python이 없는 현장 PC용: 준비된 Windows PC에서 **BUILD_EXE.bat**을 실행하면 테스트 후 프로젝트 폴더에 **EquipmentFailureAnalyzer_v1.5.0.exe**처럼 버전이 붙은 EXE가 생성됩니다.
+버전이 없는 `EquipmentFailureAnalyzer.exe`는 v1.4.0 이하의 이전 빌드입니다. 사내 설치·배포는 IT 정책을 따르세요.
+
+**구버전 실행 차단:** 한 PC의 모든 버전이 같은 사용자 설정을 공유합니다. v1.5.0 이상이 한 번 실행되면 분류 규칙이 새 형식으로 저장되고, v1.4.0 이하 프로그램은 이 규칙으로 잘못 분류하는 대신 "이 분류 규칙은 v1.5.0 이상 전용입니다" 안내를 띄우고 멈춥니다. 구버전 엔진이 새 규칙을 읽으면 검토필요가 344건까지 늘었던 문제를 막기 위한 것입니다.
 
 ## 사용 순서
 
@@ -52,6 +54,8 @@ CLI: `python analyze_cli.py INPUT.xlsx --output OUTPUT.xlsx [--basis target] [--
 
 ## 설정과 저장 위치
 
+결과 파일: 프로그램 폴더의 `output` (저장 창 기본 위치, 다른 폴더 선택 가능). 폴더에 쓸 수 없으면 `%LOCALAPPDATA%/EquipmentFailureAnalyzer/output`. 보고서에는 회사 기록이 들어가므로 `output/` 내용은 git에서 제외됩니다.
+
 사용자 설정: `%LOCALAPPDATA%/EquipmentFailureAnalyzer/config` (같은 PC·사용자에서 업데이트 후에도 유지)
 
 | 파일 | 내용 |
@@ -64,7 +68,7 @@ CLI: `python analyze_cli.py INPUT.xlsx --output OUTPUT.xlsx [--basis target] [--
 | column_overrides.json | 사용자가 확정한 컬럼 매핑 (제목 행 기준) |
 | backup/ | 기본값 자동 병합 전 백업 |
 
-번들 기본값: `source/config` (이전 기본값 지문: `defaults_history.json`)
+번들 기본값: 프로젝트의 `config` 폴더 (이전 기본값 지문: `defaults_history.json`)
 
 ## 시트 구성
 

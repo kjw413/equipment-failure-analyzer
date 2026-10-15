@@ -209,6 +209,8 @@ def describe(summary: dict[str,dict[str,int]]) -> str:
     for section,counts in summary.items():
         details=', '.join(f'{label} {counts[key]}' for key,label in (('added','추가'),('updated','갱신'),('kept','사용자 수정 보존'),
                                                                       ('removed','폐기'),('typo_fixed','오타 수정')) if counts.get(key))
+        if counts.get('format_upgraded'):
+            details=', '.join(filter(None,(details,'구버전 실행 차단 형식 적용')))
         if details:
             parts.append(f'{labels.get(section,section)}({details})')
     return '기본 설정 업데이트: '+' / '.join(parts) if parts else ''

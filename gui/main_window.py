@@ -10,7 +10,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QFileDialog, QMessageBox, QComboBox, QSpinBox, QCheckBox,
     QDateEdit, QTabWidget, QProgressBar, QTextBrowser, QGroupBox, QDialog)
-from core.config import ConfigStore
+from core.config import ConfigStore, output_root
 from core.defaults_merge import describe
 from core.excel_loader import load_excel, validate_path
 from core.preprocessing import event_ids
@@ -276,7 +276,7 @@ class MainWindow(QMainWindow):
 
     def save_report(self):
         if self.loaded is None:return
-        default=self.store.root/'output'/f'Equipment_Analysis_{datetime.now():%Y%m%d_%H%M%S}.xlsx'
+        default=output_root()/f'Equipment_Analysis_{datetime.now():%Y%m%d_%H%M%S}.xlsx'
         path,_=QFileDialog.getSaveFileName(self,'Excel + PDF \uc800\uc7a5',str(default),'Excel (*.xlsx)',
             options=QFileDialog.Option.DontConfirmOverwrite)
         if not path:return

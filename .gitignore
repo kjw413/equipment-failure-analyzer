@@ -8,4 +8,7 @@ build/
 *.bak
 wheels/*.whl
 *.exe
-./dist/*.exe
+sample/
+.pytest_tmp/
+output/*
+!output/README.txt

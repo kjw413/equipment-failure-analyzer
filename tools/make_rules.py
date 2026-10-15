@@ -1,6 +1,6 @@
 """Source of the bundled classification rules (config/classification_config.xlsx).
 
-Edit the rule list below, then run from source/:  .venv/Scripts/python.exe tools/make_rules.py
+Edit the rule list below, then run from the project folder:  .venv/Scripts/python.exe tools/make_rules.py
 Patterns run on normalized, space-free text of one clause (see core/classifier.py).
 Before a release that changes bundled rules, add the previous release's rule digests to
 config/defaults_history.json so untouched user copies are recognised and updated.

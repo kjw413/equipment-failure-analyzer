@@ -6,13 +6,13 @@ if exist ".venv\Scripts\python.exe" (
     set "EFA_PYTHON=".venv\Scripts\python.exe""
     goto download
 )
-call find_python.bat
+call "%~dp0find_python.bat"
 if errorlevel 1 goto failure
 :download
 if not exist wheels mkdir wheels
 %EFA_PYTHON% -m pip download --only-binary=:all: --dest wheels -r requirements-build.txt
 if errorlevel 1 goto failure
-echo Download complete. Copy the whole wheels folder into the offline project's source folder.
+echo Download complete. Copy the whole wheels folder into the offline project folder.
 echo Always keep the Python minor version and 64-bit architecture the same.
 pause
 exit /b 0

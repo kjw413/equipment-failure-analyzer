@@ -8,7 +8,7 @@ goto launch
 :setup
 echo First launch needs Python and approved dependencies.
 echo After setup, the analysis program runs offline.
-call setup.bat --no-pause
+call "%~dp0setup.bat" --no-pause
 if errorlevel 1 goto failure
 :launch
 ".venv\Scripts\python.exe" main.py %*

@@ -281,3 +281,86 @@ def test_saved_mapping_is_reused_and_corrections_follow(store, input_file):
     assert reloaded.mapping['product_name'] is None
     result = run_analysis(reloaded, store.load(), AnalysisOptions())
     assert 'Kept' in result.selected['product'].tolist()
+
+
+def legacy_reader_error(path):
+    """What a v1.4.0 program does: read the 'rules' sheet by name and reject a bad 'enabled' value."""
+    import openpyxl
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        ws = wb['rules'] if 'rules' in wb.sheetnames else wb.active
+        rows = list(ws.iter_rows(values_only=True))
+    finally:
+        wb.close()
+    header = [str(x or '').strip() for x in rows[0]]
+    for values in rows[1:]:
+        row = {k: '' if v is None else str(v).strip() for k, v in zip(header, values)}
+        if any(row.values()) and row['enabled'].casefold() not in ('0','1','true','false','yes','no'):
+            return f'Rule {row["id"]}: enabled는 0 또는 1입니다.'
+    return None
+
+
+def test_saved_rules_stop_older_programs(tmp_path):
+    from core.classifier import write_rules, LEGACY_GUARD, RULES_SHEET
+    import openpyxl
+    path = tmp_path/'rules.xlsx'
+    rules = read_rules(BUNDLE/'classification_config.xlsx')
+    write_rules(path, rules)
+    assert read_rules(path) == rules
+    wb = openpyxl.load_workbook(path)
+    assert wb.active.title == RULES_SHEET and wb['rules'].sheet_state == 'hidden' and wb['meta'].sheet_state == 'hidden'
+    error = legacy_reader_error(path)
+    assert error and LEGACY_GUARD in error and 'v1.5.0 이상' in error
+    assert LEGACY_GUARD in legacy_reader_error(BUNDLE/'classification_config.xlsx')
+
+
+def test_newer_rules_schema_is_refused(tmp_path):
+    from core.classifier import write_rules
+    from core.models import UserError
+    import openpyxl
+    path = tmp_path/'rules.xlsx'
+    write_rules(path, read_rules(BUNDLE/'classification_config.xlsx'))
+    wb = openpyxl.load_workbook(path)
+    wb['meta']['B2'] = 3; wb['meta']['B3'] = '9.0.0'; wb.save(path)
+    with pytest.raises(UserError, match='v9.0.0 이상'):
+        read_rules(path)
+
+
+def test_old_format_profile_is_upgraded_once(tmp_path, input_file):
+    import openpyxl
+    from core.classifier import RULE_COLUMNS, needs_format_upgrade
+    root = tmp_path/'profile'; ConfigStore(root)
+    path = root/'config'/'classification_config.xlsx'
+    rules = read_rules(path)
+    # v1.5.0 rules saved the way the first v1.5.0 build did: one plain 'rules' sheet.
+    wb = Workbook(); ws = wb.active; ws.title = 'rules'; ws.append(RULE_COLUMNS)
+    for rule in rules:
+        ws.append([int(rule[k]) if k == 'enabled' else rule[k] for k in RULE_COLUMNS])
+    wb.save(path)
+    assert needs_format_upgrade(path) and legacy_reader_error(path) is None
+    store = ConfigStore(root)
+    assert store.merge_summary['rules']['format_upgraded'] == 1
+    assert '구버전 실행 차단' in describe(store.merge_summary)
+    assert not needs_format_upgrade(path) and read_rules(path) == rules
+    assert legacy_reader_error(path)
+    assert ConfigStore(root).merge_summary == {}
+    assert analyze_file(ConfigStore(root), input_file).metrics['selected_rows'] == 4
+
+
+def test_reports_default_to_output_folder_next_to_program(monkeypatch, tmp_path):
+    from core.config import app_root, output_root
+    monkeypatch.delenv('EFA_OUTPUT_DIR', raising=False)
+    assert output_root() == app_root()/'output'
+    assert (app_root()/'output'/'README.txt').exists()
+    ConfigStore(tmp_path/'profile')
+    assert not (tmp_path/'profile'/'output').exists()  # no longer created in the user data folder
+
+
+def test_read_only_output_folder_falls_back_to_user_data(monkeypatch, tmp_path):
+    from core.config import output_root
+    blocked = tmp_path/'not_a_folder'
+    blocked.write_text('a file, so no folder can be created here')
+    monkeypatch.setenv('EFA_OUTPUT_DIR', str(blocked))
+    monkeypatch.setenv('EFA_DATA_DIR', str(tmp_path/'profile'))
+    assert output_root() == (tmp_path/'profile'/'output').resolve()
+    assert (tmp_path/'profile'/'output').is_dir()

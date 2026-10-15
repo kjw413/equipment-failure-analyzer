@@ -8,6 +8,7 @@ from PySide6.QtTest import QTest
 from core.config import ConfigStore
 from gui.dialogs import EquipmentNamesDialog
 from gui.main_window import MainWindow
+from test_core import input_file  # noqa: F401  (pytest fixture)
 
 
 @pytest.fixture(scope='module')
@@ -122,3 +123,22 @@ def test_rule_editor_shows_role_column(app,tmp_path):
     roles={editor.table.item(r,RULE_COLUMNS.index('role')).text() for r in range(editor.table.rowCount())}
     assert {'component','fallback','override'}<=roles
     editor.reject()
+
+
+def test_save_dialog_starts_in_output_folder(app, tmp_path, monkeypatch, input_file):
+    from PySide6.QtWidgets import QFileDialog
+    from core.config import app_root
+    monkeypatch.delenv('EFA_OUTPUT_DIR', raising=False)
+    window=MainWindow(ConfigStore(tmp_path/'profile'))
+    window.load_path(input_file)
+    while window.task is not None:
+        QTest.qWait(50)
+    seen={}
+    def fake_dialog(parent, title, directory, *args, **kwargs):
+        seen['directory']=directory;return '',''
+    monkeypatch.setattr(QFileDialog,'getSaveFileName',fake_dialog)
+    window.save_report()
+    from pathlib import Path
+    assert Path(seen['directory']).parent==app_root()/'output'
+    assert Path(seen['directory']).name.startswith('Equipment_Analysis_')
+    window.close()

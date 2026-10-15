@@ -2,7 +2,8 @@
 
 Environment: Windows 11, Python 3.13, pandas 2.3.3, numpy 2.5.4, PySide6 6.12.0, reportlab 4.5.1.
 
-`python -m pytest -q -W error::DeprecationWarning` (QT_QPA_PLATFORM=offscreen): **115 passed**, GUI tests included, no warnings.
+`python -m pytest -q -W error::DeprecationWarning` (QT_QPA_PLATFORM=offscreen): **121 passed**, GUI tests included, no warnings.
+Repeated runs pass on this PC with the project-local temp folder (pytest.ini).
 New in tests/test_v15.py and tests/test_gui.py: classification engine cases, clause-end restoration,
 MES target pattern and review policy, review guidance per issue, work-date/stop-time corrections,
 correction patch (changed fields only, removal), defaults merge on a real v1.4.0 profile
@@ -30,4 +31,17 @@ Excel + PDF from the real file: 15 sheets, 7,006 formulas, 0 error cells. 428 fo
 string by design (daily trend rows with no records; identical in the v1.4.0 output). PDF 30 pages.
 CLI end-to-end time about 46 s.
 
-Not verified here: EXE build/execution (run BUILD_EXE.bat) and interactive use on other PCs.
+## Old-program guard
+
+A report generated on 2026-10-15 09:59 showed 344 review rows (320 multiple candidates). It was produced by the
+v1.4.0 EXE reading the v1.5.0 rules from the shared user profile; the v1.4.0 source with the same profile
+reproduces 344 / 320 / 86 / 8 exactly, while v1.5.0 gives 11. Rules are now saved in format v2:
+- the v1.4.0 source stops at startup with "이 분류 규칙은 v1.5.0 이상 전용입니다 …" for the bundled rules and for
+  a real profile after v1.5.0 has opened it once;
+- v1.5.0 converts an older-format profile on first start (status bar message), no change on the second start.
+
+## EXE
+
+BUILD_EXE.bat ran end to end on this PC (tests 118 passed, PyInstaller) and produced
+EquipmentFailureAnalyzer_v1.5.0.exe (about 90 MB); it started headless and converted a copy of the user
+profile. Interactive use on other PCs was not verified here.

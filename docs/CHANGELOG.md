@@ -16,7 +16,17 @@
   the mapping changes. The record-ID formula is unchanged.
 - Fixed i18n typo ('남걁니다'), numpy timedelta deprecation warnings; new quality metric for auto-resolved
   conflicts; rules sheet shows the role column.
-- Real MES sample (414 faults): review 300 -> 11. 115 automated tests passed (GUI included).
+- Rules workbook format v2 (rules_v2 sheet + meta schema): programs before v1.5.0 stop with a clear message
+  instead of misclassifying with the new rules (old engine + new rules gave 344 review rows). Newer schemas
+  are refused with an upgrade message. Existing profiles are converted on first start.
+- BUILD_EXE.bat names the EXE with the version (EquipmentFailureAnalyzer_v1.5.0.exe); pytest uses a
+  project-local temp folder so repeated test runs and builds work on PCs with a locked system temp.
+- Reports default to ./output next to START.bat or the EXE (fallback: user data folder when read-only);
+  output/ contents are git-ignored.
+- USER_GUIDE now opens with a two-page summary and explains how the program works: processing steps,
+  classification principle and decision order, the full type list (6 majors, 67 rules), totals and data model.
+  The guide builder wraps Korean text between words and fixes an empty table on the first page.
+- Real MES sample (414 faults): review 300 -> 11. 121 automated tests passed (GUI included).
 
 # v1.4.0
 - Review reason, correction route and aggregation effect per review row.
