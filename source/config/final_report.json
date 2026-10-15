@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "title": "",
+  "department": "",
+  "prepared_by": "",
+  "closing_note": "",
+  "font_path": "",
+  "summary_top_n": 5,
+  "priority_equipment_n": 3,
+  "include_monthly": true,
+  "include_equipment_details": true,
+  "include_review": true,
+  "equipment_table_top_n": 5
+}

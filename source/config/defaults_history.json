@@ -1,0 +1,181 @@
+{
+  "comment": "Earlier bundled default values (v1.4.0). A user value equal to one of these was never edited by the user and follows the new release; anything else is a user edit and is kept.",
+  "versions": [
+    "1.4.0"
+  ],
+  "rules": {
+    "SENSOR": [
+      "3bd933ed924a5c975a71336deba49c6c92418243acb276ee114c5751343f52b9"
+    ],
+    "SERVO": [
+      "1c8deca4e6d66a89d79aae4fcc936463c3b44f24ce767e2e4c8056f426d964fb"
+    ],
+    "PLC": [
+      "dcc91a32ae31aa0741a86fd769e2d11ab96f39b644a29fff3955d29c1a3188de"
+    ],
+    "BEARING": [
+      "3fb182bbfb2e6241fb19a64431aa25e994888c2e9fb152bd6bb7e629a7ae5e34"
+    ],
+    "CHAIN": [
+      "0d8d6a684529445f1ac2685aac3ff59c51496d8bbb115dee2e1113cf3d953709"
+    ],
+    "BELT": [
+      "3b18bc0f722faf91149b1857975eedaa6dde64769e976b24b84a528d797a5a03"
+    ],
+    "SOLENOID": [
+      "66ab3f49999c2dca5eef7df3255e0f42ed5bbaf683d529ff630043f198004ff0"
+    ],
+    "WIRE": [
+      "f384429ca000d1309ddca7befbf241ecf716ea406e92bf05b37186b4e0ef82a6"
+    ],
+    "STICK": [
+      "b9eb32f3146f6a065fdc77d66055ee3576ba1a44d1c2ff3e9628509daa51e2e0"
+    ],
+    "SEAL_TEMP": [
+      "656acfdda3aaa2ea9ea3e73467ea7ae9611033bfb596a117c9c113baab03bd14"
+    ],
+    "TEMP": [
+      "82f94b3f8e4de7a1b8648b2b9758de2fa19db7a898d34ccd348cbb4bedadef94"
+    ],
+    "LEAK": [
+      "bb8adb48adbf1187cd91c1f39a7e428313a270e65fb612f1542b0fa500ab0a5b"
+    ],
+    "VACUUM": [
+      "29242a3ef58dcfa5cbde5981bbdaa729bfd1ffa6a577a8ccdae5ecbc7267d4c1"
+    ],
+    "BEAM_DAMAGE": [
+      "f5ea44265d8bc703870d70720e40f2050e568275729e1bd77903dfeccce7e4b5"
+    ],
+    "FASTEN": [
+      "7e6aa540cd16a483137909de8a099f324d586eebba1835f0b4cbb28839697284"
+    ],
+    "CYLINDER": [
+      "a5150e53f2059226f7c2fb5d330494aeca4210c98edc3d11160be6bdadf08382"
+    ],
+    "CLOG": [
+      "bf4f48322fa0ba474c0e5b70e2310d5018c19d44da1719cc5daf8b9b001d226f"
+    ],
+    "HOME": [
+      "f8d33febf85b87ba01389d2dfea8bb2ae512253b439726966880cde2927b21c8"
+    ],
+    "PRINTER": [
+      "5f6883283e3e57689a37e5443423e9b39b339bfd08bf1fc3799e60c44afb2a57"
+    ],
+    "MOTOR": [
+      "f7ec9dddd5286482802a9925600d0528289e7f38aaf3ed78cdf42dc5b0b0a3f1"
+    ],
+    "REDUCER": [
+      "e61543c3170b5e3797bdcf2f89782e78e35b0626483513652681f48faba0263e"
+    ],
+    "PUSHER": [
+      "06b36627b46815acb9123d9fa726ec58921be5d6139dcf4527bda46010647bae"
+    ],
+    "SHUTTER": [
+      "1098ae1b3d0475a43ca93ec2eef1a57cf7522cd9675bb328dafb4f395c29206d"
+    ],
+    "DISLOCATION": [
+      "f7d094afb6990ef97e46d50536c62fed1819ecacbd18fdbe1f6e4ac5aeea8231"
+    ],
+    "VALVE": [
+      "be4657d009ab142ae46c03a357509958e9da3812c4906ea9ac4d8fe3a313578c"
+    ],
+    "PACKING": [
+      "7fadfa8bef5a0633c74f6cc5463fc9033e51fa937df72f607e7b23acbb26deb9"
+    ],
+    "SEALING": [
+      "2e2a82808e0879d2007a19894ef404761f993f40dde2bcad32e01480e65b5759"
+    ],
+    "TANK": [
+      "f70b30578c7498dc6840b2dc0b74dcd23083a271e83d3b315721784d9c2704d4"
+    ],
+    "FLOW": [
+      "7031bda4f51a851931bb95940bb5b3d568bbd4473c9cfcddd2571d53ac464ee3"
+    ]
+  },
+  "normalization.replacements": {
+    "모타": [
+      "모터"
+    ],
+    "벨브": [
+      "밸브"
+    ],
+    "솔벨브": [
+      "솔밸브"
+    ],
+    "프리자": [
+      "프리저"
+    ],
+    "프리져": [
+      "프리저"
+    ],
+    "프리젠": [
+      "프리저"
+    ],
+    "프리지": [
+      "프리저"
+    ],
+    "컨베이어": [
+      "컨베어"
+    ],
+    "로보트": [
+      "로봇"
+    ],
+    "실러": [
+      "씌러",
+      "씰러"
+    ],
+    "에레": [
+      "에러"
+    ]
+  },
+  "normalization.clause_end_expansions": {},
+  "equipment_families": {
+    "프리저": [
+      "freezer|\\ud504\\ub9ac\\uc800|\\ud504\\ub9ac\\uc838|\\ud504\\ub9ac\\uc820"
+    ],
+    "필러/충진": [
+      "\\ud544\\ub7ec|\\ucda9\\uc9c4|\\ucda9\\uc804"
+    ],
+    "포장기": [
+      "\\ud3ec\\uc7a5\\uae30|\\uc528\\ub9c1|\\uc50c\\ub7ec|sealer"
+    ],
+    "로봇": [
+      "\\ub85c\\ubd07|\\ub85c\\ubcf4\\ud2b8|robot"
+    ],
+    "컨베어": [
+      "\\ucee8\\ubca0\\uc5b4|\\ucee8\\ubca0\\uc774\\uc5b4|conveyor"
+    ],
+    "날인기": [
+      "\\ub0a0\\uc778|\\ud504\\ub9b0\\ud2b8|printer"
+    ],
+    "피더": [
+      "feeder|\\ud53c\\ub354"
+    ],
+    "검출기": [
+      "x[ -]?ray|\\uac80\\ucd9c"
+    ],
+    "동결설비": [
+      "qft|ht-300|\\ub3d9\\uacb0"
+    ],
+    "봉함기": [
+      "\\ubd09\\ud568"
+    ],
+    "제함기": [
+      "\\uc81c\\ud568"
+    ],
+    "탱크": [
+      "\\ud0f1\\ud06c|tank"
+    ],
+    "스틱 공급부": [
+      "\\uc2a4\\ud2f1"
+    ],
+    "포장카운터": [
+      "\\ud3ec\\uc7a5\\uce74\\uc6b4\\ud130"
+    ]
+  },
+  "settings": {
+    "equipment_prefix_pattern": [
+      "(?i)^\\d+p\\s*i\\s*/\\s*c\\b"
+    ]
+  }
+}

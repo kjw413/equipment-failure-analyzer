@@ -1,0 +1,58 @@
+[
+  {
+    "name": "프리저",
+    "pattern": "freezer|프리저|프리져|프리젠"
+  },
+  {
+    "name": "필러/충진",
+    "pattern": "필러|충진|충전"
+  },
+  {
+    "name": "포장기",
+    "pattern": "포장기|씨링|씰링|실링|씰러|실러|씨러|sealer"
+  },
+  {
+    "name": "로봇",
+    "pattern": "로봇|로보트|robot"
+  },
+  {
+    "name": "컨베어",
+    "pattern": "컨베어|컨베이어|conveyor"
+  },
+  {
+    "name": "날인기",
+    "pattern": "날인|프린트|printer"
+  },
+  {
+    "name": "피더",
+    "pattern": "feeder|피더"
+  },
+  {
+    "name": "검출기",
+    "pattern": "x[ -]?ray|검출"
+  },
+  {
+    "name": "동결설비",
+    "pattern": "qft|ht-300|동결"
+  },
+  {
+    "name": "봉함기",
+    "pattern": "봉함"
+  },
+  {
+    "name": "제함기",
+    "pattern": "제함"
+  },
+  {
+    "name": "탱크",
+    "pattern": "탱크|tank"
+  },
+  {
+    "name": "스틱 공급부",
+    "pattern": "스틱"
+  },
+  {
+    "name": "포장카운터",
+    "pattern": "포장카운터"
+  }
+]

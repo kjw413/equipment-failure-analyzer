@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.pytest_cache/
+dist/
+build/
+*.pyc
+*.log
+*.bak
+wheels/*.whl

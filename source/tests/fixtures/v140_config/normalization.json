@@ -1,0 +1,16 @@
+{
+  "replacements": {
+    "모타": "모터",
+    "벨브": "밸브",
+    "솔벨브": "솔밸브",
+    "프리자": "프리저",
+    "프리져": "프리저",
+    "프리젠": "프리저",
+    "프리지": "프리저",
+    "컨베이어": "컨베어",
+    "로보트": "로봇",
+    "실러": "씌러",
+    "에레": "에러"
+  },
+  "comment": "Explicit spelling normalization only; never erase negations or part numbers."
+}

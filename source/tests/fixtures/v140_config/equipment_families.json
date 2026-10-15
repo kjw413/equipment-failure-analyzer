@@ -1,0 +1,58 @@
+[
+  {
+    "name": "프리저",
+    "pattern": "freezer|\\ud504\\ub9ac\\uc800|\\ud504\\ub9ac\\uc838|\\ud504\\ub9ac\\uc820"
+  },
+  {
+    "name": "필러/충진",
+    "pattern": "\\ud544\\ub7ec|\\ucda9\\uc9c4|\\ucda9\\uc804"
+  },
+  {
+    "name": "포장기",
+    "pattern": "\\ud3ec\\uc7a5\\uae30|\\uc528\\ub9c1|\\uc50c\\ub7ec|sealer"
+  },
+  {
+    "name": "로봇",
+    "pattern": "\\ub85c\\ubd07|\\ub85c\\ubcf4\\ud2b8|robot"
+  },
+  {
+    "name": "컨베어",
+    "pattern": "\\ucee8\\ubca0\\uc5b4|\\ucee8\\ubca0\\uc774\\uc5b4|conveyor"
+  },
+  {
+    "name": "날인기",
+    "pattern": "\\ub0a0\\uc778|\\ud504\\ub9b0\\ud2b8|printer"
+  },
+  {
+    "name": "피더",
+    "pattern": "feeder|\\ud53c\\ub354"
+  },
+  {
+    "name": "검출기",
+    "pattern": "x[ -]?ray|\\uac80\\ucd9c"
+  },
+  {
+    "name": "동결설비",
+    "pattern": "qft|ht-300|\\ub3d9\\uacb0"
+  },
+  {
+    "name": "봉함기",
+    "pattern": "\\ubd09\\ud568"
+  },
+  {
+    "name": "제함기",
+    "pattern": "\\uc81c\\ud568"
+  },
+  {
+    "name": "탱크",
+    "pattern": "\\ud0f1\\ud06c|tank"
+  },
+  {
+    "name": "스틱 공급부",
+    "pattern": "\\uc2a4\\ud2f1"
+  },
+  {
+    "name": "포장카운터",
+    "pattern": "\\ud3ec\\uc7a5\\uce74\\uc6b4\\ud130"
+  }
+]

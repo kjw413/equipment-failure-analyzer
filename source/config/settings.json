@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "duration_tolerance_minutes": 2.0,
+  "allow_time_only_overnight": true,
+  "assume_generic_is_failure": true,
+  "top_n": 10,
+  "font_family": "Malgun Gothic",
+  "omit_personal_columns": true,
+  "report_title": "설비 고장 분석 보고서",
+  "report_sections": [
+    "summary",
+    "equipment",
+    "line",
+    "type",
+    "trend",
+    "pareto",
+    "cross",
+    "detail",
+    "review",
+    "quality",
+    "raw",
+    "equipment_types"
+  ],
+  "fault_labels": [
+    "고장",
+    "설비고장",
+    "Failure",
+    "Breakdown"
+  ],
+  "kind_codes": {
+    "TR": "고장",
+    "PI": "계획운휴",
+    "WI": "작업운휴"
+  },
+  "equipment_prefix_pattern": "(?i)^\\d+\\s*p\\b",
+  "donut_top_n": 5,
+  "target_missing_review": "target_basis",
+  "classifier": {
+    "window": 15,
+    "part_code_majors": {
+      "컨트롤파트": [
+        "전기·제어"
+      ],
+      "기계파트": [
+        "기계"
+      ],
+      "구동파트": [
+        "기계",
+        "전기·제어"
+      ],
+      "공압파트": [
+        "공압·진공"
+      ],
+      "냉동파트": [
+        "온도·냉각"
+      ]
+    },
+    "first_failure": false
+  }
+}
