@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0.."
 echo Run on an approved internet-enabled Windows PC with the SAME Python version and architecture.
 if exist ".venv\Scripts\python.exe" (
     set "EFA_PYTHON=".venv\Scripts\python.exe""

@@ -1,4 +1,0 @@
-Use START.bat in this folder.
-Create Excel + PDF with one export.
-See USER_GUIDE.pdf, READ_ME_FIRST.txt and docs/UPDATE_v1.5.0.txt for this release.
-BUILD_EXE.bat creates EquipmentFailureAnalyzer_v<version>.exe. An EquipmentFailureAnalyzer.exe without a version number is an older build.

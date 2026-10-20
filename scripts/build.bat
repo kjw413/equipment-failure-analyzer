@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0.."
 echo Building a Windows executable. This may take several minutes.
 call "%~dp0setup.bat" --no-pause
 if errorlevel 1 goto failure
@@ -10,6 +10,10 @@ if exist "wheels\*.whl" (
     ".venv\Scripts\python.exe" -m pip install -r requirements-build.txt
 )
 if errorlevel 1 goto failure
+".venv\Scripts\python.exe" -m ruff check .
+if errorlevel 1 goto failure
+".venv\Scripts\python.exe" -m ruff format --check .
+if errorlevel 1 goto failure
 ".venv\Scripts\python.exe" -m pytest -q
 if errorlevel 1 goto failure
 ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean EquipmentFailureAnalyzer.spec
@@ -17,7 +21,7 @@ if errorlevel 1 goto failure
 if not exist "dist\EquipmentFailureAnalyzer.exe" goto failure
 rem The copied file carries the program version, so an old build is never mistaken for the current one.
 set "EFA_VERSION="
-for /f "tokens=2 delims='" %%v in ('findstr /b /c:"VERSION = " version.py') do set "EFA_VERSION=%%v"
+for /f "delims=" %%v in ('.venv\Scripts\python.exe -c "from version import VERSION; print(VERSION)"') do set "EFA_VERSION=%%v"
 if not defined EFA_VERSION goto failure
 copy /y "dist\EquipmentFailureAnalyzer.exe" "EquipmentFailureAnalyzer_v%EFA_VERSION%.exe" >nul
 if errorlevel 1 goto failure

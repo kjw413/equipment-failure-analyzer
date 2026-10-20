@@ -1,16 +1,31 @@
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
+
 import pandas as pd
 
+CLASSIFICATION_DECISION_COLUMNS = ("classification_reason", "candidate_evidence")
+
+CLASSIFICATION_COMPONENT_COLUMNS = (
+    "classification_mode",
+    "component_count",
+    "component_types",
+    "component_details",
+    "combination_key",
+)
+
 Progress = Callable[[int, str], None]
+
 
 def noop_progress(value: int, message: str) -> None:
     """Default callback for non-interactive callers."""
 
+
 class UserError(Exception):
     """An actionable error suitable for display without a traceback."""
+
 
 @dataclass
 class LoadedData:
@@ -26,15 +41,17 @@ class LoadedData:
     sheet_names: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
+
 @dataclass
 class AnalysisOptions:
-    scope: str = 'fault'  # fault or all; unknown labels remain unknown
-    equipment_basis: str = 'mapped'  # mapped / target / registered / family
+    scope: str = "fault"  # fault or all; unknown labels remain unknown
+    equipment_basis: str = "mapped"  # mapped / target / registered / family
     date_from: str | None = None
     date_to: str | None = None
-    duration_unit: str = 'minutes'
+    duration_unit: str = "minutes"
     deduplicate: bool = False
     top_n: int = 10
+
 
 @dataclass
 class AnalysisResult:

@@ -1,4 +1,5 @@
 """Korean labels shared by the GUI, data pipeline and report."""
+
 K = {
     "app": "\uc124\ube44 \uace0\uc7a5 \ubd84\uc11d\uae30",
     "offline": "\uc0ac\ub0b4 PC \uc804\uc6a9 | \uc678\ubd80 \uc804\uc1a1 \uc5c6\uc74c",
@@ -8,7 +9,7 @@ K = {
     "missing": "\ubbf8\uae30\uc7ac",
     "unclassified": "\ubbf8\ubd84\ub958",
     "review": "\uac80\ud1a0\ud544\uc694",
-    "auto": "\uaddc\uce59\ubd84\ub958",
+    "auto": "규칙분류",
     "manual": "\uc0ac\uc6a9\uc790\ud655\uc815",
     "nonfault": "\ubd84\ub958\ub300\uc0c1 \uc678",
     "date": "\uc791\uc5c5\uc77c\uc790",
@@ -132,7 +133,7 @@ K = {
     "time_note": "\uc2dc\uac04\uc740 \uae30\ub85d\ubcc4 \ud569\uacc4\uc785\ub2c8\ub2e4. \ub77c\uc778 \uac04 \ub3d9\uc2dc \uc815\uc9c0\ub97c \uc81c\uac70\ud55c \uacf5\uc7a5 \uc21c\uc815\uc9c0\uc2dc\uac04\uc774 \uc544\ub2d9\ub2c8\ub2e4.",
     "reported_note": "고장대상은 원본 중분류를 우선 사용하며, 없으면 미기재로 남깁니다. 고장대상 미기재는 설비 분석 기준이 '고장대상 설비'일 때만 검토필요로 집계합니다.",
     "rounding_note": "\uc6d0\ubcf8 \ubd84 \uac12\uc744 \uc6b0\uc120 \uc0ac\uc6a9\ud569\ub2c8\ub2e4. \uc2dc\uc791/\uc885\ub8cc \ucc28\uc774 2\ubd84 \ucd08\uacfc\ub294 \uac80\ud1a0\ub300\uc0c1\uc785\ub2c8\ub2e4.",
-    "multi_rule": "\ubcf5\uc218 \uc720\ud615 \ud6c4\ubcf4: \uc6b0\uc120\uc21c\uc704\ub85c 1\uac1c \ud45c\uc2dc, \uc0ac\uc6a9\uc790 \ud655\uc778 \ud544\uc694",
+    "multi_rule": "서로 다른 분류 규칙 일치: 사용자 확인 필요",
     "date_invalid": "\uc77c\uc790 \uc5c6\uc74c/\ud615\uc2dd \ud655\uc778",
     "time_invalid": "\uc815\uc9c0\uc2dc\uac04 \ud615\uc2dd \ud655\uc778",
     "time_missing": "\uc815\uc9c0\uc2dc\uac04 \ubbf8\uae30\uc7ac",
@@ -146,7 +147,7 @@ K = {
     "blank": "\ube48 \ud589",
     "header_footer": "\ubc18\ubcf5 \uc81c\ubaa9/\ud558\ub2e8 \uba54\ud0c0\ub370\uc774\ud130",
     "source_info": "\ubd84\uc11d \uae30\uc900 \ubc0f \ucd9c\ucc98",
-    "rule_help": "context(부품)와 symptom(증상)은 같은 구절 안에서 부품 뒤 가까이(공백 제외 15자 이내, 다음 부품명 전까지) 나와야 일치합니다. symptom이 '.'이면 부품 언급만으로 일치합니다. exclude는 제외 조건, priority는 큰 값 우선입니다. role: component=부품 규칙, fallback=부품이 없을 때만 쓰는 부위 미기재 규칙, override=작업자 조작 등 원인 표현 규칙.",
+    "rule_help": "context(부품)와 symptom(증상)이 같은 구절에서 연결될 때 규칙이 일치합니다. 제외어·부정·예정 표현은 제외합니다. 교체·고장·원인 표현과 MES 단서로 후보를 해소하며, 같은 부품의 세부 규칙에는 priority를 사용합니다. 해소되지 않는 후보와 독립 복수 고장은 검토합니다. role: component=부품, fallback=부위 미기재, override=명시적 원인 표현.",
     "correction_help": "\uc120\ud0dd \uae30\ub85d\uc5d0\ub9cc \uc801\uc6a9\ub429\ub2c8\ub2e4. \uc720\uc0ac \ubb38\uc7a5\uc5d0 \uc784\uc758\ub85c \ud655\uc0b0\ud558\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4.",
     "stale": "\uc124\uc815\uc774 \ubcc0\uacbd\ub418\uc5c8\uc2b5\ub2c8\ub2e4. \ubd84\uc11d\uc744 \ub2e4\uc2dc \uc2e4\ud589\ud558\uc138\uc694.",
     "close_busy": "\ucc98\ub9ac \uc911\uc5d0\ub294 \uc885\ub8cc\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.",
@@ -156,7 +157,7 @@ K = {
     "quality": "\ub370\uc774\ud130 \ud488\uc9c8",
     "rank": "\uc21c\uc704",
     "long_stop": "\uc7a5\uc2dc\uac04 \uc815\uc9c0 TOP",
-    "fuzzy_note": "\ud604\uc7ac \ubc84\uc804\uc740 \ub85c\uceec \uaddc\uce59 \uae30\ubc18\uc785\ub2c8\ub2e4. \uc758\ubbf8 \uc720\uc0ac\ub3c4 \ud559\uc2b5/LLM\uc740 \uc0ac\uc6a9\ud558\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4.",
+    "fuzzy_note": "분류는 로컬 규칙의 부품·증상 일치와 기록된 교체·고장·원인 근거를 사용합니다. 외부 AI·학습 모델은 사용하지 않습니다.",
     "zero_total": "\uc815\uc9c0\uc2dc\uac04 \ud569\uacc4\uac00 0\uc774\uac70\ub098 \uc5c6\uc5b4 \uc2dc\uac04 \ube44\uc728\uc744 \uc0b0\ucd9c\ud558\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4.",
     "mapped": "\uc0ac\uc6a9\uc790 \uc9c0\uc815 \uc124\ube44\uba85(\ucf54\ub4dc \uae30\uc900)",
     "name_editor": "\uc124\ube44\uba85 \ubcc0\ud658 \uc124\uc815",
@@ -178,7 +179,7 @@ K = {
     "auto_resolved": "자동선택",
     "auto_resolved_rows": "규칙분류 중 자동선택(복수 후보 해소)",
     "target_info": "고장대상 미기재(참고)",
-    "names_note": "\ubcf4\uace0\uc11c \uc124\ube44\uba85\uc740 \uc124\ube44 \ucf54\ub4dc\uc5d0 \ub300\ud55c \ucd5c\uc885 \uc800\uc7a5 \uc124\uc815\uc744 \uc0ac\uc6a9\ud569\ub2c8\ub2e4. \ubbf8\ub4f1\ub85d \ucf54\ub4dc\uc758 \uc774\ub984\uc740 \ucd94\uc815\ud558\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4."
+    "names_note": "\ubcf4\uace0\uc11c \uc124\ube44\uba85\uc740 \uc124\ube44 \ucf54\ub4dc\uc5d0 \ub300\ud55c \ucd5c\uc885 \uc800\uc7a5 \uc124\uc815\uc744 \uc0ac\uc6a9\ud569\ub2c8\ub2e4. \ubbf8\ub4f1\ub85d \ucf54\ub4dc\uc758 \uc774\ub984\uc740 \ucd94\uc815\ud558\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4.",
 }
 
 FIELD_LABELS = {
@@ -198,7 +199,7 @@ FIELD_LABELS = {
     "description": "\uace0\uc7a5\ub0b4\uc6a9 / \ube44\uace0",
     "cause": "\uc6d0\uc778(\uc6d0\ubcf8)",
     "action": "\uc870\uce58(\uc6d0\ubcf8)",
-    "kind_code": "DownTypeCode"
+    "kind_code": "DownTypeCode",
 }
 
 DISPLAY = {
@@ -251,5 +252,38 @@ DISPLAY = {
     "equipment_code": "\uc6d0\ubcf8 \uc124\ube44 \ucf54\ub4dc",
     "raw_equipment_name": "\uc6d0\ubcf8 \ub4f1\ub85d \uc124\ube44\uba85",
     "report_equipment": "\ubcf4\uace0\uc11c \uc124\ube44\uba85",
-    "name_mapped": "\uc0ac\uc6a9\uc790 \uc774\ub984 \uc801\uc6a9"
+    "name_mapped": "\uc0ac\uc6a9\uc790 \uc774\ub984 \uc801\uc6a9",
 }
+
+
+DECISION_LABELS = {
+    "classification_reason": "분류 판정 사유",
+    "candidate_evidence": "후보별 규칙·근거",
+    "alternative_types": "대안 유형 표현",
+    "alternative_type_rows": "대안 유형 검토",
+    "multiple_faults": "복수 부품·고장 동시 기록",
+    "multiple_fault_rows": "복수 부품·고장 검토",
+    "classification_review_rows": "분류 검토필요",
+}
+K.update(DECISION_LABELS)
+DISPLAY.update(DECISION_LABELS)
+
+
+COMPONENT_LABELS = {
+    "manual_multi": "복수유형확정",
+    "classification_mode": "유형 구성 방식",
+    "component_count": "구성 유형 수",
+    "component_types": "구성 고장 유형",
+    "component_details": "구성 유형별 근거(JSON)",
+    "combination_key": "유형 조합 식별자",
+    "classification_components": "사용자확정 복수 유형",
+    "component_type": "구성 고장 유형",
+    "manual_count": "사용자확정 포함 건수",
+    "review_count": "잠정검토 포함 건수",
+    "manual_multi_rows": "복수유형 사용자확정",
+    "combination_rows": "복수 유형 조합 기록",
+    "component_tab": "부품별 포함 건수",
+    "component_trend_tab": "월별 부품 추이",
+}
+K.update(COMPONENT_LABELS)
+DISPLAY.update(COMPONENT_LABELS)

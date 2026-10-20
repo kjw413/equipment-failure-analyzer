@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0.."
 if not exist ".venv\Scripts\python.exe" goto setup
 ".venv\Scripts\python.exe" -c "import PySide6, pandas, numpy, openpyxl, matplotlib, PIL, reportlab" >nul 2>nul
 if errorlevel 1 goto setup

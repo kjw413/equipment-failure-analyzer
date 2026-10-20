@@ -9,6 +9,8 @@ build/
 wheels/*.whl
 *.exe
 sample/
-.pytest_tmp/
+.pytest_tmp*/
 output/*
 !output/README.txt
+.ruff_cache/
+tmp/

@@ -3,10 +3,15 @@
 Known asset-code tokens are converted once, never through chained replacements.
 All report tables, chart labels and free-text cells use the same projection.
 """
+
 from __future__ import annotations
-from dataclasses import replace
+
+import json
 import re
+from dataclasses import replace
+
 import pandas as pd
+
 from core.equipment_names import code_key
 from core.models import AnalysisResult
 
@@ -20,8 +25,12 @@ class ReportNames:
         codes = sorted(self.mapping, key=len, reverse=True)
         if codes:
             protected = sorted(self.protected, key=len, reverse=True)
-            pattern = (r'(?P<display>' + '|'.join(map(re.escape, protected)) + r')|'
-                       r'(?P<code>(?<![A-Za-z0-9_])(?:' + '|'.join(map(re.escape, codes)) + r')(?![A-Za-z0-9_]))')
+            pattern = (
+                r"(?P<display>" + "|".join(map(re.escape, protected)) + r")|"
+                r"(?P<code>(?<![A-Za-z0-9_])(?:"
+                + "|".join(map(re.escape, codes))
+                + r")(?![A-Za-z0-9_]))"
+            )
             self.pattern = re.compile(pattern, re.IGNORECASE)
         else:
             self.pattern = None
@@ -29,25 +38,62 @@ class ReportNames:
     def text(self, value):
         if not isinstance(value, str) or self.pattern is None or value in self.protected:
             return value
-        return self.pattern.sub(lambda m: m.group() if m.lastgroup == 'display' else self.mapping.get(code_key(m.group()), m.group()), value)
+        return self.pattern.sub(
+            lambda m: (
+                m.group()
+                if m.lastgroup == "display"
+                else self.mapping.get(code_key(m.group()), m.group())
+            ),
+            value,
+        )
+
+    def components(self, value):
+        """Project structured display fields while preserving valid JSON and identity."""
+        if not isinstance(value, str) or not value or self.pattern is None:
+            return value
+        try:
+            members = json.loads(value)
+        except (TypeError, ValueError):
+            return value
+        if not isinstance(members, list):
+            return value
+        projected = []
+        for member in members:
+            if not isinstance(member, dict):
+                projected.append(member)
+                continue
+            item = dict(member)
+            for key in ("major", "middle", "minor", "evidence"):
+                if isinstance(item.get(key), str):
+                    item[key] = self.text(item[key])
+            projected.append(item)
+        return json.dumps(projected, ensure_ascii=False, separators=(",", ":"))
 
     def frame(self, frame: pd.DataFrame) -> pd.DataFrame:
         result = frame.copy(deep=True)
         # Hashes and event IDs are not display names and must never be modified.
         for column in result.columns:
-            if column in ('record_id', 'event_id'):
+            if column in ("record_id", "event_id", "combination_key"):
                 continue
-            if pd.api.types.is_object_dtype(result[column]) or isinstance(result[column].dtype, pd.StringDtype):
+            if column == "component_details":
+                result[column] = result[column].map(self.components)
+                continue
+            if pd.api.types.is_object_dtype(result[column]) or isinstance(
+                result[column].dtype, pd.StringDtype
+            ):
                 result[column] = result[column].map(self.text)
         return result
 
 
 def report_result(result: AnalysisResult) -> AnalysisResult:
     """Return a presentation snapshot, not a change to the analysis/source data."""
-    names = ReportNames(result.config_snapshot.get('equipment_names', {}).get('mappings', {}))
+    names = ReportNames(result.config_snapshot.get("equipment_names", {}).get("mappings", {}))
     loaded = replace(result.loaded, frame=names.frame(result.loaded.frame))
-    return replace(result, loaded=loaded,
-                   all_records=names.frame(result.all_records),
-                   selected=names.frame(result.selected),
-                   tables={key: names.frame(table) for key, table in result.tables.items()},
-                   notes=[names.text(note) for note in result.notes])
+    return replace(
+        result,
+        loaded=loaded,
+        all_records=names.frame(result.all_records),
+        selected=names.frame(result.selected),
+        tables={key: names.frame(table) for key, table in result.tables.items()},
+        notes=[names.text(note) for note in result.notes],
+    )

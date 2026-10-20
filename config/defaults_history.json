@@ -1,74 +1,93 @@
 {
-  "comment": "Earlier bundled default values (v1.4.0). A user value equal to one of these was never edited by the user and follows the new release; anything else is a user edit and is kept.",
+  "comment": "Historical bundled defaults. Untouched prior defaults may retire or update; user edits are preserved by migration.",
   "versions": [
-    "1.4.0"
+    "1.4.0",
+    "1.7.2"
   ],
   "rules": {
     "SENSOR": [
-      "3bd933ed924a5c975a71336deba49c6c92418243acb276ee114c5751343f52b9"
+      "3bd933ed924a5c975a71336deba49c6c92418243acb276ee114c5751343f52b9",
+      "e973f726a251453c16954d4c8abea12e2c3979453427193f3eeca1fb325155ff"
     ],
     "SERVO": [
-      "1c8deca4e6d66a89d79aae4fcc936463c3b44f24ce767e2e4c8056f426d964fb"
+      "1c8deca4e6d66a89d79aae4fcc936463c3b44f24ce767e2e4c8056f426d964fb",
+      "2e8078de72dd6ea9351bf1775f67932b388ddde18abc6518e27608799c7b8f16"
     ],
     "PLC": [
       "dcc91a32ae31aa0741a86fd769e2d11ab96f39b644a29fff3955d29c1a3188de"
     ],
     "BEARING": [
-      "3fb182bbfb2e6241fb19a64431aa25e994888c2e9fb152bd6bb7e629a7ae5e34"
+      "3fb182bbfb2e6241fb19a64431aa25e994888c2e9fb152bd6bb7e629a7ae5e34",
+      "818d11c35943be259f58ed9a022735973d7815f4afdbc7f7812c4bc5b3b53af1"
     ],
     "CHAIN": [
-      "0d8d6a684529445f1ac2685aac3ff59c51496d8bbb115dee2e1113cf3d953709"
+      "0d8d6a684529445f1ac2685aac3ff59c51496d8bbb115dee2e1113cf3d953709",
+      "8468a5192b51d189c9ccaaa93dbe6d1d6008b8429572c8043884275125a7bd16"
     ],
     "BELT": [
-      "3b18bc0f722faf91149b1857975eedaa6dde64769e976b24b84a528d797a5a03"
+      "3b18bc0f722faf91149b1857975eedaa6dde64769e976b24b84a528d797a5a03",
+      "3d2b9ea2c1d65e3241e8c6797a22a651372b8c6cde3af35827438420005ff2bb"
     ],
     "SOLENOID": [
-      "66ab3f49999c2dca5eef7df3255e0f42ed5bbaf683d529ff630043f198004ff0"
+      "66ab3f49999c2dca5eef7df3255e0f42ed5bbaf683d529ff630043f198004ff0",
+      "f860ece139ade290f9b5c687b51b459bc088ca9c3b885a18d6090e8123ee7178"
     ],
     "WIRE": [
-      "f384429ca000d1309ddca7befbf241ecf716ea406e92bf05b37186b4e0ef82a6"
+      "f384429ca000d1309ddca7befbf241ecf716ea406e92bf05b37186b4e0ef82a6",
+      "0050425201c92704387fe558538f5187cb0939387ddf2d204e929bb61a1ffbc7"
     ],
     "STICK": [
-      "b9eb32f3146f6a065fdc77d66055ee3576ba1a44d1c2ff3e9628509daa51e2e0"
+      "b9eb32f3146f6a065fdc77d66055ee3576ba1a44d1c2ff3e9628509daa51e2e0",
+      "556634eacb11f750dbd2b6679ec58ccd56bd40da6a4336c3cd5077abe5fd5b5b"
     ],
     "SEAL_TEMP": [
-      "656acfdda3aaa2ea9ea3e73467ea7ae9611033bfb596a117c9c113baab03bd14"
+      "656acfdda3aaa2ea9ea3e73467ea7ae9611033bfb596a117c9c113baab03bd14",
+      "f183edab3ed9efe3996a0320a49c229a9666202960cf4f5a476dbd74a54f00d1"
     ],
     "TEMP": [
-      "82f94b3f8e4de7a1b8648b2b9758de2fa19db7a898d34ccd348cbb4bedadef94"
+      "82f94b3f8e4de7a1b8648b2b9758de2fa19db7a898d34ccd348cbb4bedadef94",
+      "b287c8f5b1b7200816eb3acc18a2391d497e14d6ca06e42dcb5d956b8a1f66a9"
     ],
     "LEAK": [
       "bb8adb48adbf1187cd91c1f39a7e428313a270e65fb612f1542b0fa500ab0a5b"
     ],
     "VACUUM": [
-      "29242a3ef58dcfa5cbde5981bbdaa729bfd1ffa6a577a8ccdae5ecbc7267d4c1"
+      "29242a3ef58dcfa5cbde5981bbdaa729bfd1ffa6a577a8ccdae5ecbc7267d4c1",
+      "f60e20d3bed1fd7bed7e764a0408babbbf954b6ef1a296498b02701f584a5137"
     ],
     "BEAM_DAMAGE": [
       "f5ea44265d8bc703870d70720e40f2050e568275729e1bd77903dfeccce7e4b5"
     ],
     "FASTEN": [
-      "7e6aa540cd16a483137909de8a099f324d586eebba1835f0b4cbb28839697284"
+      "7e6aa540cd16a483137909de8a099f324d586eebba1835f0b4cbb28839697284",
+      "ff0d67429de33d6204eec01d4b2bb377f9320812dd2f26dc6a95d0a1f4b51e98"
     ],
     "CYLINDER": [
-      "a5150e53f2059226f7c2fb5d330494aeca4210c98edc3d11160be6bdadf08382"
+      "a5150e53f2059226f7c2fb5d330494aeca4210c98edc3d11160be6bdadf08382",
+      "aed2597d717c7bd62f970cde2da9664059898291ad2b3e12386bef86d79cd4cb"
     ],
     "CLOG": [
-      "bf4f48322fa0ba474c0e5b70e2310d5018c19d44da1719cc5daf8b9b001d226f"
+      "bf4f48322fa0ba474c0e5b70e2310d5018c19d44da1719cc5daf8b9b001d226f",
+      "1585e656b8aec981528516bb99a3bf680cdc00bed5220810a8dbeaa747fdc695"
     ],
     "HOME": [
       "f8d33febf85b87ba01389d2dfea8bb2ae512253b439726966880cde2927b21c8"
     ],
     "PRINTER": [
-      "5f6883283e3e57689a37e5443423e9b39b339bfd08bf1fc3799e60c44afb2a57"
+      "5f6883283e3e57689a37e5443423e9b39b339bfd08bf1fc3799e60c44afb2a57",
+      "582a2c9fb8898bb2ca074e6f93a8050e9bd85711056ea5ea07fb9885daa4732d"
     ],
     "MOTOR": [
-      "f7ec9dddd5286482802a9925600d0528289e7f38aaf3ed78cdf42dc5b0b0a3f1"
+      "f7ec9dddd5286482802a9925600d0528289e7f38aaf3ed78cdf42dc5b0b0a3f1",
+      "b7dca5a411639a97c819de234e47f39ae852f2f76770acf44044e6241f793076"
     ],
     "REDUCER": [
-      "e61543c3170b5e3797bdcf2f89782e78e35b0626483513652681f48faba0263e"
+      "e61543c3170b5e3797bdcf2f89782e78e35b0626483513652681f48faba0263e",
+      "4b4384aabd1e6719e269abe03701a0b9ae910a7ccc24781dd00d83a67988646c"
     ],
     "PUSHER": [
-      "06b36627b46815acb9123d9fa726ec58921be5d6139dcf4527bda46010647bae"
+      "06b36627b46815acb9123d9fa726ec58921be5d6139dcf4527bda46010647bae",
+      "ccc4a058e59cd36ff6d2b57bd426cfb24ae7abe221fb6a66da53f3ce472cb9b1"
     ],
     "SHUTTER": [
       "1098ae1b3d0475a43ca93ec2eef1a57cf7522cd9675bb328dafb4f395c29206d"
@@ -77,19 +96,158 @@
       "f7d094afb6990ef97e46d50536c62fed1819ecacbd18fdbe1f6e4ac5aeea8231"
     ],
     "VALVE": [
-      "be4657d009ab142ae46c03a357509958e9da3812c4906ea9ac4d8fe3a313578c"
+      "be4657d009ab142ae46c03a357509958e9da3812c4906ea9ac4d8fe3a313578c",
+      "ae73cb4ecab0b6107b3d6fab7f98bae2fc6670dda6924c29c2a6a9cf6921987b"
     ],
     "PACKING": [
       "7fadfa8bef5a0633c74f6cc5463fc9033e51fa937df72f607e7b23acbb26deb9"
     ],
     "SEALING": [
-      "2e2a82808e0879d2007a19894ef404761f993f40dde2bcad32e01480e65b5759"
+      "2e2a82808e0879d2007a19894ef404761f993f40dde2bcad32e01480e65b5759",
+      "24218edef180c7bbcab7d5eb25b25cf222773cd848156acc255a588002deb875"
     ],
     "TANK": [
-      "f70b30578c7498dc6840b2dc0b74dcd23083a271e83d3b315721784d9c2704d4"
+      "f70b30578c7498dc6840b2dc0b74dcd23083a271e83d3b315721784d9c2704d4",
+      "6dce33da46491637ee412130b510ff534f0936758695adb575769cb441ecb794"
     ],
     "FLOW": [
-      "7031bda4f51a851931bb95940bb5b3d568bbd4473c9cfcddd2571d53ac464ee3"
+      "7031bda4f51a851931bb95940bb5b3d568bbd4473c9cfcddd2571d53ac464ee3",
+      "00fc7096044f665fff435845dc2aff7dbfd3d7728767d2c7a52664ac08691fd2"
+    ],
+    "HEATER": [
+      "630ac6df9768556d0079afaaf74d64346833f053bbbc00643b3e1b803c8b8402"
+    ],
+    "THERMO": [
+      "b1cd7e1aa1e5a80c20fe7201542ebd96d242c99ced080e109d75281b047b59a5"
+    ],
+    "POWER": [
+      "53f009b0aeecc5bdce0f33f8fa45e3ba8d96ef7fc2d3ef6fd467bbe9573d82ed"
+    ],
+    "INVERTER": [
+      "5786e3356c9360bb2321793bf33dbdb1c32313918c42538c8fff3a44e112ef35"
+    ],
+    "CONTROL": [
+      "87f1b59f2d099bd3bfa16721563026c40b5f2ed7c670cda1ca81bb2d46a22311"
+    ],
+    "SWITCH": [
+      "21073215c1cfbf99e2e2ddaa2aa5d2d3068a9ef330b3a9236a7762bdf6a32aa9"
+    ],
+    "INSTRUMENT": [
+      "e805ceba24c609d5073688f6a631915bc359c47fa91afa7006144fc92f47a75c"
+    ],
+    "LOADCELL": [
+      "5144d93d07f795eb0317caea23c1e540102e2ed405637703779dde5e2c8ce830"
+    ],
+    "VISION": [
+      "e530ebe6329620ba90d88aeb994740de1c08270c1491f115e4f8352f1b338404"
+    ],
+    "ROBOT": [
+      "9b97914dae059c60e398ee5b03bfc00fc1d3bb3c12a3dd598873b136549229b2"
+    ],
+    "GEAR": [
+      "97303ffb4c47c0fe632d9b887b901fc996f85341c7cf35c86e754089f0e9b984"
+    ],
+    "SHAFT": [
+      "c1b742b26bca77a0a68d53814c04f321c4fa76ab057c6d9ada40763495ee0262"
+    ],
+    "GUIDE": [
+      "0278b2bff23b5b37789e7f47e763bdd612b57849fe102c0d41f582b1a66c2d6a"
+    ],
+    "ROLLER": [
+      "561b07e692e87e64ba34b1813db9567706f17b41d9b685b685d528642d48ff50"
+    ],
+    "FRAME": [
+      "ed8ae18ca3e3c276423b0edb985673cfe32d7c4174df1df51ca35c3a0305365a"
+    ],
+    "GRIPPER": [
+      "0fff9b7614940f126e00d751fa999c1d52c43fc9ef63866e09c370e617529058"
+    ],
+    "AGITATOR": [
+      "8ddac9698ab430c268452b838cc2b355e6ccafad94ed39df4a52e4aad178b473"
+    ],
+    "CUTTER": [
+      "f04f9d0d8048d92e6c66f77058dc3fff134fcac486ec928c79a366922d992c09"
+    ],
+    "LUBRICATION": [
+      "958ea7cbc09c1f5fe5835e910540ba62a1d1f86eae7e889c650aa9b7296ee59b"
+    ],
+    "CONVEYOR": [
+      "146f6b7a8c7b4473a02522380fbe49f1518365830e8bfe4ad425649eef542790"
+    ],
+    "DISCHARGE": [
+      "4d82603796b8e73217fc7b4ad307b7bb88cfe557d33f0f5e5d5b67aeb4ec4e4c"
+    ],
+    "SEALER": [
+      "b0b05a3e1fd59db27e07c0b605e80a5b91d8e83e8dad3f7099751eb48af36318"
+    ],
+    "FILLER": [
+      "bc443a02bfbb18ac49b54508e213955359a49911e82f98102f7ca2a093e34f5a"
+    ],
+    "NOZZLE_CLOG": [
+      "3dc9c38e858de100526cb3b61b1e6ef5439f6bef2b5ab4d38698dd6ace4c6771"
+    ],
+    "MOLD": [
+      "a543246299b45ea80566931463efff03c36c45adf66ac336210912633a23d3b4"
+    ],
+    "AIR": [
+      "7e547215f431dcfd8705ff088c410d7fac07a92b3022d94d67daa338ff800ee9"
+    ],
+    "PUMP": [
+      "e489cd76ed4a6735deb0ca5c7872ef3091179c0a2c968ae53564806a7f60b511"
+    ],
+    "HOSE": [
+      "db34bc118771a1fcd6f3dd8671064d66ce49d68978d8e63f6cbafa5ebf656f84"
+    ],
+    "SEAL": [
+      "0f20da1df7a591c7bd4b030097622aebfc4a10bed0366aa8e3cfef9dde233fbc"
+    ],
+    "FILTER": [
+      "e0ed715103a285af0560be4d8d822bf68e2be407378c777144adb748c606dde3"
+    ],
+    "HEAT_EXCHANGER": [
+      "0c22aa1764e2b9529e7580b5209b9396d6ff6aec12fb08a419b989c75282e726"
+    ],
+    "REFRIGERATION": [
+      "d4d5eb0a08f54fbe53350ab66487301bc2c72b7dd4eace77090710d4dbc9186b"
+    ],
+    "PRODUCT_JAM": [
+      "3c8af1d9b83cb8bc3e703a1f64f9f142e8d02f6ba63da33a7f3de21c730a3ce0"
+    ],
+    "MATERIAL": [
+      "a2f0a7922291a829004540d0c476f7760adecc9a74f1ebdc917b9b7831e232d1"
+    ],
+    "OPERATOR": [
+      "0d4081c78a8fd2de5a27ce17d7f75f97ddd3967da66f6df0df61a27c09a9ac5a"
+    ],
+    "NONFAILURE": [
+      "878dafe7359713e2d1d940303018a7cd791b780eca394d457de915ecd9915883"
+    ],
+    "PACKER": [
+      "b49aaf99c498b5829abc6c0d414aefac4271001c25440c83d1c74d62bee3de5c"
+    ],
+    "FREEZER": [
+      "cb55ac1ba44bacc4f162c05d39fe703b7e4472d418ddc69c490a942daea146f3"
+    ],
+    "PRESSURE": [
+      "a05b4d8982c85013a9e1d59a338f3c2317f871bd997ef80dafe113ccdf60276f"
+    ],
+    "POSITION": [
+      "185c8e323dd08cc86ca3a25272862acd5c398c4166727de26d4bf702f67ee817"
+    ],
+    "ELEC_MODE": [
+      "d005dcd84502f32711c1f7915aa730f241443af44a1552ea6e63214cf8f3da98"
+    ],
+    "BREAK_MODE": [
+      "55a1d592ec7533d999f0444bfe68c03a0cec0c0848f3001bd0d0a73359fb71c2"
+    ],
+    "LOOSE_MODE": [
+      "88ee6e7696894f54c7abd86b314734039f40dea694265332931d3d88f03a1e87"
+    ],
+    "JAM_MODE": [
+      "94a1b9b2bc749b4648954ef3077a795311506182de6865ef513779bb5990faf6"
+    ],
+    "LEAK_MODE": [
+      "f068fafc202c3f25e2d63ea76b5cd916c8573827ef924c1f1a3e4f7570c4ba11"
     ]
   },
   "normalization.replacements": {
