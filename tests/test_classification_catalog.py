@@ -42,9 +42,9 @@ def test_bundled_catalog_covers_every_approved_full_path(approved_catalog_paths)
 
     rules = read_rules(resource_root() / "config" / "classification_config.xlsx")
     paths = catalog_categories(rules)
-    assert len(paths) == 237
+    assert len(paths) == 240
     assert len({path[0] for path in paths}) == 6
-    assert len({path[:2] for path in paths}) == 58
+    assert len({path[:2] for path in paths}) == 59
     assert set(paths) == approved_catalog_paths
     assert set(paths) == {
         (row["major"], row["middle"], row["minor"]) for row in rules if row["enabled"]

@@ -7,7 +7,10 @@ K = {
     "planned": "\uacc4\ud68d\uc6b4\ud734",
     "workstop": "\uc791\uc5c5\uc6b4\ud734",
     "missing": "\ubbf8\uae30\uc7ac",
+    # Equipment-family fallback only; fault records without a matching rule use the two below.
     "unclassified": "\ubbf8\ubd84\ub958",
+    "code_missing": "\ube44\uac00\ub3d9\ucf54\ub4dc \ubbf8\uae30\uc785",
+    "rule_unmatched": "\uaddc\uce59 \ubbf8\uc77c\uce58",
     "review": "\uac80\ud1a0\ud544\uc694",
     "auto": "규칙분류",
     "manual": "\uc0ac\uc6a9\uc790\ud655\uc815",
@@ -147,7 +150,7 @@ K = {
     "blank": "\ube48 \ud589",
     "header_footer": "\ubc18\ubcf5 \uc81c\ubaa9/\ud558\ub2e8 \uba54\ud0c0\ub370\uc774\ud130",
     "source_info": "\ubd84\uc11d \uae30\uc900 \ubc0f \ucd9c\ucc98",
-    "rule_help": "context(부품)와 symptom(증상)이 같은 구절에서 연결될 때 규칙이 일치합니다. 제외어·부정·예정 표현은 제외합니다. 교체·고장·원인 표현과 MES 단서로 후보를 해소하며, 같은 부품의 세부 규칙에는 priority를 사용합니다. 해소되지 않는 후보와 독립 복수 고장은 검토합니다. role: component=부품, fallback=부위 미기재, override=명시적 원인 표현.",
+    "rule_help": "context(부품)와 symptom(증상)이 같은 구절에서 연결될 때 규칙이 일치합니다. 제외어·부정·예정 표현은 제외합니다. 교체·고장·원인 표현과 MES 단서로 후보를 해소하며, 같은 부품의 세부 규칙에는 priority를 사용합니다. 여러 부품을 하나의 고장·교체 표현으로 나열하면 복수 유형 조합으로 분류하고, 해소되지 않는 후보와 독립 복수 고장은 검토합니다. role: component=부품, fallback=부위 미기재, override=명시적 원인 표현, nopart=부품 후보가 없을 때만(공정·자재 현상, 부품 미상 제어 오류).",
     "correction_help": "\uc120\ud0dd \uae30\ub85d\uc5d0\ub9cc \uc801\uc6a9\ub429\ub2c8\ub2e4. \uc720\uc0ac \ubb38\uc7a5\uc5d0 \uc784\uc758\ub85c \ud655\uc0b0\ud558\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4.",
     "stale": "\uc124\uc815\uc774 \ubcc0\uacbd\ub418\uc5c8\uc2b5\ub2c8\ub2e4. \ubd84\uc11d\uc744 \ub2e4\uc2dc \uc2e4\ud589\ud558\uc138\uc694.",
     "close_busy": "\ucc98\ub9ac \uc911\uc5d0\ub294 \uc885\ub8cc\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.",
@@ -287,3 +290,7 @@ COMPONENT_LABELS = {
 }
 K.update(COMPONENT_LABELS)
 DISPLAY.update(COMPONENT_LABELS)
+
+# Fault records that no classification rule matched. Source downtime codes decide
+# the label: both 비가동코드(중·소) blank -> code_missing, otherwise rule_unmatched.
+UNMATCHED = (K["code_missing"], K["rule_unmatched"])

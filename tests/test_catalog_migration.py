@@ -39,7 +39,7 @@ def test_existing_profile_gets_every_new_choice_and_keeps_manual_corrections(tmp
     (directory / "manual_overrides.json").write_bytes(original_manual)
     store = ConfigStore(root)
     config = store.load()
-    assert len(paths()) == 237
+    assert len(paths()) == 240
     assert catalog_categories(config["rules"]) == paths()
     assert not any(rule["id"] == "PUMP" for rule in config["rules"])
     assert (directory / "manual_overrides.json").read_bytes() == original_manual
@@ -154,7 +154,7 @@ def test_pre_18_reader_refuses_new_catalogue_rules_before_interpreting_them(monk
     with monkeypatch.context() as patch:
         patch.setattr(core.rules, "RULES_SCHEMA", 2)
         patch.setattr(core.rules, "VERSION", "1.7.2")
-        with pytest.raises(UserError, match="v1.8.0 이상"):
+        with pytest.raises(UserError, match=f"v{core.rules.MIN_APP_VERSION} 이상"):
             core.rules.read_rules(BUNDLE / "classification_config.xlsx")
 
 

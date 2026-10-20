@@ -204,7 +204,7 @@ def test_unclassified_faults_remain_in_component_share_denominator():
         "record_id": "4",
         "date": pd.Timestamp("2026-01-02"),
         "kind": K["fault"],
-        "status": K["unclassified"],
+        "status": K["rule_unmatched"],
         "component_details": "[]",
     }
     table = component_tables(pd.concat([frame, pd.DataFrame([unknown])], ignore_index=True))[

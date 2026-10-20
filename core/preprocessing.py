@@ -19,7 +19,7 @@ from core.fault_components import (
     component_payload,
     parse_components,
 )
-from core.i18n import K
+from core.i18n import UNMATCHED, K
 from core.models import (
     CLASSIFICATION_COMPONENT_COLUMNS,
     CLASSIFICATION_DECISION_COLUMNS,
@@ -279,8 +279,11 @@ def standardize(
         product = normalized_name(get("product_name"), config["product_aliases"])
         event_id = event_id_for(raw, m)
         override = config.get("overrides", {}).get(event_id, {})
+        raw_small = text(get("code_small"))
         classification = (
-            classifier.classify(combined, text(get("code_small")))
+            classifier.classify(
+                combined, raw_small, prepare_text(raw_small, config["normalization"])
+            )
             if kind == K["fault"]
             else {
                 "major": K["nonfault"],
@@ -294,11 +297,18 @@ def standardize(
         review_code = classification.pop("review_code", "")
         for field in CLASSIFICATION_DECISION_COLUMNS:
             classification.setdefault(field, "")
+        if classification["status"] == K["rule_unmatched"] and not raw_mid and not raw_small:
+            # Without a rule match, only records whose downtime codes were never entered
+            # are reported as missing codes; the rest point to a gap in the rules.
+            classification.update(
+                {key: K["code_missing"] for key in ("major", "middle", "minor", "status")},
+                classification_reason="비가동코드(중·소)가 비어 있고 고장 설명과 일치하는 분류 규칙이 없습니다.",
+            )
         # Older classifier snapshots and non-fault records have no component payload.
         if "component_details" not in classification:
             if kind != K["fault"]:
                 classification.update(component_payload([], "nonfault"))
-            elif classification["status"] == K["unclassified"]:
+            elif classification["status"] in UNMATCHED:
                 classification.update(component_payload([], "unclassified"))
             else:
                 classification.update(
@@ -408,7 +418,7 @@ def standardize(
             "raw_action": action,
             "raw_big": text(get("code_big")),
             "raw_mid": raw_mid,
-            "raw_small": text(get("code_small")),
+            "raw_small": raw_small,
             **classification,
             "type": " / ".join(classification[k] for k in ("major", "middle", "minor")),
             "issues": " | ".join(dict.fromkeys(issues)),

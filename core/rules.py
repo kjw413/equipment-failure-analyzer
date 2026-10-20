@@ -26,17 +26,20 @@ REQUIRED_COLUMNS = [
     "symptom",
     "exclude",
 ]
-# role: component = a named part; fallback = only when no part is named; override = cause statement.
+# role: component = a named part; fallback = only when no part is named; override = cause statement;
+# nopart = considered only after no component/fallback/override candidate matched the record
+# (process symptoms such as a product jam, or a controller error without a named part).
 RULE_COLUMNS = REQUIRED_COLUMNS + ["role"]
-ROLES = ("component", "fallback", "override")
+ROLES = ("component", "fallback", "override", "nopart")
 
 # Rules workbook format. Schema 1 = single 'rules' sheet (v1.4.0 and earlier).
 # Schema 2 = rules_v2 plus hidden compatibility/meta sheets.
 # Schema 3 protects the physical-part catalogue from pre-1.8 default mergers.
-RULES_SCHEMA = 3
-MIN_APP_VERSION = "1.8.0"
+# Schema 4 adds the nopart role, which earlier programs would reject as an unknown role.
+RULES_SCHEMA = 4
+MIN_APP_VERSION = "1.10.0"
 RULES_SHEET, LEGACY_SHEET, META_SHEET = "rules_v2", "rules", "meta"
-LEGACY_GUARD = "이 분류 규칙은 v1.8.0 이상 전용입니다. 최신 프로그램(START.bat 또는 v1.8.0 이상 EXE)으로 실행하세요"
+LEGACY_GUARD = "이 분류 규칙은 v1.10.0 이상 전용입니다. 최신 프로그램(START.bat 또는 v1.10.0 이상 EXE)으로 실행하세요"
 
 
 def validate_rules(rules: list[dict[str, Any]]) -> list[dict[str, Any]]:

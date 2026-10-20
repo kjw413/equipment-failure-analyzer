@@ -130,8 +130,8 @@ def test_mes_part_code_selects_a_representative_without_hiding_independent_fault
 
 
 def test_unknown_text_is_never_guessed(classify):
-    assert classify("unique unknown problem 92838475")["status"] == K["unclassified"]
-    assert classify("")["status"] == K["unclassified"]
+    assert classify("unique unknown problem 92838475")["status"] == K["rule_unmatched"]
+    assert classify("")["status"] == K["rule_unmatched"]
 
 
 def test_clause_split_keeps_decimals_and_codes():
@@ -258,7 +258,9 @@ def test_review_guidance_explains_each_issue(issue, reason, action):
 
 
 def test_review_guidance_for_classification_status():
-    assert "미분류" in guidance({"status": K["unclassified"], "issues": "", "minutes": 1.0})[2]
+    for status in (K["code_missing"], K["rule_unmatched"]):
+        reason, _, effect = guidance({"status": status, "issues": "", "minutes": 1.0})
+        assert reason.startswith(status) and status in effect
     assert "대표 규칙" in guidance({"status": K["review"], "issues": "", "minutes": 1.0})[2]
 
 

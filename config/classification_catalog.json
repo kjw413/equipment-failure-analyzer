@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "catalog_id": "parts_2025_2026_v1",
-  "catalog_version": "1.8.0",
+  "catalog_version": "1.10.0",
   "source": {
     "filename": "Classification_Catalog_2025_2026.xlsx",
     "path": "C:\\Users\\user\\Downloads\\Classification_Catalog_2025_2026.xlsx",
@@ -18,7 +18,8 @@
     "부품명과 고장·조치 조건이 모두 일치해야 자동 후보로 사용하며 숫자 일치도나 임계값을 계산하지 않음",
     "부품 종류가 기재되지 않은 경우 해당 부품군의 종류 미상 선택값만 사용하고 알려지지 않은 세부 종류를 추정하지 않음",
     "동일 입력 내 복수 고장·대안·예정·정상 언급의 판정은 공통 RuleClassifier에서 수행",
-    "브랜드와 WAGO 번호·TC 단독 표기는 하드웨어 종류를 추정하는 별칭으로 사용하지 않음"
+    "브랜드와 WAGO 번호·TC 단독 표기는 하드웨어 종류를 추정하는 별칭으로 사용하지 않음",
+    "부품 후보가 없을 때만 공정·자재 현상(제품 걸림·막힘, 제품 낙하, 자재 불량)과 부품 미상 제어 오류(WAGO 번호·통신 이상)를 nopart 규칙으로 분류"
   ],
   "groups": [
     {
@@ -721,6 +722,22 @@
       ],
       "note": "원문에 명시된 세부 부품·종류 기준",
       "source_row": 63
+    },
+    {
+      "major": "공정·운전",
+      "middle": "제품·자재",
+      "minors": [
+        "제품 걸림·막힘",
+        "제품 낙하",
+        "자재 불량"
+      ],
+      "note": "부품 후보가 하나도 없을 때만 적용하는 공정·자재 현상(nopart). 사용자 결정 2026-10-20",
+      "source_row": null,
+      "source": {
+        "type": "user_decision",
+        "date": "2026-10-20",
+        "basis": "2026년 라인 비가동 현황.xlsx의 규칙 미일치 기록 검토"
+      }
     }
   ],
   "categories": [
@@ -2946,7 +2963,12 @@
         "sheet": "세부유형근거",
         "row": 66,
         "range": "A66:K66"
-      }
+      },
+      "nopart_patterns": [
+        "wago#?\\d+",
+        "통신"
+      ],
+      "nopart_note": "부품명 없이 WAGO 에러 번호나 통신 이상만 적힌 기록에만 적용(nopart). 하드웨어 종류는 추정하지 않음. 사용자 결정 2026-10-20"
     },
     {
       "code": "E-7750617",
@@ -5070,9 +5092,16 @@
       "source_row": 121,
       "matching_aliases": [
         "리드씰러",
-        "리드실러"
+        "리드실러",
+        "리드 씰링"
       ],
-      "alias_adjustments": [],
+      "alias_adjustments": [
+        {
+          "source_alias": "리드 씰링",
+          "matching_alias": "리드 씰링",
+          "reason": "'리드 씰링'은 리드씰러 기능유닛을 가리키는 현장 표현(2026-10-20)"
+        }
+      ],
       "source": {
         "sha256": "6c4158911b05e5e438cdd97c158b2287ada7b9c4a3f7092a302917726b488f30",
         "sheet": "세부유형근거",
@@ -9133,9 +9162,16 @@
       "source_row": 227,
       "matching_aliases": [
         "부스터펌프",
-        "부스터 펌프"
+        "부스터 펌프",
+        "부스터 펌프 베어링"
       ],
-      "alias_adjustments": [],
+      "alias_adjustments": [
+        {
+          "source_alias": "부스터 펌프 베어링",
+          "matching_alias": "부스터 펌프 베어링",
+          "reason": "근거 원문 '부스터 펌프 베어링 소손'을 부스터펌프로 분류하도록 사용자가 확인(2026-10-20)"
+        }
+      ],
       "source": {
         "sha256": "6c4158911b05e5e438cdd97c158b2287ada7b9c4a3f7092a302917726b488f30",
         "sheet": "세부유형근거",
@@ -9684,6 +9720,98 @@
         "sheet": "세부유형근거",
         "row": 242,
         "range": "A242:K242"
+      }
+    },
+    {
+      "code": "O-47CA7F9",
+      "major": "공정·운전",
+      "middle": "제품·자재",
+      "minor": "제품 걸림·막힘",
+      "kind": "process",
+      "aliases": [
+        "제품",
+        "쿠키"
+      ],
+      "definition": "부품 고장 없이 제품이 설비에 걸리거나 막힌 기록. 부품명이 함께 적히면 그 부품이 우선한다.",
+      "caution": "부품 후보가 하나도 없을 때만 적용(nopart 규칙)",
+      "evidence_2025": 0,
+      "evidence_2026": 3,
+      "example_refs": [],
+      "example_texts": [
+        "qft 제품 걸림",
+        "쿠키 막힘",
+        "배출컨베이어에서 제품 걸림 청소 후 생산"
+      ],
+      "source_row": null,
+      "matching_aliases": [
+        "제품",
+        "쿠키"
+      ],
+      "alias_adjustments": [],
+      "source": {
+        "type": "user_decision",
+        "date": "2026-10-20",
+        "basis": "2026년 라인 비가동 현황.xlsx의 규칙 미일치 기록 검토"
+      }
+    },
+    {
+      "code": "O-E1A4A66",
+      "major": "공정·운전",
+      "middle": "제품·자재",
+      "minor": "제품 낙하",
+      "kind": "process",
+      "aliases": [
+        "제품",
+        "멀티팩"
+      ],
+      "definition": "부품 고장 없이 제품이 떨어지거나 넘어진 기록. 부품명이 함께 적히면 그 부품이 우선한다.",
+      "caution": "부품 후보가 하나도 없을 때만 적용(nopart 규칙)",
+      "evidence_2025": 0,
+      "evidence_2026": 1,
+      "example_refs": [],
+      "example_texts": [
+        "멀티팩 떨어짐으로 설비 센터틀어짐 정비"
+      ],
+      "source_row": null,
+      "matching_aliases": [
+        "제품",
+        "멀티팩"
+      ],
+      "alias_adjustments": [],
+      "source": {
+        "type": "user_decision",
+        "date": "2026-10-20",
+        "basis": "2026년 라인 비가동 현황.xlsx의 규칙 미일치 기록 검토"
+      }
+    },
+    {
+      "code": "O-C9786F2",
+      "major": "공정·운전",
+      "middle": "제품·자재",
+      "minor": "자재 불량",
+      "kind": "process",
+      "aliases": [
+        "스틱",
+        "자재"
+      ],
+      "definition": "스틱 등 투입 자재의 불량·파손 기록. 설비 부품 고장으로 확대하지 않는다.",
+      "caution": "부품 후보가 하나도 없을 때만 적용(nopart 규칙)",
+      "evidence_2025": 0,
+      "evidence_2026": 1,
+      "example_refs": [],
+      "example_texts": [
+        "스틱불량으로 스크류 쪽에서 깨져서 올라갑니다"
+      ],
+      "source_row": null,
+      "matching_aliases": [
+        "스틱",
+        "자재"
+      ],
+      "alias_adjustments": [],
+      "source": {
+        "type": "user_decision",
+        "date": "2026-10-20",
+        "basis": "2026년 라인 비가동 현황.xlsx의 규칙 미일치 기록 검토"
       }
     }
   ],

@@ -1,6 +1,6 @@
 """Explain each review flag and the specific safe correction route."""
 
-from core.i18n import K
+from core.i18n import UNMATCHED, K
 
 REVIEW_ISSUES = (
     "date_invalid",
@@ -25,9 +25,18 @@ def guidance(record, target_review: bool = True):
     active = review_issues(target_review)
     status = record.get("status", "")
     issues = str(record.get("issues", "") or "")
-    if status == K["unclassified"]:
-        explanations.append("미분류: 고장 설명과 일치하는 표준 분류 규칙이 없습니다.")
-        actions.append("행 수정에서 대·중·소분류를 확정하거나 분류 규칙을 보완하세요.")
+    if status == K["code_missing"]:
+        explanations.append(
+            "비가동코드 미기입: 원본의 비가동코드(중·소)가 비어 있고 고장 설명과 일치하는 분류 규칙도 없습니다."
+        )
+        actions.append(
+            "원본의 비가동코드 입력을 확인하고, 행 수정에서 대·중·소분류를 확정하거나 분류 규칙을 보완하세요."
+        )
+    elif status == K["rule_unmatched"]:
+        explanations.append(
+            "규칙 미일치: 비가동코드는 입력됐지만 고장 설명과 일치하는 분류 규칙이 없습니다."
+        )
+        actions.append("분류 규칙을 보완하거나 행 수정에서 대·중·소분류를 확정하세요.")
     if status == K["review"]:
         decision_reason = str(record.get("classification_reason", "") or "")
         explanations.append(
@@ -84,8 +93,8 @@ def guidance(record, target_review: bool = True):
     if not explanations:
         return "검토 사유 없음", "추가 수정 없이 집계됩니다.", "정상"
     # A known classification is included as-is; review is not synonymous with exclusion.
-    if status == K["unclassified"]:
-        effect = "건수·정지시간에 포함되나 유형은 미분류로 집계됩니다."
+    if status in UNMATCHED:
+        effect = f"건수·정지시간에 포함되나 유형은 '{status}' 항목으로 집계됩니다."
     elif status == K["review"] and record.get("classification_mode") == "multiple":
         effect = "건수·정지시간은 해당 유형 조합에 한 번만 잠정 집계됩니다. 부품별 포함 건수는 각각 반영하고 시간은 중복 배분하지 않습니다."
     elif status == K["review"]:

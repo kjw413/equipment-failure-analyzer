@@ -10,11 +10,11 @@ import pandas as pd
 from core.fault_components import CATEGORY_FIELDS as CLASSIFICATION
 from core.fault_components import COMPONENT_OVERRIDE as COMPONENT_FIELD
 from core.fault_components import parse_components
-from core.i18n import K
+from core.i18n import UNMATCHED, K
 from core.models import UserError
 
 FIELDS = (*CLASSIFICATION, COMPONENT_FIELD, "target", "product", "work_date", "minutes")
-PLACEHOLDERS = (K["missing"], K["unclassified"], K["target_missing"], K["nonfault"])
+PLACEHOLDERS = (K["missing"], K["unclassified"], *UNMATCHED, K["target_missing"], K["nonfault"])
 
 
 def shown(value) -> str:

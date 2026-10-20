@@ -398,7 +398,7 @@ class FinalReport:
             self.story.append(chart)
         self.story.append(
             self.p(
-                f"상위 {self.donut_n}개 + 기타. 미분류·검토필요 기록도 전체 건수에 포함. 반올림으로 % 합계는 미세한 차이 가능.",
+                f"상위 {self.donut_n}개 + 기타. 비가동코드 미기입·규칙 미일치·검토필요 기록도 전체 건수에 포함. 반올림으로 % 합계는 미세한 차이 가능.",
                 "small",
             )
         )
@@ -521,8 +521,17 @@ class FinalReport:
                 else "참고 정보. 현재 설비 집계 기준에는 영향 없음"
             )
             rows = [
-                ["검토 대상(중복 제외)", m["review_rows"], "미분류·분류 검토·시간/날짜 이상 포함"],
-                ["미분류", m["unclassified_rows"], "표준 분류 기준 보완 대상"],
+                [
+                    "검토 대상(중복 제외)",
+                    m["review_rows"],
+                    "비가동코드 미기입·규칙 미일치·분류 검토·시간/날짜 이상 포함",
+                ],
+                [
+                    K["code_missing"],
+                    m.get("code_missing_rows", 0),
+                    "원본 비가동코드 입력 확인 및 분류 필요",
+                ],
+                [K["rule_unmatched"], m.get("rule_unmatched_rows", 0), "분류 규칙 보완 대상"],
                 [
                     "분류 검토필요",
                     classification_review_count(r),

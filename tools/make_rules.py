@@ -28,13 +28,13 @@ FAIL = (
 )
 BREAK = "파손|부러|깨짐|깨져|절단|끊어|끊김|찢어|터짐|터져|크랙|crack|금감|휨|휘어|변형|뒤틀|찌그러"
 WEAR = "마모|닳|녹|부식|손상|스크레치|스크래치|헐거|유격"
-LOOSE = "풀림|풀려|풀어|풀리면|풀리며|풀리고|이탈|빠짐|빠져|탈락|떨어|분리|흔들"
+LOOSE = "풀림|풀려|풀어|풀리면|풀리며|풀리고|이탈|빠짐|빠져|탈락|떨어|분리|흔들|뒤집"
 ELEC = "단선|소손|쇼트|short|합선|누전|과부하|과전류|접촉불량|접촉|타버|나감|발열"
 LEAK = "누설|누수|누출|리크|leak|누유"
 JAM = "걸림|걸리|끼임|끼어|끼여|막힘|막혀|적체|정체|충돌|간섭"
 ACT = (
     "교체|교환|수리|정비|조정|재조정|조절|점검|청소|보수|가공|용접|체결|고정|재조임|세팅|리셋|reset|재부팅|"
-    "보강|수정|교정|calibration|영점|분해|조립|급유|도포|a급|신규"
+    "보강|수정|교정|calibration|영점|분해|조립|급유|도포|a급|신규|온오프|전원종료|전원차단"
 )
 
 
@@ -89,11 +89,25 @@ def symptom_pattern(major: str, middle: str) -> str:
         groups += [JAM, "오염|주름|접착불"]
     else:
         raise ValueError(f"Unknown catalogue major: {major}")
-    tokens = {token for group in groups for token in group.split("|") if token}
-    pattern = "|".join(sorted(tokens, key=lambda token: (-len(token), token)))
+    pattern = alternation(*groups)
     if len(pattern) > 1000:
         raise ValueError(f"Symptom pattern too long: {major} / {middle}")
     return pattern
+
+
+def alternation(*groups: str) -> str:
+    """Longest alternatives first so a regex prefers the complete symptom word."""
+    tokens = {token for group in groups for token in group.split("|") if token}
+    return "|".join(sorted(tokens, key=lambda token: (-len(token), token)))
+
+
+# Process categories describe what happened to the product or material, not a part.
+PROCESS_SYMPTOMS = {
+    "제품 걸림·막힘": JAM,
+    "제품 낙하": "떨어|낙하|넘어|쓰러",
+    # Only a stated defect or physical damage; generic trouble may be the feeding mechanism.
+    "자재 불량": "불량|" + BREAK,
+}
 
 
 def load_catalog(path: Path = CATALOG_PATH) -> dict:
@@ -175,7 +189,12 @@ def context_pattern(category: dict, normalization: dict) -> str:
 
 
 def build_rules(catalog: dict | None = None, normalization: dict | None = None) -> list[dict]:
-    """One enabled component rule per selectable catalogue path; no fallback guessing."""
+    """One enabled rule per selectable catalogue path, plus optional part-less rules.
+
+    Parts become component rules. Process categories, and the part-less statements a
+    category lists in ``nopart_patterns``, become nopart rules that the classifier
+    consults only when no part rule matched the record.
+    """
     catalog = catalog or load_catalog()
     if normalization is None:
         normalization = json.loads(NORMALIZATION_PATH.read_text(encoding="utf-8"))
@@ -183,20 +202,35 @@ def build_rules(catalog: dict | None = None, normalization: dict | None = None) 
     for category in catalog["categories"]:
         aliases = category.get("matching_aliases", category["aliases"])
         specificity = min(15, max(len(normalized_alias(a, normalization)) for a in aliases))
-        rules.append(
-            {
-                "id": "CAT_" + category["code"].replace("-", "_"),
-                "enabled": True,
-                "priority": (60 if category["kind"] == "unspecified" else 80) + specificity,
-                "major": category["major"],
-                "middle": category["middle"],
-                "minor": category["minor"],
-                "context": context_pattern(category, normalization),
-                "symptom": symptom_pattern(category["major"], category["middle"]),
-                "exclude": "",
-                "role": "component",
-            }
-        )
+        process = category["kind"] == "process"
+        base = 40 if process else 60 if category["kind"] == "unspecified" else 80
+        rule = {
+            "id": "CAT_" + category["code"].replace("-", "_"),
+            "enabled": True,
+            "priority": base + specificity,
+            "major": category["major"],
+            "middle": category["middle"],
+            "minor": category["minor"],
+            "context": context_pattern(category, normalization),
+            "symptom": alternation(PROCESS_SYMPTOMS[category["minor"]])
+            if process
+            else symptom_pattern(category["major"], category["middle"]),
+            "exclude": "",
+            "role": "nopart" if process else "component",
+        }
+        rules.append(rule)
+        if category.get("nopart_patterns"):
+            rules.append(
+                {
+                    **rule,
+                    "id": rule["id"] + "_NOPART",
+                    "priority": 40,
+                    "context": "(?:" + "|".join(category["nopart_patterns"]) + ")",
+                    # '...WAGO 31 발생' states the error itself.
+                    "symptom": alternation(rule["symptom"], "발생"),
+                    "role": "nopart",
+                }
+            )
     return validate_rules(rules)
 
 

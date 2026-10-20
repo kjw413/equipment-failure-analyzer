@@ -18,7 +18,7 @@ from openpyxl.workbook.properties import CalcProperties
 
 from core.equipment_breakdown import type_breakdown
 from core.fault_components import mode_label
-from core.i18n import DISPLAY, K
+from core.i18n import DISPLAY, UNMATCHED, K
 from core.models import AnalysisResult, Progress, UserError, noop_progress
 from core.parsing import is_missing
 from core.preprocessing import review_target
@@ -306,7 +306,7 @@ class ReportBuilder:
                 role = (
                     "review"
                     if name in ("issues", "status")
-                    and record.get(name) in (K["review"], K["unclassified"])
+                    and record.get(name) in (K["review"], *UNMATCHED)
                     else "raw"
                     if name.startswith("raw_")
                     else "derived"
@@ -642,7 +642,8 @@ class ReportBuilder:
         quality_rows = [
             (K["auto"], "auto_rows", True),
             (K["manual"], "manual_rows", True),
-            (K["unclassified"], "unclassified_rows", True),
+            (K["code_missing"], "code_missing_rows", True),
+            (K["rule_unmatched"], "rule_unmatched_rows", True),
             (K["review"], "ambiguous_rows", True),
             (K["multiple_fault_rows"], "multiple_fault_rows", False),
             (K["alternative_type_rows"], "alternative_type_rows", False),
@@ -680,7 +681,7 @@ class ReportBuilder:
             *classification_principles(),
             *component_principles(),
             "\ubcf4\uace0\uc11c \uc804\uccb4\uc758 \ub4f1\ub85d \uc124\ube44 \ucf54\ub4dc\ub294 \uc9c0\uc815\ud55c \uc774\ub984\uc73c\ub85c \ubcc0\ud658\ud568. \uc5c5\ub85c\ub4dc\ud55c \uc6d0\ubcf8 \ud30c\uc77c\uc740 \ubcc0\uacbd \uc5c6\uc74c.",
-            f"\uc6d0\ud615 \ucc28\ud2b8\ub294 \uac01 \uc124\ube44\uc758 \uc804\uccb4 \uae30\ub85d \uac74\uc218=100%. \ucc28\ud2b8\uc758 \uae30\ud0c0\ub294 \uc0c1\uc704 {self.donut_top_n}\uac1c \uc678 \uc720\ud615 \ud569\uc0b0. \ubbf8\ubd84\ub958\ub3c4 \ubd84\ubaa8\uc5d0 \ud3ec\ud568.",
+            f"\uc6d0\ud615 \ucc28\ud2b8\ub294 \uac01 \uc124\ube44\uc758 \uc804\uccb4 \uae30\ub85d \uac74\uc218=100%. \ucc28\ud2b8\uc758 \uae30\ud0c0\ub294 \uc0c1\uc704 {self.donut_top_n}\uac1c \uc678 \uc720\ud615 \ud569\uc0b0. 비가동코드 미기입·규칙 미일치도 분모에 포함.",
             "\ubd84\ub958\ubcc4 \ucc28\ud2b8\ub294 \ubcf4\uace0\uc11c \uc0dd\uc131 \uc2dc\uc810\uc758 \uc774\ubbf8\uc9c0\uc784. \uc785\ub825/\uc124\uc815\uc744 \ubc14\uafbc \uacbd\uc6b0 \ubcf4\uace0\uc11c \uc7ac\uc0dd\uc131 \ud544\uc694.",
         ]:
             ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
@@ -846,7 +847,7 @@ class ReportBuilder:
                     "\uc720\ud6a8\ud55c \uc815\uc9c0\uc2dc\uac04\uc774 \uc5c6\uc5b4 \uc2dc\uac04 \uae30\uc900 \ucd5c\ub2e4 \uc124\ube44\ub97c \uc120\uc815\ud558\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4."
                 )
         points.append(
-            f"{K['target_missing']}: {self.r.metrics['missing_target_rows']}\uac74 | {K['unclassified']}: {self.r.metrics['unclassified_rows']}\uac74 | \ubcf5\uc218 \uc720\ud615 \ud6c4\ubcf4: {self.r.metrics['ambiguous_rows']}\uac74"
+            f"{K['target_missing']}: {self.r.metrics['missing_target_rows']}\uac74 | {K['code_missing']}: {self.r.metrics['code_missing_rows']}건 | {K['rule_unmatched']}: {self.r.metrics['rule_unmatched_rows']}건 | \ubcf5\uc218 \uc720\ud615 \ud6c4\ubcf4: {self.r.metrics['ambiguous_rows']}\uac74"
         )
         points.extend([K["record_note"], K["time_note"], K["exposure_note"]])
         for r, note in zip((34, 36, 39, 41, 43), points):
@@ -1099,7 +1100,7 @@ class ReportBuilder:
             ws,
             6,
             1,
-            "\uac74\uc218 \ub0b4\ub9bc\ucc28\uc21c / \ub3d9\ub960 \uc2dc \uc815\uc9c0\uc2dc\uac04\uc21c | \ube44\uc911\uc740 \uac01 \uc124\ube44 \uae30\uc900 | \ubbf8\ubd84\ub958 \ud3ec\ud568",
+            "\uac74\uc218 \ub0b4\ub9bc\ucc28\uc21c / \ub3d9\ub960 \uc2dc \uc815\uc9c0\uc2dc\uac04\uc21c | \ube44\uc911\uc740 \uac01 \uc124\ube44 \uae30\uc900 | 비가동코드 미기입·규칙 미일치 포함",
             role="muted",
         )
         ws.row_dimensions[6].height = 28

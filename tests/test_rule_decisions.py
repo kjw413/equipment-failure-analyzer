@@ -53,7 +53,7 @@ def test_saved_thresholds_do_not_change_rule_decisions(saved):
 
 
 def test_part_name_alone_does_not_satisfy_a_required_symptom():
-    assert engine([rule("pump")]).classify("pump")["status"] == K["unclassified"]
+    assert engine([rule("pump")]).classify("pump")["status"] == K["rule_unmatched"]
 
 
 def test_named_part_beats_unnamed_symptom_fallback():
@@ -92,7 +92,7 @@ def test_independent_failure_is_not_erased_by_prior_cause(marker):
 
 @pytest.mark.parametrize("text", ["pump failed 없음", "pump 정상", "pump inspected 예정"])
 def test_negative_normal_or_planned_mentions_do_not_match(text):
-    assert engine([rule("pump")]).classify(text)["status"] == K["unclassified"]
+    assert engine([rule("pump")]).classify(text)["status"] == K["rule_unmatched"]
 
 
 def test_unresolved_inspection_candidates_are_reviewed():

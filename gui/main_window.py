@@ -35,7 +35,7 @@ from core.corrections import FIELDS, validate
 from core.defaults_merge import describe
 from core.equipment_breakdown import type_breakdown
 from core.excel_loader import load_excel, validate_path
-from core.i18n import K
+from core.i18n import UNMATCHED, K
 from core.models import AnalysisOptions, UserError
 from core.preprocessing import event_ids
 from core.rules import read_rules
@@ -659,12 +659,14 @@ class MainWindow(QMainWindow):
             frame["combination_decision"] = [
                 "복수 · 확정"
                 if mode == "multiple" and status == K["manual_multi"]
+                else "복수 · 자동"
+                if mode == "multiple" and status == K["auto"]
                 else "복수 · 검토"
                 if mode == "multiple"
                 else "단일 · 확정"
                 if status == K["manual"]
-                else "미분류"
-                if status == K["unclassified"]
+                else str(status)
+                if status in UNMATCHED
                 else "단일"
                 if mode == "single"
                 else str(status)

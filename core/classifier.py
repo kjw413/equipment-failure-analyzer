@@ -105,6 +105,14 @@ ALTERNATIVE = re.compile(r"또는|혹은|아니면")
 PRODUCT_MENTION = re.compile(r"제품|믹스|원료|내용물|생산품")
 PRODUCT_RESULT = re.compile(r"찌그러|구겨|찢어|변형|파손|동결|결빙|온도(?:상승|하강)")
 STOPPAGE = re.compile(r"정지|중지|다운|멈춤|작동불|작동이상")
+SINGLE_COMPONENT_REASON = "부품별 근거 묶음 결과 단일 유형"
+LISTED_COMPONENTS_REASON = "나열 부품의 공통 고장·교체 근거로 복수 유형 조합"
+# Suspected or guessed parts are not recorded facts and keep a combination under review.
+UNCERTAIN = re.compile(r"의심|추정|추측|것같|듯")
+CODE_PART_REASON = "고장내용에 부품명이 없어 비가동코드(소) '{code}'의 부품명으로 판정했습니다."
+NOPART_REASON = "부품 후보가 없어 부품 미기재 규칙으로 판정했습니다."
+# Unambiguous list joins; '와/과' also mean 'connected with' and are excluded.
+STRICT_LIST = re.compile(r"(?:\d*번?)?(?:및|,|·|&)(?:\d*번?)?")
 ALTERNATIVE_REASON = "원문이 여러 고장 유형을 명시적으로 대안으로 제시하여 어느 유형인지 확인이 필요합니다. 대안 그룹에서는 대표 규칙 하나만 잠정 표시합니다."
 
 
@@ -173,10 +181,12 @@ class RuleClassifier:
             for k, v in (self.engine.get("part_code_majors") or {}).items()
         }
         self.rules = []
+        # Consulted only when no other rule finds a candidate in the record.
+        self.nopart_rules = []
         for row in sorted(validate_rules(rules), key=lambda r: (-r["priority"], r["id"])):
             if row["enabled"]:
                 symptom = None if row["symptom"] == "." else re.compile(row["symptom"], re.I)
-                self.rules.append(
+                (self.nopart_rules if row["role"] == "nopart" else self.rules).append(
                     (
                         row,
                         re.compile(row["context"], re.I),
@@ -213,7 +223,8 @@ class RuleClassifier:
             words.append(Symptom(index, s.start(), s.end(), s.group(), kind))
         return words
 
-    def pairs(self, parts: list[str]) -> list[Pair]:
+    def pairs(self, parts: list[str], rules=None) -> list[Pair]:
+        rules = self.rules if rules is None else rules
         found = {}
 
         def add(rule, index, c, words):
@@ -235,7 +246,7 @@ class RuleClassifier:
                 previous = None
             active = [
                 (rule, context, symptom)
-                for rule, context, symptom, exclude in self.rules
+                for rule, context, symptom, exclude in rules
                 if not (exclude and exclude.search(text))
             ]
             hits = {
@@ -263,10 +274,14 @@ class RuleClassifier:
                         continue
                     # A part's symptoms end where the next part begins, unless the two are listed together.
                     limit = min(c.end() + self.window, len(text))
+                    passed = c.end()
                     for a, b in bounds:
-                        if a >= c.end() and not LIST_JOIN.fullmatch(text[c.end() : a]):
+                        if a < passed:
+                            continue  # Names nested in a listed part ('밸브' in '솔밸브').
+                        if not LIST_JOIN.fullmatch(text[c.end() : a]):
                             limit = min(limit, a)
                             break
+                        passed = max(passed, b)
                     words = self.symptoms(symptom, text, index, c.end(), limit, nouns)
                     negated = any(
                         NEGATION.match(text, hit.end())
@@ -352,10 +367,24 @@ class RuleClassifier:
             for pair in pairs
             if pair.rule["role"] != "fallback" or not duplicate_fallback(pair)
         ]
+        # A name nested in a longer one ('밸브' in '솔밸브') is not a separate
+        # neighbor; the longer name stands for it in every comparison below.
+        nested = {
+            id(pair)
+            for pair in named
+            for other in named
+            if other is not pair
+            and other.clause == pair.clause
+            and other.c0 <= pair.c0
+            and pair.c1 <= other.c1
+            and (other.c0, other.c1) != (pair.c0, pair.c1)
+        }
         losers = set()
         for pair in live:
             for other in named:
                 if pair is other or pair.category == other.category or pair.clause != other.clause:
+                    continue
+                if id(other) in nested:
                     continue
                 # A compound part's full name wins over its nested generic word.
                 contains = (
@@ -363,7 +392,19 @@ class RuleClassifier:
                     and other.c1 >= pair.c1
                     and (other.c0, other.c1) != (pair.c0, pair.c1)
                 )
-                if contains and (other.symptoms or not pair.symptoms):
+                # Overlapping names describe one part. Within one part family
+                # ('몰드체인연결핀', '플랙시블컨베어') the more specific rule wins;
+                # across families ('플렉시블컨베어날개') the later, head-final name wins.
+                partial = (
+                    pair.c0 < other.c0 < pair.c1 < other.c1
+                    or other.c0 < pair.c0 < other.c1 < pair.c1
+                )
+                outranked = (
+                    (other.rule["priority"], other.c1) > (pair.rule["priority"], pair.c1)
+                    if other.rule["middle"] == pair.rule["middle"]
+                    else other.c1 > pair.c1
+                )
+                if (contains or (partial and outranked)) and (other.symptoms or not pair.symptoms):
                     losers.add(id(pair))
                     break
                 # '실린더 센서 교체': the preceding noun is not a second failed part.
@@ -392,7 +433,11 @@ class RuleClassifier:
     def evidence_kinds(self, candidate: Pair) -> set[str]:
         """A literal fallback denotes its own symptom even without a separate match."""
         kinds = candidate.kinds()
-        if not kinds and candidate.rule["role"] == "fallback" and candidate.rule["symptom"] == ".":
+        if (
+            not kinds
+            and candidate.rule["role"] in ("fallback", "nopart")
+            and candidate.rule["symptom"] == "."
+        ):
             kinds = {self.kind(candidate.context)}
         return kinds
 
@@ -445,8 +490,12 @@ class RuleClassifier:
         def consequence(pair):
             if product_outcome(pair):
                 return True
+            # '베어링 및 축 마모로 인한': listed parts share one cause, not cause and outcome.
             if any(
-                root.category != pair.category and root.clause == pair.clause and root.c1 < pair.c0
+                root.category != pair.category
+                and root.clause == pair.clause
+                and root.c1 < pair.c0
+                and not self.shared_symptom(root, pair)
                 for root in causes
             ):
                 return True
@@ -491,6 +540,14 @@ class RuleClassifier:
             for index, pair in enumerate(pairs)
             for other in pairs[index + 1 :]
         )
+
+    @staticmethod
+    def stated_symptoms(pair: Pair) -> set[tuple[int, int]]:
+        return {(s.clause, s.start) for s in pair.symptoms if s.kind in {"F", "R"}}
+
+    def shared_symptom(self, first: Pair, second: Pair) -> bool:
+        """Listed parts ('베어링 및 축 마모') carry one stated failure or repair."""
+        return bool(self.stated_symptoms(first) & self.stated_symptoms(second))
 
     @staticmethod
     def shared_fallback_evidence(first: Pair, second: Pair) -> bool:
@@ -540,8 +597,11 @@ class RuleClassifier:
     def pair_order(pair: Pair):
         return (-pair.rule["priority"], pair.clause, pair.c0, pair.rule["id"])
 
-    def fault_components(self, live: list[Pair], parts: list[str], part_code: str = ""):
-        """Preserve independent observed faults, resolving each part by matching rules."""
+    def component_pairs(self, live: list[Pair], parts: list[str], part_code: str = ""):
+        """Preserve independent observed faults, resolving each part by matching rules.
+
+        Returns one (pair, note) per distinct resolved type, plus unresolved-conflict notes.
+        """
         strong = [
             pair
             for pair in self.independent_pairs(live, parts)
@@ -586,8 +646,34 @@ class RuleClassifier:
                 chosen = min(group, key=self.pair_order)
                 note = "동일 부품의 분류 규칙 충돌: 사용자 확인 필요"
                 notes.append(" / ".join(chosen.category) + ": " + note)
-            by_type.setdefault(chosen.category, self.component_value(chosen, note or reason))
+            by_type.setdefault(chosen.category, (chosen, note or reason))
         return list(by_type.values()), notes
+
+    def listed_components(self, live: list[Pair], members: list[Pair], parts: list[str]) -> bool:
+        """'A 및 B 마모', 'A, B 교체': one statement names every part as failed or replaced.
+
+        The combination is then the recorded fact. Ambiguous joins ('A와 연결되는 B'),
+        suspicion, or a replaced part set aside as an outcome keep it under review.
+        """
+        if UNCERTAIN.search("".join(parts)):
+            return False
+        if not set.intersection(*(self.stated_symptoms(pair) for pair in members)):
+            return False
+        ordered = sorted(members, key=lambda pair: (pair.clause, pair.c0))
+        if any(
+            left.clause != right.clause
+            or not STRICT_LIST.fullmatch(parts[left.clause][left.c1 : right.c0])
+            for left, right in zip(ordered, ordered[1:])
+        ):
+            return False
+        independent = {id(pair) for pair in self.independent_pairs(live, parts)}
+        types = {pair.category for pair in members}
+        return not any(
+            id(pair) not in independent
+            and "R" in self.evidence_kinds(pair)
+            and pair.category not in types
+            for pair in live
+        )
 
     @staticmethod
     def component_value(pair: Pair, note: str = "") -> dict[str, Any]:
@@ -676,19 +762,51 @@ class RuleClassifier:
             return min(failures, key=lambda p: (p.clause, p.c0)), "첫 고장 기술"
         return None, ""
 
-    def classify(self, text: str, part_code: str = "") -> dict[str, Any]:
+    def classify(
+        self, text: str, part_code: str = "", code_text: str | None = None
+    ) -> dict[str, Any]:
+        """Classify by the description first; later stages run only when nothing matched.
+
+        ``code_text`` is the normalized 비가동코드(소); it defaults to ``part_code``.
+        """
+        result = self.decide(text, part_code)
+        if result["status"] != K["rule_unmatched"]:
+            return result
+        code = (part_code if code_text is None else code_text).strip()
+        if code:
+            # The worker-selected MES part code names the part the description omits.
+            coded = self.decide(f"{code} | {text}", part_code)
+            if coded["status"] != K["rule_unmatched"]:
+                return self.staged(coded, CODE_PART_REASON.format(code=part_code or code))
+        if self.nopart_rules:
+            unnamed = self.decide(text, part_code, self.nopart_rules)
+            if unnamed["status"] != K["rule_unmatched"]:
+                return self.staged(unnamed, NOPART_REASON)
+        return result
+
+    @staticmethod
+    def staged(result: dict[str, Any], reason: str) -> dict[str, Any]:
+        """Record which later stage produced the decision."""
+        result["classification_reason"] = f"{reason} {result['classification_reason']}"
+        result["evidence"] += f" | {reason}"
+        return result
+
+    def decide(self, text: str, part_code: str = "", rules=None) -> dict[str, Any]:
         parts = clauses(text)
         # A named part alone does not satisfy a rule requiring a symptom.
         matched = [
-            pair for pair in self.pairs(parts) if pair.symptoms or pair.rule["symptom"] == "."
+            pair
+            for pair in self.pairs(parts, rules)
+            if pair.symptoms or pair.rule["symptom"] == "."
         ]
         live = self.eligible_pairs(matched, parts)
         if not live:
+            # Preprocessing relabels this as code_missing when the source codes are blank.
             return {
-                "major": K["unclassified"],
-                "middle": K["unclassified"],
-                "minor": K["unclassified"],
-                "status": K["unclassified"],
+                "major": K["rule_unmatched"],
+                "middle": K["rule_unmatched"],
+                "minor": K["rule_unmatched"],
+                "status": K["rule_unmatched"],
                 "evidence": "",
                 "candidates": "",
                 "candidate_evidence": "",
@@ -709,7 +827,28 @@ class RuleClassifier:
         selection_reason = reason
         multiple = self.multiple_faults(live, parts)
         alternative = self.alternative_types(live, parts)
-        if multiple:
+        components, notes = (
+            self.component_pairs(live, parts, part_code) if multiple or alternative else ([], [])
+        )
+        if multiple and not alternative and len(components) == 1 and not notes:
+            # Grouped by physical part, only one type has failure or repair evidence:
+            # the other mentions were the same part or merely adjusted/inspected.
+            resolved = components[0][0]
+            if chosen.category != resolved.category:
+                chosen = resolved
+            multiple, code, reason = False, "", SINGLE_COMPONENT_REASON
+            selection_reason = reason
+        listed = (
+            multiple
+            and not alternative
+            and len(components) >= 2
+            and not notes
+            and self.listed_components(live, [pair for pair, _ in components], parts)
+        )
+        if listed:
+            code, reason = "", LISTED_COMPONENTS_REASON
+            selection_reason = reason
+        elif multiple:
             code, reason = (
                 "multiple_faults",
                 "독립된 복수 부품·고장 또는 나열된 부품을 확인해야 합니다.",
@@ -721,12 +860,13 @@ class RuleClassifier:
             [self.component_value(chosen)], mode="ambiguous" if code else "single"
         )
         if multiple or alternative:
-            components, notes = self.fault_components(live, parts, part_code)
-            combined = component_payload(components, mode="multiple")
+            members = [self.component_value(pair, note) for pair, note in components]
+            combined = component_payload(members, mode="multiple")
             if combined["component_count"] >= 2:
                 payload = combined
-                classification = combination_category(components)
-                reason += " 독립된 유형들을 조합으로 보존하며 사용자 확인 후 확정합니다."
+                classification = combination_category(members)
+                if code:
+                    reason += " 독립된 유형들을 조합으로 보존하며 사용자 확인 후 확정합니다."
                 if notes:
                     reason += " 부품별 검토: " + " | ".join(dict.fromkeys(notes))
             else:

@@ -35,26 +35,43 @@ def classifier(catalog, normalization):
 
 def test_approved_paths_and_source_rows_are_complete(catalog):
     categories = catalog["categories"]
-    assert len(categories) == 237 and len(catalog["groups"]) == 58
+    # 237 paths come from the attached workbook; 3 process paths from a later user decision.
+    sourced = [item for item in categories if "sha256" in item["source"]]
+    decided = [item for item in categories if item["source"].get("type") == "user_decision"]
+    assert len(sourced) == 237 and len(decided) == 3 and len(categories) == 240
+    assert len(catalog["groups"]) == 59
+    assert all(item["kind"] == "process" for item in decided)
     assert len({item["major"] for item in categories}) == 6
     paths = {(item["major"], item["middle"], item["minor"]) for item in categories}
-    assert len(paths) == 237
-    assert {item["source_row"] for item in categories} == set(range(6, 243))
+    assert len(paths) == 240
+    assert {item["source_row"] for item in sourced} == set(range(6, 243))
     assert re.fullmatch("[a-f0-9]{64}", catalog["source"]["sha256"])
     assert (
         catalog["source"]["sha256"]
         == "6c4158911b05e5e438cdd97c158b2287ada7b9c4a3f7092a302917726b488f30"
     )
-    assert all(item["source"]["sha256"] == catalog["source"]["sha256"] for item in categories)
-    assert all(item["source"]["sheet"] == "세부유형근거" for item in categories)
+    assert all(item["source"]["sha256"] == catalog["source"]["sha256"] for item in sourced)
+    assert all(item["source"]["sheet"] == "세부유형근거" for item in sourced)
     assert all(item["aliases"] and item["definition"] for item in categories)
 
 
-def test_every_selection_has_one_enabled_component_rule(catalog, normalization):
+def test_every_selection_has_one_enabled_rule_and_part_less_rules_are_nopart(
+    catalog, normalization
+):
     rules = build_rules(catalog, normalization)
-    assert len(rules) == 237
-    assert all(rule["enabled"] and rule["role"] == "component" for rule in rules)
-    assert len({rule["id"] for rule in rules}) == 237
+    assert len(rules) == 241
+    assert all(rule["enabled"] for rule in rules)
+    assert sum(rule["role"] == "component" for rule in rules) == 237
+    process = {
+        (item["major"], item["middle"], item["minor"])
+        for item in catalog["categories"]
+        if item["kind"] == "process"
+    }
+    nopart = {
+        (rule["major"], rule["middle"], rule["minor"]) for rule in rules if rule["role"] == "nopart"
+    }
+    assert nopart == process | {("전기·제어", "제어기·I/O·통신", "제어기(종류 미상)")}
+    assert len({rule["id"] for rule in rules}) == 241
     assert all(rule["id"].startswith("CAT_") for rule in rules)
     expected = {(item["major"], item["middle"], item["minor"]) for item in catalog["categories"]}
     assert set(catalog_categories(rules)) == expected
@@ -128,8 +145,6 @@ def test_named_components_keep_their_specific_type(classifier, text, minor):
     [
         "TC 교체",
         "히팅박스 TC 교체",
-        "WAGO31 재부팅",
-        "와고29 에러",
         "실린더커넥터 교체",
         "cylinder connector 교체",
         "압축 공기 공급불량",
@@ -141,7 +156,7 @@ def test_named_components_keep_their_specific_type(classifier, text, minor):
 )
 def test_ambiguous_or_absent_part_names_are_not_guessed(classifier, text):
     result = classifier(text)
-    assert result["status"] == K["unclassified"]
+    assert result["status"] == K["rule_unmatched"]
     assert result["component_count"] == 0
 
 
@@ -158,6 +173,77 @@ def test_ambiguous_or_absent_part_names_are_not_guessed(classifier, text):
 )
 def test_unspecified_types_do_not_invent_more_specific_parts(classifier, text, minor):
     assert classifier(text)["minor"] == minor
+
+
+@pytest.mark.parametrize(
+    "text, minor",
+    [
+        # Overlapping names of one part, repeated in a later clause.
+        ("몰드 체인 연결핀 끊어짐 / 연결핀 용접, 교체", "체인연결핀"),
+        # Only one listed part has failure or repair evidence; the other was serviced.
+        ("필러 브러쉬 청소 및 필러 17,18번 카드 교체", "제어기판·카드(종류 미상)"),
+        ("버켓 교체 및 포장 집적부 실린더 조정", "버켓"),
+    ],
+)
+def test_one_evidenced_type_after_grouping_is_confirmed(classifier, text, minor):
+    result = classifier(text)
+    assert result["status"] == K["auto"], result
+    assert result["review_code"] == ""
+    assert result["classification_mode"] == "single"
+    assert result["minor"] == minor
+
+
+@pytest.mark.parametrize(
+    "text, minor",
+    [
+        ("몰드체인 연결핀 끊어짐", "체인연결핀"),  # Same family: the specific part.
+        ("s자 플랙시블 컨베어 이탈", "플렉시블컨베어"),  # Truncated specific alias.
+        ("플렉시블 컨베어 날개 파손", "컨베어날개"),  # Other family: the head noun.
+    ],
+)
+def test_overlapping_part_names_resolve_to_one_part(classifier, text, minor):
+    result = classifier(text)
+    assert result["status"] == K["auto"], result
+    assert result["minor"] == minor
+    assert result["candidates"].count("|") == 0, result["candidates"]
+
+
+@pytest.mark.parametrize(
+    "text, minors",
+    [
+        (
+            "포장 기립컨베어 2라인 베어링 및 축 마모로 인한 운휴",
+            {"베어링(종류 미상)", "축(종류 미상)"},
+        ),
+        ("제품이송 컨베이어 모터, 감속기 교체", {"모터(종류 미상)", "감속기(종류 미상)"}),
+        ("#29 씰러 히터및 ssr 교체", {"히터", "SSR"}),
+        # '밸브' inside '솔밸브' must not cut the sensor off from '교체'.
+        ("컵 공급센서, 솔밸브 교체 및 실린더 센서 고정", {"센서(종류 미상)", "솔밸브(종류 미상)"}),
+    ],
+)
+def test_parts_listed_with_one_failure_statement_form_a_confirmed_combination(
+    classifier, text, minors
+):
+    result = classifier(text)
+    assert result["status"] == K["auto"], result
+    assert result["review_code"] == ""
+    assert result["classification_mode"] == "multiple"
+    assert result["major"] == "복수 고장"
+    assert {member["minor"] for member in parse_components(result["component_details"])} == minors
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "엔드하단선 메인보드와연결되는 선 교체",  # '와' here means 'connected with'.
+        "모터, 감속기 고장 의심",  # A suspicion is not a recorded fault.
+        "캡 소진감지센서, 솔밸브 동작 이상으로 전기반 점검조치 , 광센서 교체",
+        "구동 모터 교체 / 감속기 교체",  # Separate statements stay a user decision.
+    ],
+)
+def test_uncertain_or_separate_listings_remain_under_review(classifier, text):
+    result = classifier(text)
+    assert result["status"] == K["review"], result
 
 
 def test_real_multiple_types_and_explicit_alternatives_remain_distinct(classifier):

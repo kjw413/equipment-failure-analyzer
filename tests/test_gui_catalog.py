@@ -1,4 +1,4 @@
-"""The production correction menu uses the approved 237-path component catalog."""
+"""The production correction menu uses the approved 240-path catalog."""
 # ruff: noqa: E402
 
 import os
@@ -40,7 +40,7 @@ def test_fresh_profile_picker_traverses_all_approved_paths(app, store, approved_
     dialog = CorrectionDialog({}, rules=rules)
     picker = dialog.classification_picker
     assert set(picker.categories) == approved_catalog_paths
-    assert len(picker.categories) == 237
+    assert len(picker.categories) == 240
     assert len(choices(picker.combos["major"])) == 6
     assert all(not combo.isEditable() for combo in picker.combos.values())
     assert not dialog.confirm.isChecked()
@@ -55,7 +55,7 @@ def test_fresh_profile_picker_traverses_all_approved_paths(app, store, approved_
             candidate[2] for candidate in approved_catalog_paths if candidate[:2] == path[:2]
         }
     assert visited == approved_catalog_paths
-    assert len({path[:2] for path in visited}) == 58
+    assert len({path[:2] for path in visited}) == 59
     assert dialog.confirm.isChecked()  # Explicitly selecting a new path is a correction.
     dialog.reject()
 

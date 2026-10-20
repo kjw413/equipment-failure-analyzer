@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 
 from core.fault_components import parse_components, type_label
-from core.i18n import K
+from core.i18n import UNMATCHED, K
 
 COMPONENT_STATS = ["component_type", "count", "manual_count", "review_count", "count_share"]
 
@@ -27,7 +27,7 @@ def component_tables(records: pd.DataFrame) -> dict[str, pd.DataFrame]:
         date = record.get("date")
         period = pd.Timestamp(date).strftime("%Y-%m") if pd.notna(date) else None
         manual = record.get("status") in (K["manual"], K["manual_multi"])
-        review = record.get("status") in (K["review"], K["unclassified"])
+        review = record.get("status") in (K["review"], *UNMATCHED)
         for member in parse_components(record.get("component_details")):
             rows.append(
                 {

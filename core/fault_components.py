@@ -103,7 +103,7 @@ def mode_label(value: str) -> str:
         "single": "단일 유형",
         "multiple": "복수 유형 조합",
         "ambiguous": "유형 검토 중",
-        "unclassified": "미분류",
+        "unclassified": "유형 없음",
         "nonfault": "분류대상 외",
     }.get(value, value)
 

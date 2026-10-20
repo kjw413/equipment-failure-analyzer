@@ -175,6 +175,24 @@ def test_listed_adjustments_only_remain_ambiguous_not_confirmed_multiple_faults(
     assert result["major"] != "복수 고장"
 
 
+@pytest.mark.parametrize("text", ["pump 및 motor failed", "pump, motor failed로 stop"])
+def test_parts_listed_with_one_failure_are_a_confirmed_combination(text):
+    result = engine([rule("pump"), rule("motor")]).classify(text)
+    assert result["status"] == K["auto"]
+    assert result["review_code"] == ""
+    assert result["classification_mode"] == "multiple"
+    assert member_types(result) == {("pump",) * 3, ("motor",) * 3}
+    assert "사용자 확인" not in result["classification_reason"]
+
+
+@pytest.mark.parametrize(
+    "text", ["pump 및 motor adjusted", "pump와 motor failed", "pump 및 motor failed 의심"]
+)
+def test_listed_adjustments_ambiguous_joins_or_suspicions_are_not_confirmed(text):
+    result = engine([rule("pump"), rule("motor")]).classify(text)
+    assert result["status"] == K["review"]
+
+
 def test_causal_outcome_is_not_added_to_an_independent_combination():
     result = engine([rule("pump"), rule("motor"), rule("sensor")]).classify(
         "pump failed로 motor failed / separately sensor failed"
@@ -213,10 +231,12 @@ def test_repeated_failure_and_repair_of_one_part_are_not_two_fault_components():
         rule("repair", context="pump", category="Repair", symptom="replaced"),
     ]
     result = engine(rules).classify("pump failed / pump replaced")
-    assert result["classification_mode"] == "ambiguous"
+    # Same decision as the one-clause 'pump failed replaced': the replaced part wins.
+    assert result["classification_mode"] == "single"
     assert result["component_count"] == 1
     assert result["major"] != "복수 고장"
-    assert result["status"] == K["review"]
+    assert result["status"] == K["auto"]
+    assert result["review_code"] == ""
     assert member_types(result) == {("Repair",) * 3}
 
 
@@ -368,7 +388,12 @@ def bundled_classifier():
             "single",
             ("기계", "가이드·레일", "가이드(종류 미상)"),
         ),
-        ("멀티팩 떨어짐으로 설비 센터틀어짐 정비", "unclassified", None),
+        # Without any part, only the approved process type applies; no component is invented.
+        (
+            "멀티팩 떨어짐으로 설비 센터틀어짐 정비",
+            "single",
+            ("공정·운전", "제품·자재", "제품 낙하"),
+        ),
     ],
 )
 def test_real_descriptions_do_not_turn_alternatives_plans_or_results_into_multiple_parts(
@@ -381,7 +406,7 @@ def test_real_descriptions_do_not_turn_alternatives_plans_or_results_into_multip
         assert tuple(result[key] for key in ("major", "middle", "minor")) == expected_path
     else:
         # A symptom or machine name alone must not invent a detailed component.
-        assert result["status"] == K["unclassified"]
+        assert result["status"] == K["rule_unmatched"]
         assert not members(result)
 
 

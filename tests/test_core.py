@@ -198,7 +198,7 @@ def test_file_validation(tmp_path):
 def test_synthetic_classifier_never_guesses_unknown(store):
     classifier = RuleClassifier(store.load()["rules"])
     unknown = classifier.classify("unique unknown problem 92838475")
-    assert unknown["status"] == K["unclassified"]
+    assert unknown["status"] == K["rule_unmatched"]
     motor = classifier.classify(normalize("MOTOR TRIP"))
     assert motor["status"] in (K["auto"], K["review"])
 

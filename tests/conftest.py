@@ -104,9 +104,11 @@ def input_file(tmp_path):
 
 @pytest.fixture(scope="session")
 def approved_catalog_paths():
-    """Frozen from the user-approved workbook, independently of generated rules."""
+    """Frozen from the user-approved workbook and later user decisions, independently of rules."""
     fixture = Path(__file__).parent / "fixtures" / "catalog_2025_2026_paths.json"
-    return {tuple(path) for path in json.loads(fixture.read_text(encoding="utf-8"))["paths"]}
+    frozen = json.loads(fixture.read_text(encoding="utf-8"))
+    paths = frozen["paths"] + frozen.get("user_decision_paths", {}).get("paths", [])
+    return {tuple(path) for path in paths}
 
 
 @pytest.fixture

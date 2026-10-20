@@ -19,7 +19,7 @@ from core.aggregation import (
     trend as trend,
 )
 from core.component_analysis import component_tables
-from core.i18n import K
+from core.i18n import UNMATCHED, K
 from core.models import AnalysisOptions, AnalysisResult, LoadedData
 from core.preprocessing import review_target
 from core.review_guidance import review_issues
@@ -78,7 +78,7 @@ def analyze(
     flagged = [
         re.escape(K[key]) for key in review_issues(review_target(config["settings"], options))
     ]
-    review_mask = d["status"].isin([K["review"], K["unclassified"]]) | d["issues"].str.contains(
+    review_mask = d["status"].isin([K["review"], *UNMATCHED]) | d["issues"].str.contains(
         "|".join(flagged), regex=True, na=False
     )
     review_columns = [
@@ -125,7 +125,9 @@ def analyze(
         "manual_rows": int(d["status"].isin([K["manual"], K["manual_multi"]]).sum()),
         "manual_multi_rows": int(d["status"].eq(K["manual_multi"]).sum()),
         "combination_rows": int(component_counts.gt(1).sum()),
-        "unclassified_rows": int(d["status"].eq(K["unclassified"]).sum()),
+        "unclassified_rows": int(d["status"].isin(UNMATCHED).sum()),
+        "code_missing_rows": int(d["status"].eq(K["code_missing"]).sum()),
+        "rule_unmatched_rows": int(d["status"].eq(K["rule_unmatched"]).sum()),
         "ambiguous_rows": issue_rows("multi_rule")
         + issue_rows("multiple_faults")
         + issue_rows("alternative_types"),
@@ -153,7 +155,7 @@ def analyze(
         K["fuzzy_note"],
     ]
     notes.append(
-        "자동분류는 부품·증상 조건에 일치한 규칙을 사용합니다. 교체·고장·원인 표현과 MES 단서로 후보를 해소하며, 해소되지 않는 후보와 독립 복수 고장은 사용자 확인이 필요합니다."
+        "자동분류는 부품·증상 조건에 일치한 규칙을 사용합니다. 교체·고장·원인 표현과 MES 단서로 후보를 해소하며, 여러 부품을 하나의 고장·교체 표현으로 나열한 기록은 복수 유형 조합으로 분류하고, 해소되지 않는 후보와 독립 복수 고장은 사용자 확인이 필요합니다."
     )
     notes.append(
         "조합별 건수·정지시간은 기록당 한 번 집계합니다. 부품별 포함 건수는 중복을 허용하며 정지시간을 부품별로 배분하지 않습니다. 잠정검토 포함 건수를 별도로 표시합니다."

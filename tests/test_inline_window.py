@@ -363,3 +363,23 @@ def test_blank_grid_value_removes_only_that_override_and_restores_source(grid_wi
     assert "minutes" not in window.store.override(event_id)
     assert row_for(window, event_id)["minutes"] == original
     assert pd.notna(row_for(window, event_id)["date"])
+
+
+def test_combination_decision_distinguishes_automatic_combinations():
+    frame = pd.DataFrame(
+        {
+            "classification_mode": ["multiple", "multiple", "multiple", "single"]
+            + ["unclassified"] * 2,
+            "status": [K["auto"], K["manual_multi"], K["review"], K["auto"]]
+            + [K["code_missing"], K["rule_unmatched"]],
+        }
+    )
+    decisions = MainWindow.classification_frame(frame)["combination_decision"].tolist()
+    assert decisions == [
+        "복수 · 자동",
+        "복수 · 확정",
+        "복수 · 검토",
+        "단일",
+        K["code_missing"],
+        K["rule_unmatched"],
+    ]
