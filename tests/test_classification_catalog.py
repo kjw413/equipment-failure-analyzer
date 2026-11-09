@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 
-from core.classification_catalog import catalog_categories
+from core.classification_catalog import catalog_categories, fault_catalog_categories
 from core.rules import read_rules
 
 
@@ -49,3 +49,36 @@ def test_bundled_catalog_covers_every_approved_full_path(approved_catalog_paths)
     assert set(paths) == {
         (row["major"], row["middle"], row["minor"]) for row in rules if row["enabled"]
     }
+
+
+def test_output_catalogue_uses_part_types_and_symptoms_with_disabled_parts_excluded():
+    from core.failure_modes import SYMPTOM_NAMES
+
+    rules = [
+        {"major": "기계", "middle": "베어링·부싱", "minor": "베어링(종류 미상)", "enabled": True},
+        {"major": "기계", "middle": "베어링·부싱", "minor": "베어링(종류 미상)", "enabled": "yes"},
+        {"major": "공압·진공", "middle": "실린더", "minor": "실린더(종류 미상)", "enabled": False},
+    ]
+    original = deepcopy(rules)
+    paths = fault_catalog_categories(rules)
+    assert set(paths) == {("기계", "베어링", symptom) for symptom in SYMPTOM_NAMES}
+    assert "손상" in {path[2] for path in paths}
+    assert not any(path[2] in {"교체", "점검", "조정"} for path in paths)
+    assert rules == original
+    assert catalog_categories(rules) == [("기계", "베어링·부싱", "베어링(종류 미상)")]
+
+
+def test_every_enabled_part_has_unknown_symptom_choice_without_losing_specific_types():
+    from core.config import resource_root
+    from core.failure_modes import SYMPTOM_NAMES, part_name
+
+    rules = read_rules(resource_root() / "config" / "classification_config.xlsx")
+    choices = set(fault_catalog_categories(rules))
+    assert {path[:2] for path in choices} == {
+        (major, part_name(part)) for major, _family, part in catalog_categories(rules)
+    }
+    assert ("공압·진공", "로드리스실린더", "손상") in choices or any(
+        major == "공압·진공" and "로드리스" in part and symptom == "손상"
+        for major, part, symptom in choices
+    )
+    assert len({path[2] for path in choices}) == len(SYMPTOM_NAMES)

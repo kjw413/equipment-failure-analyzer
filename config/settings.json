@@ -35,6 +35,12 @@
   "equipment_prefix_pattern": "(?i)^\\d+\\s*p\\b",
   "donut_top_n": 5,
   "target_missing_review": "target_basis",
+  "review_colors": {
+    "multi_match": "#FFE699",
+    "unmatched_rule": "#F4CCCC",
+    "missing_code": "#FFF2CC",
+    "other": "#E7E6E6"
+  },
   "classifier": {
     "window": 15,
     "part_code_majors": {

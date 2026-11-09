@@ -14,9 +14,9 @@ PRIMARY_FIELDS = (
     "combination_decision",
 )
 LABELS = {
-    "major": "대분류",
-    "middle": "중분류",
-    "minor": "소분류",
+    "major": "대분류\n분야",
+    "middle": "중분류\n부품 종류",
+    "minor": "소분류\n증상",
     "raw_equipment_name": "설비명",
     "raw_mid": "비가동 코드(중)",
     "raw_small": "비가동 코드(소)",

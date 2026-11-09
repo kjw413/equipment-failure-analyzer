@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 from core.models import UserError
 
 FIELDS = ("major", "middle", "minor")
-LABELS = {"major": "대분류", "middle": "중분류", "minor": "소분류"}
+LABELS = {"major": "대분류(분야)", "middle": "중분류(부품 종류)", "minor": "소분류(증상)"}
 
 
 class ClassificationPicker(QWidget):

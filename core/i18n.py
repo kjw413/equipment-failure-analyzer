@@ -275,12 +275,17 @@ DISPLAY.update(DECISION_LABELS)
 COMPONENT_LABELS = {
     "manual_multi": "복수유형확정",
     "classification_mode": "유형 구성 방식",
-    "component_count": "구성 유형 수",
+    "component_count": "부품·증상 분류 수",
+    "part_count": "구성 부품 수",
     "component_types": "구성 고장 유형",
     "component_details": "구성 유형별 근거(JSON)",
     "combination_key": "유형 조합 식별자",
     "classification_components": "사용자확정 복수 유형",
-    "component_type": "구성 고장 유형",
+    "component_type": "부품 종류",
+    "fault_detail_tab": "부품·증상 분류",
+    "record_id": "원본 기록 ID",
+    "description": "고장이력 / 비고",
+    "actions": "기록된 조치",
     "manual_count": "사용자확정 포함 건수",
     "review_count": "잠정검토 포함 건수",
     "manual_multi_rows": "복수유형 사용자확정",
@@ -290,6 +295,34 @@ COMPONENT_LABELS = {
 }
 K.update(COMPONENT_LABELS)
 DISPLAY.update(COMPONENT_LABELS)
+
+FAULT_AXIS_LABELS = {
+    "major": "대분류(분야)",
+    "middle": "중분류(부품 종류)",
+    "minor": "소분류(증상)",
+    "uncertain_fault": "고장 추정",
+}
+K.update(FAULT_AXIS_LABELS)
+DISPLAY.update(FAULT_AXIS_LABELS)
+
+EQUIPMENT_NAME_LABELS = {
+    "mapped": "사용자 지정 설비명",
+    "group": "설비군(이름 기준)",
+    "line_code": "원본 라인 코드",
+    "raw_line_name": "원본 라인명",
+    "equipment_group": "설비군",
+    "factory": "공장",
+    "team": "팀",
+    "factory_filter": "공장 필터",
+    "team_filter": "팀 필터",
+    "all_factories": "전체 공장",
+    "all_teams": "전체 팀",
+    "name_help": "변환 기준을 선택한 뒤 코드마다 보고서에 쓸 설비명을 입력하세요. 입력값은 자동저장되며 다음 실행에도 유지됩니다.",
+    "name_unique": "서로 다른 코드에는 서로 다른 설비명을 입력하세요. 같은 설비군으로 묶으려면 설비군 열이나 그룹 구분자를 설정하세요.",
+    "names_note": "보고서 설비명은 선택한 라인코드 또는 설비코드 변환표의 최종 저장값을 사용합니다. 설비군은 별도로 설정한 이름 규칙과 직접 지정값을 사용합니다.",
+}
+K.update(EQUIPMENT_NAME_LABELS)
+DISPLAY.update(EQUIPMENT_NAME_LABELS)
 
 # Fault records that no classification rule matched. Source downtime codes decide
 # the label: both 비가동코드(중·소) blank -> code_missing, otherwise rule_unmatched.

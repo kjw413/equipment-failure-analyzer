@@ -7,6 +7,7 @@ import math
 
 import pandas as pd
 
+from core.failure_modes import CLASSIFICATION_SCHEMA, manual_category
 from core.fault_components import CATEGORY_FIELDS as CLASSIFICATION
 from core.fault_components import COMPONENT_OVERRIDE as COMPONENT_FIELD
 from core.fault_components import parse_components
@@ -52,6 +53,8 @@ def initial_values(record: dict, existing: dict) -> dict[str, str]:
         if saved_components
         else parse_components(observed)
     )
+    if saved_components and record.get("classification_schema") == CLASSIFICATION_SCHEMA:
+        parsed = [manual_category(item, existing.get("classification_schema")) for item in parsed]
     values[COMPONENT_FIELD] = component_override(parsed) if parsed else ""
     if saved_components or record.get("classification_mode") == "multiple":
         # A composite event label is not a single standard category.

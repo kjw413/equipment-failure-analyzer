@@ -14,11 +14,12 @@
 | core/preprocessing.py | 기록 ID, 표준 기록 생성, 사용자 보정, 분류 적용 |
 | core/rules.py | 분류 규칙 검증, 버전 스키마, Excel 저장 및 업그레이드 |
 | core/classifier.py | 부품·증상 조건 일치, 결정 규칙에 따른 후보 해소, 대안·복수 고장 보호 |
+| core/failure_classification.py / failure_modes.py | 부품 매칭 결과를 분야·부품 종류·증상으로 변환, 증상과 조치 분리 |
 | core/aggregation.py | 공통 그룹 집계와 빈 기간을 포함한 추이 |
 | core/analyzer.py | 분석 범위 선택, 집계표·지표·품질 정보 구성 |
 | core/config.py / defaults_merge.py | 사용자 설정 저장 및 기본값 병합 |
 | core/corrections.py / review_guidance.py | 보정 항목 계산 및 검토 안내 |
-| core/equipment_names.py / equipment_breakdown.py | 설비명 검증 및 설비별 유형 구성 |
+| core/equipment_names.py / equipment_breakdown.py | 라인/설비 코드별 설비명, 설비군·공장·팀 검증 및 설비별 유형 구성 |
 | core/report_view.py / sorting.py | 보고서 표시용 투영 및 안정적인 기본 정렬 |
 | gui/main_window.py | UI 조립과 화면 상태 전환 |
 | gui/tasks.py / theme.py | 백그라운드 작업 및 스타일 |
@@ -31,7 +32,7 @@
 
 ## 경계와 호환성
 
-- 원본 Excel과 기록 ID 생성 규칙은 유지합니다. 운영 카탈로그는 classification_catalog.json으로 관리하며 규칙 파일은 schema 4, 최소 프로그램 버전 1.10.0을 사용합니다.
+- 원본 Excel과 기록 ID 생성 규칙은 유지합니다. 운영 카탈로그는 classification_catalog.json으로 관리하며 규칙 파일은 schema 5, 최소 프로그램 버전 1.11.0을 사용합니다.
 - 표시용 설비명 변경은 보고서 사본에만 적용합니다.
 - 값 파싱·집계·규칙 저장은 별도 모듈을 직접 참조합니다.
 - 기존 `core.preprocessing` 파싱 함수, `core.analyzer.grouped/trend`,
@@ -75,6 +76,14 @@ EXE spec은 DLL 탐색 PATH를 가상환경·Python·Windows로 한정합니다.
 sample/ 원본 자료, 사용자 설정, 기존 보고서, .venv와 실행 파일은 정리 과정에서 지우지 않습니다.
 output/의 검증 결과와 .pytest_tmp*/, .ruff_cache/, tmp/는 Git 추적에서 제외합니다.
 
+`tools/clean_project.py`는 빌드 중간 파일과 재생성 가능한 캐시만 정리하며 기본은 미리보기입니다.
+`--apply`로 실제 정리하고, `--validation-temp`를 추가하면 명시한 과거 검증 폴더의
+pytest 임시 프로필도 포함합니다. 실행·테스트·빌드가 끝난 뒤 사용합니다.
+실제 보고서와 검증 요약은 유지하고, Git 추적 파일과 재분석 지점(링크)이 있는 대상은 거부합니다.
+2026-10-20 정리에서 카탈로그 분석용 일회성 `notebook_runtime`은 패키지 버전 목록
+`output/taxonomy_redesign_20261019/requirements-notebook.txt`와 재설치 안내를 남기고 제거했습니다.
+분석 노트북·HTML·카탈로그·보고서·사용자 설정 사본은 보존했습니다.
+
 ## 조건 일치와 결정 규칙에 따른 분류
 
 부품·증상 조건에 일치하는 후보를 만들고 제외·부정·예정 표현을 제거합니다. 원인 규칙,
@@ -88,8 +97,10 @@ output/의 검증 결과와 .pytest_tmp*/, .ruff_cache/, tmp/는 Git 추적에�
 classification_reason은 분류 판정 사유, candidate_evidence는 후보별 규칙·근거를 담습니다.
 GUI와 Excel/PDF는 같은 분석 스냅샷의 판정 사유와 근거를 표시합니다. 이전 점수 설정값은
 분류에 사용하지 않습니다. 사용자 수동확정, 기존 집계 기준과 기록 ID는 유지합니다.
-운영 카탈로그의 대·중·소분류 경로를 기본 규칙과 계층별 선택 목록에 적용합니다. 소분류는 실제 부품 종류이며 고장 현상·조치와 분리합니다.
-배포 카탈로그는 대분류 6개·중분류 59개·소분류 240개(첨부 237개 + 사용자 결정 공정·자재 현상 3개)이며 기본 규칙 241개는 component 237개와 nopart 4개입니다. 기본 fallback·override 규칙은 없습니다. 개인 프로필의 사용자 규칙 수는 별도입니다.
+v1.11.0 출력 분류는 대분류=분야, 중분류=부품 종류, 소분류=증상입니다.
+내부 부품 식별 카탈로그는 분야 6개·부품군 59개·부품 경로 240개(첨부 237개 + 사용자 결정 공정·자재 현상 3개)와 별칭을 보존합니다. 기본 부품 규칙 241개는 component 237개와 nopart 4개이며, 규칙 편집기의 `major/middle/minor`는 내부 분야/부품군/부품 종류를 뜻합니다.
+사용자 수동 선택 목록은 `fault_catalog_categories()`로 활성 부품과 표준 증상을 연결합니다. 원본 부품 경로가 필요한 규칙 도구는 `catalog_categories()`를 사용합니다.
+교체·조정·점검은 증상이 아닌 조치입니다. 증상 근거가 없으면 `증상 미기재`로 남깁니다.
 
 ## 운영 카탈로그 이관
 
@@ -101,14 +112,14 @@ classification_catalog.json을 CONFIG_FILES에 포함하여 같은 사용자 프
 
 동일 운영 카탈로그의 후속 기본값 병합은 사용자의 규칙 비활성화·삭제를 존중합니다.
 전환 실패 시 완료 상태를 기록하지 않고 로드 오류를 표시하여 재시도할 수 있게 합니다.
-schema 4와 최소 버전 1.10.0 보호로 이전 실행파일이 nopart 규칙을 해석하거나 역방향 기본값 병합을 하는 일을 차단합니다.
+schema 5와 최소 버전 1.11.0 보호로 이전 실행파일이 새 부품·증상 분류를 이전 축으로 해석하거나 역방향 기본값 병합을 하는 일을 차단합니다.
 
 ## 복수 고장 구성과 비가산 추이
 
 core/fault_components.py는 완전한 대·중·소분류를 정렬·유일화하고 JSON 구성원, 표시명,
 조합 키를 생성합니다. classifier는 독립적인 실제 고장 증거만 부품별 local 후보로 묶으며
-같은 부품의 대안 유형은 구성원 하나만 잠정 선택합니다. 실제 조합도 사용자 검토 전에는
-검토필요이며 원본 한 기록의 시간과 건수는 복제하지 않습니다.
+같은 부품의 대안 유형은 구성원 하나만 잠정 선택합니다. 공통 증상을 받는 명확한 나열은
+복수 유형으로 규칙분류하고 독립 고장·의심·대안은 검토를 유지합니다. 원본 한 기록의 시간과 건수는 복제하지 않습니다.
 
 classification_mode/component_count/component_types/component_details/combination_key는
 CLASSIFICATION_COMPONENT_COLUMNS로 공유합니다. 사용자 classification_components 보정은
@@ -119,3 +130,5 @@ core/component_analysis.py는 전체 고장기록을 분모로 포함 건수를 
 동일 record_id는 한 번만 세며 사용자확정·잠정검토 건수를 구분하고 minutes를 포함하지 않습니다.
 월별 분모는 날짜가 유효한 해당월 전체 고장기록입니다. 조합별 시간은 기존 type집계에만
 기록당 한 번 반영합니다. 부품별 표와 월별 표는 Excel 정적 분석 스냅샷으로 내보냅니다.
+
+부품·증상 구성원에는 원본 부품 식별자와 증상 근거·조치를 보존합니다. `component_count`는 분류 항목 수, `part_count`는 서로 다른 부품 수입니다. `fault_detail` 표는 하나의 이력에서 부품·증상마다 행을 펼치며 `event_id`로 원본 기록과 연결합니다. 이 표에는 정지시간 열을 넣지 않습니다. GUI의 상세분석 하위 탭, Excel 18번 시트, PDF의 부품·증상 상세가 같은 표를 사용합니다.

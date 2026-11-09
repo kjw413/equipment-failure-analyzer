@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QTextBrowser,
     QToolButton,
@@ -29,11 +30,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.classification_catalog import catalog_categories
+from core.classification_catalog import fault_catalog_categories
 from core.config import ConfigStore, output_root
 from core.corrections import FIELDS, validate
 from core.defaults_merge import describe
 from core.equipment_breakdown import type_breakdown
+from core.equipment_names import organization_filter_choices
 from core.excel_loader import load_excel, validate_path
 from core.i18n import UNMATCHED, K
 from core.models import AnalysisOptions, UserError
@@ -44,6 +46,7 @@ from gui.dialogs import ColumnMappingDialog, EquipmentNamesDialog, RuleEditor
 from gui.grouped_header import PRIMARY_FIELDS, GroupedHeader
 from gui.navigation import WorkspaceNavigation
 from gui.report_settings import ReportSettingsDialog
+from gui.review_color_settings import ReviewColorSettingsDialog
 from gui.tasks import Task
 from gui.theme import STYLE
 from gui.widgets import DropArea, TablePane
@@ -97,6 +100,10 @@ class MainWindow(QMainWindow):
         condition_bar.addWidget(self.source_toggle)
         self.condition_summary = QLabel("Excel 파일을 등록하세요.")
         self.condition_summary.setObjectName("muted")
+        self.condition_summary.setWordWrap(True)
+        self.condition_summary.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
         condition_bar.addWidget(self.condition_summary, 1)
         layout.addLayout(condition_bar)
         self.source_panel = QWidget()
@@ -162,11 +169,19 @@ class MainWindow(QMainWindow):
         menu = QMenu(self.settings_button)
         self.names_button = menu.addAction(K["name_editor"], self.edit_names)
         self.rules_button = menu.addAction(K["rules"], self.edit_rules)
+        menu.addSeparator()
+        self.review_colors_action = menu.addAction("검토필요 색상 설정", self.edit_review_colors)
         self.folder_button = menu.addAction(K["config"], self.open_config)
         self.settings_button.setMenu(menu)
         source.addWidget(self.settings_button)
         self.actions.extend(
-            [self.settings_button, self.names_button, self.rules_button, self.folder_button]
+            [
+                self.settings_button,
+                self.names_button,
+                self.rules_button,
+                self.review_colors_action,
+                self.folder_button,
+            ]
         )
         layout.addLayout(source)
 
@@ -179,7 +194,7 @@ class MainWindow(QMainWindow):
         filters.addWidget(self.scope, 0, 1)
         filters.addWidget(QLabel(K["basis"]), 0, 2)
         self.basis = QComboBox()
-        for value in ("mapped", "target", "registered", "family"):
+        for value in ("mapped", "group", "factory", "team", "target", "registered", "family"):
             self.basis.addItem(K[value], value)
         self.basis.setMinimumWidth(265)
         filters.addWidget(self.basis, 0, 3)
@@ -205,6 +220,23 @@ class MainWindow(QMainWindow):
         filters.addWidget(self.date_to, 1, 3)
         self.dedup = QCheckBox(K["dedup"])
         filters.addWidget(self.dedup, 1, 4, 1, 2)
+        filters.addWidget(QLabel(K["factory_filter"]), 2, 0)
+        self.factory_filter = QComboBox()
+        self.factory_filter.addItem(K["all_factories"], None)
+        filters.addWidget(self.factory_filter, 2, 1)
+        filters.addWidget(QLabel(K["team_filter"]), 2, 2)
+        self.team_filter = QComboBox()
+        self.team_filter.addItem(K["all_teams"], None)
+        for combo in (self.factory_filter, self.team_filter):
+            combo.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+            combo.setMinimumContentsLength(16)
+        filters.addWidget(self.team_filter, 2, 3)
+        filter_help = QLabel("선택한 공장·팀의 기록만 분석합니다.")
+        filter_help.setObjectName("muted")
+        filter_help.setWordWrap(True)
+        filters.addWidget(filter_help, 2, 4, 1, 2)
         layout.addLayout(filters)
 
     def _build_report_controls(self, layout):
@@ -215,6 +247,10 @@ class MainWindow(QMainWindow):
         )
         self.open_button = self.button("Excel \uc5f4\uae30", self.open_excel, run)
         self.pdf_button = self.button("PDF \uc5f4\uae30", self.open_pdf, run)
+        self.source_review_button = self.button("원본 검토표시 열기", self.open_source_review, run)
+        self.report_button.setToolTip(
+            "분석 Excel, PDF와 검토필요 색상을 적용한 원본 사본을 저장합니다."
+        )
         self.output_button = self.button("\uacb0\uacfc \ud3f4\ub354", self.open_output, run)
         self.report_settings_button = self.button(
             "\ubcf4\uace0\uc11c \uc124\uc815", self.edit_report_settings, run
@@ -256,6 +292,13 @@ class MainWindow(QMainWindow):
                 sort_policy="period" if key == "component_trend" else "auto",
             )
             self.panes[key] = pane
+        fault_detail = TablePane(
+            sort_policy="source",
+            description="한 고장이력을 부품·증상별로 나눈 표입니다. 같은 기록의 정지시간을 반복 배분하지 않습니다. "
+            "행을 더블클릭하면 원본 기록으로 이동하여 분류를 수정할 수 있습니다.",
+        )
+        fault_detail.table.doubleClicked.connect(self._open_fault_source)
+        self.panes["fault_detail"] = fault_detail
         self._build_chart_tab()
         self.navigation = WorkspaceNavigation(
             {**self.panes, "summary": self.summary, "chart": self.chart_page}
@@ -265,7 +308,7 @@ class MainWindow(QMainWindow):
         for key in ("review", "detail"):
             pane = self.panes[key]
             pane.configure_editing(
-                lambda: catalog_categories(
+                lambda: fault_catalog_categories(
                     read_rules(self.store.config_dir / "classification_config.xlsx")
                 ),
                 self._save_grid_edit,
@@ -288,7 +331,7 @@ class MainWindow(QMainWindow):
             )
             pane.layout().itemAt(0).layout().insertWidget(1, pane.extra_columns)
             pane.description.setText(
-                "분류 셀을 더블클릭하여 대 → 중 → 소분류를 선택하세요. "
+                "분류 셀을 더블클릭하여 분야 → 부품 종류 → 증상을 선택하세요. "
                 "세 항목이 완성되면 저장됩니다. 유형조합 셀에서는 단일·복수 유형을 확정할 수 있습니다. "
                 "일자·시간·대상설비·제품명은 Enter 또는 셀 이동으로 저장합니다. Esc는 취소입니다."
             )
@@ -345,6 +388,8 @@ class MainWindow(QMainWindow):
         self.option_widgets = [
             self.scope,
             self.basis,
+            self.factory_filter,
+            self.team_filter,
             self.units,
             self.limit_dates,
             self.date_from,
@@ -356,6 +401,8 @@ class MainWindow(QMainWindow):
         ]
         for combo in (self.scope, self.basis, self.units):
             combo.currentIndexChanged.connect(self.mark_stale)
+        self.factory_filter.currentIndexChanged.connect(self._factory_filter_changed)
+        self.team_filter.currentIndexChanged.connect(self._organization_filter_changed)
         for check in (self.limit_dates, self.dedup):
             check.toggled.connect(self.mark_stale)
         self.date_from.dateChanged.connect(self.mark_stale)
@@ -363,6 +410,87 @@ class MainWindow(QMainWindow):
         self.top.valueChanged.connect(self.mark_stale)
         self.sheets.currentIndexChanged.connect(self.mark_stale)
         self.header_row.valueChanged.connect(self.mark_stale)
+
+    @staticmethod
+    def _set_filter_choices(combo, all_label, values, selected, *, preserve_unavailable=True):
+        blocked = combo.blockSignals(True)
+        try:
+            combo.clear()
+            combo.addItem(all_label, None)
+            for value in values:
+                combo.addItem(value, value)
+            index = combo.findData(selected)
+            if selected is not None and index < 0 and preserve_unavailable:
+                combo.addItem(f"{selected} (현재 자료 없음)", selected)
+                index = combo.count() - 1
+            combo.setCurrentIndex(max(index, 0))
+            combo.setToolTip(combo.currentText())
+        finally:
+            combo.blockSignals(blocked)
+
+    def _refresh_organization_filters(
+        self, *, reset=False, settings=None, loaded=None, preserve_team_unavailable=True
+    ):
+        source = self.loaded if loaded is None else loaded
+        factory = None if reset else self.factory_filter.currentData()
+        team = None if reset else self.team_filter.currentData()
+        if source is None:
+            choices = {"factories": [], "teams": []}
+        else:
+            config = self.store.load() if settings is None else settings
+            choices = organization_filter_choices(source, config, factory=factory)
+        self._set_filter_choices(
+            self.factory_filter,
+            K["all_factories"],
+            choices["factories"],
+            factory,
+            preserve_unavailable=not reset,
+        )
+        self._set_filter_choices(
+            self.team_filter,
+            K["all_teams"],
+            choices["teams"],
+            team,
+            preserve_unavailable=not reset and preserve_team_unavailable,
+        )
+
+    def _factory_filter_changed(self, *_):
+        try:
+            self._refresh_organization_filters(preserve_team_unavailable=False)
+        except Exception as exc:
+            self.show_error(exc)
+        self._organization_filter_changed()
+
+    def _organization_filter_changed(self, *_):
+        for combo in (self.factory_filter, self.team_filter):
+            combo.setToolTip(combo.currentText())
+        self.last_reports = None
+        self.mark_stale()
+        self._update_condition_summary()
+
+    def _organization_filter_summary(self, options=None):
+        factory = self.factory_filter.currentData() if options is None else options.factory
+        team = self.team_filter.currentData() if options is None else options.team
+        return "  |  ".join(
+            f"{K[key]}: {value}"
+            for key, value in (("factory", factory), ("team", team))
+            if value is not None
+        )
+
+    def _update_condition_summary(self, *, include_result=True):
+        if self.loaded is None:
+            self.condition_summary.setText("Excel 파일을 등록하세요.")
+            return
+        parts = [self.loaded.path.name]
+        if include_result and self.result is not None and not self._analysis_stale:
+            parts.append(f"{self.result.metrics['selected_rows']:,}건")
+        parts.append(K[self.basis.currentData()])
+        filters = self._organization_filter_summary()
+        if filters:
+            parts.append(filters)
+        summary = "  |  ".join(parts)
+        self.condition_summary.setText(summary)
+        self.condition_summary.setToolTip(f"{self.loaded.path}\n{summary}")
 
     def button(self, text, slot, layout, style=None):
         button = QPushButton(text)
@@ -417,6 +545,8 @@ class MainWindow(QMainWindow):
             self.header_row,
             self.analyze_button,
             self.report_button,
+            self.factory_filter,
+            self.team_filter,
         ):
             widget.setEnabled(not busy and self.loaded is not None)
         for key in ("detail", "review"):
@@ -425,6 +555,9 @@ class MainWindow(QMainWindow):
             )
         for widget in (self.open_button, self.pdf_button, self.output_button):
             widget.setEnabled(not busy and self.last_reports is not None)
+        self.source_review_button.setEnabled(
+            not busy and getattr(self.last_reports, "source_review", None) is not None
+        )
         self.chart_choice.setEnabled(not busy)
         self.chart_metric.setEnabled(not busy)
         self.chart_equipment.setEnabled(not busy)
@@ -481,6 +614,7 @@ class MainWindow(QMainWindow):
             return
         self.clear_results()
         self.loaded = None
+        self._refresh_organization_filters(reset=True)
         self.file_label.setText(str(path))
         lookup = self.store.saved_mapping
         self.run_task(
@@ -492,9 +626,11 @@ class MainWindow(QMainWindow):
 
     def loaded_ready(self, loaded):
         self.loaded = loaded
+        self.last_reports = None
+        self._refresh_organization_filters(reset=True)
         self.drop.set_compact(True)
         self.source_toggle.setChecked(True)
-        self.condition_summary.setText(loaded.path.name)
+        self._update_condition_summary(include_result=False)
         self.condition_summary.setToolTip(str(loaded.path))
         self.sheets.clear()
         self.sheets.addItems(loaded.sheet_names)
@@ -530,6 +666,7 @@ class MainWindow(QMainWindow):
     def reset(self):
         self.clear_results()
         self.loaded = None
+        self._refresh_organization_filters(reset=True)
         self.drop.set_compact(False)
         self.source_toggle.setChecked(True)
         self.condition_summary.setText("Excel 파일을 등록하세요.")
@@ -558,6 +695,8 @@ class MainWindow(QMainWindow):
             duration_unit=self.units.currentData(),
             deduplicate=self.dedup.isChecked(),
             top_n=self.top.value(),
+            factory=self.factory_filter.currentData(),
+            team=self.team_filter.currentData(),
         )
 
     def analysis_inputs(self):
@@ -570,9 +709,12 @@ class MainWindow(QMainWindow):
             raise UserError(
                 "\uc2dc\ud2b8/\uc81c\ubaa9 \ud589\uc744 \ubcc0\uacbd\ud55c \ud6c4\uc5d0\ub294 \uc2dc\ud2b8 \uc77d\uae30\ub97c \ub20c\ub7ec\uc8fc\uc138\uc694."
             )
+        config = self.store.load()
+        self._refresh_organization_filters(settings=config)
+        self._update_condition_summary()
         return (
             replace(self.loaded, mapping=self.loaded.mapping.copy()),
-            self.store.load(),
+            config,
             self.options(),
         )
 
@@ -593,6 +735,7 @@ class MainWindow(QMainWindow):
         self.last_reports = None
         self.result = result
         self._analysis_stale = False
+        self._refresh_organization_filters(settings=result.config_snapshot, loaded=result.loaded)
         for key, label in self.card_labels.items():
             value = result.metrics[key]
             label.setText(
@@ -604,8 +747,13 @@ class MainWindow(QMainWindow):
             )
         for key in ("equipment", "line", "type"):
             self.panes[key].set_frame(result.tables[key])
-        for key in ("component", "component_trend"):
+        for key in ("component", "component_trend", "fault_detail"):
             self.panes[key].set_frame(result.tables.get(key, pd.DataFrame()))
+        fault_pane = self.panes["fault_detail"]
+        if "record_id" in fault_pane.model.frame:
+            fault_pane.table.setColumnHidden(
+                fault_pane.model.frame.columns.get_loc("record_id"), False
+            )
         frames = []
         for equipment in result.tables["equipment"]["equipment"]:
             table = type_breakdown(result.selected, equipment)
@@ -629,6 +777,7 @@ class MainWindow(QMainWindow):
         info = [
             f"{K['period']}: {result.metrics['period']}",
             f"{K['basis']}: {K[result.options.equipment_basis]}",
+            self._organization_filter_summary(result.options) or "공장: 전체 공장  |  팀: 전체 팀",
             f"{K['raw_rows']}: {result.metrics['source_rows']:,}  |  {K['excluded_rows']}: {result.metrics['excluded_rows']:,}",
             f"{K['name_mapped']}: {result.metrics['mapped_name_rows']:,} / {result.metrics['selected_rows']:,}",
             f"{K['review_tab']}: {result.metrics['review_rows']:,}  |  {K['auto_resolved_rows']}: {result.metrics['auto_resolved_rows']:,}  |  {K['target_info']}: {result.metrics['missing_target_rows']:,}",
@@ -641,10 +790,7 @@ class MainWindow(QMainWindow):
         if not preserve_navigation:
             self.show_page("summary")
             self.source_toggle.setChecked(False)
-        self.condition_summary.setText(
-            f"{result.loaded.path.name}  |  {result.metrics['selected_rows']:,}건  |  "
-            f"{K[result.options.equipment_basis]}"
-        )
+        self._update_condition_summary()
         self.status_label.setText(K["done"])
         self.update_controls()
 
@@ -701,6 +847,29 @@ class MainWindow(QMainWindow):
         columns = [column for column in leading if column in frame]
         return frame.loc[:, columns + [column for column in frame if column not in columns]]
 
+    def _open_fault_source(self, index):
+        """A split classification row edits its one original event, never a copy."""
+        source = self.panes["fault_detail"]
+        row = source.proxy.mapToSource(index)
+        if not row.isValid():
+            return
+        event_id = source.model.frame.iloc[row.row()].get("event_id")
+        pane = self.panes["detail"]
+        frame = pane.model.frame
+        if "event_id" not in frame or not event_id:
+            return
+        matches = frame.index[frame["event_id"].eq(event_id)]
+        if matches.empty:
+            return
+        pane.search.clear()
+        position = frame.index.get_loc(matches[0])
+        column = frame.columns.get_loc("component_types")
+        original = pane.proxy.mapFromSource(pane.model.index(position, column))
+        self.show_page("detail")
+        pane.table.setCurrentIndex(original)
+        pane.table.selectRow(original.row())
+        pane.table.scrollTo(original)
+
     def save_report(self):
         if self.loaded is None:
             return
@@ -714,8 +883,9 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
-        paths = report_paths(path)
-        existing = [p for p in (paths.excel, paths.pdf) if p.exists()]
+        paths = report_paths(path, source_path=self.loaded.path)
+        outputs = (paths.excel, paths.pdf, getattr(paths, "source_review", None))
+        existing = [p for p in outputs if p is not None and p.exists()]
         if existing:
             message = (
                 "\ub2e4\uc74c \uae30\uc874 \uacb0\uacfc\ub97c \uad50\uccb4\ud560\uae4c\uc694?\n\n"
@@ -740,7 +910,7 @@ class MainWindow(QMainWindow):
         self.last_reports = None
 
         def task(progress):
-            # One latest persisted snapshot feeds BOTH exports. No stale PDF names.
+            # One latest persisted snapshot feeds every output.
             result = run_analysis(loaded, config, options, lambda n, t: progress(int(n * 0.32), t))
             saved = export_bundle(
                 result,
@@ -756,15 +926,32 @@ class MainWindow(QMainWindow):
         result, paths = payload
         self.analysis_ready(result)
         self.last_reports = paths
+        source_review = getattr(paths, "source_review", None)
         self.status_label.setText(
-            "Excel + PDF \uc0dd\uc131 \uc644\ub8cc | " + str(paths.excel.parent)
+            (
+                "Excel + PDF + 원본 검토표시 생성 완료 | "
+                if source_review
+                else "Excel + PDF 생성 완료 | "
+            )
+            + str(paths.excel.parent)
         )
-        self.notice(
-            "\ub450 \uac1c\uc758 \uacb0\uacfc\ud30c\uc77c\uc744 \uc800\uc7a5\ud588\uc2b5\ub2c8\ub2e4.\n\nExcel: "
-            + str(paths.excel)
-            + "\n\nPDF: "
-            + str(paths.pdf)
-        )
+        outputs = ["Excel: " + str(paths.excel), "PDF: " + str(paths.pdf)]
+        if source_review is not None:
+            outputs.append("원본 검토표시: " + str(source_review))
+        self.notice(f"{len(outputs)}개의 결과파일을 저장했습니다.\n\n" + "\n\n".join(outputs))
+
+    def edit_review_colors(self):
+        try:
+            dialog = ReviewColorSettingsDialog(self.store, self)
+        except Exception as exc:
+            self.show_error(exc)
+            return
+        dialog.exec()
+        if dialog.changed:
+            self.config = self.store.load()
+            self.status_label.setText(
+                "검토필요 색상 설정 저장 완료 · 다음 파일 생성부터 적용됩니다."
+            )
 
     def edit_report_settings(self):
         try:
@@ -783,6 +970,12 @@ class MainWindow(QMainWindow):
         dialog.exec()
         if dialog.changed:
             if self.loaded is not None:
+                try:
+                    self._refresh_organization_filters()
+                except Exception as exc:
+                    self.show_error(exc)
+                    return
+                self._organization_filter_changed()
                 self.status_label.setText(
                     "\ucd5c\uc2e0 \uc124\ube44\uba85\uc73c\ub85c \ubd84\uc11d \uacb0\uacfc\ub97c \uac31\uc2e0\ud569\ub2c8\ub2e4."
                 )
@@ -813,7 +1006,8 @@ class MainWindow(QMainWindow):
             self.show_error(exc)
             return
         self.loaded.mapping = mapping
-        self.mark_stale()
+        self._refresh_organization_filters()
+        self._organization_filter_changed()
         message = "컬럼 매핑을 저장했습니다. 같은 제목 행을 가진 파일에는 다음부터 자동 적용됩니다."
         if moved:
             message += f"\n기존 수동 보정 {moved:,}건을 새 매핑의 기록 ID로 옮겼습니다."
@@ -848,7 +1042,7 @@ class MainWindow(QMainWindow):
             "combination_decision": 108,
         }
         for index, key in enumerate(pane.model.frame.columns):
-            hidden = key in ("event_id", "record_id", "__source_row") or (
+            hidden = key in ("event_id", "record_id", "__source_row", "classification_schema") or (
                 not show_extra and key not in PRIMARY_FIELDS
             )
             pane.table.setColumnHidden(index, hidden)
@@ -1019,6 +1213,11 @@ class MainWindow(QMainWindow):
     def open_excel(self):
         if self.last_reports:
             self.open_local_path(self.last_reports.excel)
+
+    def open_source_review(self):
+        source_review = getattr(self.last_reports, "source_review", None)
+        if source_review is not None:
+            self.open_local_path(source_review)
 
     def open_pdf(self):
         if self.last_reports:

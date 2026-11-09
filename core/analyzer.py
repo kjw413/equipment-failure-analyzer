@@ -36,6 +36,10 @@ def select_records(records: pd.DataFrame, options: AnalysisOptions) -> pd.DataFr
         selected = selected.loc[selected["date"].ge(pd.Timestamp(options.date_from).normalize())]
     if options.date_to:
         selected = selected.loc[selected["date"].le(pd.Timestamp(options.date_to).normalize())]
+    if options.factory is not None:
+        selected = selected.loc[selected["factory"].eq(options.factory)]
+    if options.team is not None:
+        selected = selected.loc[selected["team"].eq(options.team)]
     if options.deduplicate:
         selected = selected.drop_duplicates("event_id", keep="first")
     return selected.reset_index(drop=True)
@@ -175,6 +179,10 @@ def analyze(
     if options.equipment_basis == "family":
         notes.append(
             "\uc124\ube44\uad70\uc740 \ud0a4\uc6cc\ub4dc \uae30\ubc18 \ud6c4\ubcf4\uc774\uba70 \ud655\uc815 \uc124\ube44\uac00 \uc544\ub2d9\ub2c8\ub2e4."
+        )
+    if options.equipment_basis == "group":
+        notes.append(
+            "설비군별 건수와 정지시간은 각 원본 기록을 한 번씩 집계합니다. 보고서 설비명에 적용한 구분자 규칙과 직접 지정한 설비군을 사용합니다."
         )
     if not total:
         notes.append(K["zero_total"])

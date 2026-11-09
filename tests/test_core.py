@@ -102,17 +102,16 @@ def test_workbook_names_formulas_and_report_code_conversion(store, input_file, t
     assert "product" not in SHEETS
     assert not any("\uc81c\ud488\ubcc4\ubd84\uc11d" in name for name in values.sheetnames)
     assert [int(name[:2]) for name in values.sheetnames if not name.startswith("_")] == list(
-        range(1, 18)
+        range(1, 13)
     )
-    assert len(values[SHEETS["equipment_types"]]._images) == result.metrics["equipment_count"]
-    assert len(values[SHEETS["equipment"]]._images) == result.metrics["equipment_count"]
+    assert len(values[SHEETS["equipment"]]._images) == result.metrics["equipment_count"] + 2
     for sheet in values:
         for row in sheet.iter_rows():
             for cell in row:
                 if isinstance(cell.value, str):
                     assert "IF18115" not in cell.value
     assert detail.cell(named_row, name_col).value == "VITAL#2"
-    assert SHEETS["names"] in values.sheetnames
+    assert SHEETS["criteria"] in values.sheetnames
     errors = []
     for sheet in values:
         for row in sheet.iter_rows():
@@ -277,13 +276,13 @@ def test_breakdown_total_cached_and_formulas(store, input_file, tmp_path):
     result = analyze_file(store, input_file)
     path = export_report(result, tmp_path / "ranked.xlsx")
     wb = load_workbook(path, data_only=True)
-    ws = wb[SHEETS["equipment_types"]]
-    totals = [r for r in range(1, ws.max_row + 1) if ws.cell(r, 2).value == "\ud569\uacc4"]
+    ws = wb[SHEETS["equipment"]]
+    totals = [r for r in range(1, ws.max_row + 1) if ws.cell(r, 1).value == "\ud569\uacc4"]
     assert len(totals) == 2
-    assert sum(ws.cell(r, 3).value for r in totals) == 4
-    assert sum(ws.cell(r, 6).value or 0 for r in totals) == 95
-    assert all(ws.cell(r, 4).value == 1 for r in totals)
-    assert all(ws.cell(r, 7).value == 1 for r in totals)
+    assert sum(ws.cell(r, 2).value for r in totals) == 4
+    assert sum(ws.cell(r, 5).value or 0 for r in totals) == 95
+    assert all(ws.cell(r, 3).value == 1 for r in totals)
+    assert all(ws.cell(r, 6).value == 1 for r in totals)
     wb.close()
 
 
@@ -319,5 +318,6 @@ def test_legacy_override_save_merges_values_without_removing_existing_correction
         "minor": "C",
         "minutes": "12",
         "product": "Updated product",
+        "classification_schema": "part_symptom_v1",
     }
     assert saved["saved_at"]

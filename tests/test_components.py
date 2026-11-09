@@ -119,7 +119,9 @@ def test_manual_multi_confirmation_persists_with_rule_decision_fields(store, com
     assert after.metrics["review_rows"] == before.metrics["review_rows"] - 1
     assert after.metrics["total_minutes"] == before.metrics["total_minutes"]
     parts = after.tables["component"].set_index("component_type")
-    assert all(parts.loc[type_label(item), "manual_count"] == 1 for item in members)
+    assert all(
+        parts.loc[f"{item['major']} / {item['middle']}", "manual_count"] == 1 for item in members
+    )
     store.clear_override(original.event_id)
     reset = analyze_file(store, combination_input).selected.iloc[0]
     assert reset.status == K["review"] and reset.combination_key == original.combination_key

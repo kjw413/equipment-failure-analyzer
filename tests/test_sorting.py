@@ -122,7 +122,8 @@ def test_empty_product_report_blocks_are_omitted(store, no_product_file, tmp_pat
         "\uc81c\ud488\uba85 \uc815\ubcf4\uac00 \uc5c6\uc5b4",
     ):
         assert phrase not in all_text
-    for name in ("pareto", "cross", "top"):
+    assert SHEETS["cross"] not in wb.sheetnames
+    for name in ("equipment", "type"):
         text = "\n".join(
             str(cell.value) for row in wb[SHEETS[name]] for cell in row if cell.value is not None
         )

@@ -240,14 +240,15 @@ def test_classification_confirmation_removes_review_row_and_selects_next_event(g
     pane.open_classification_editor(cell(pane, "major", 1))
     editor = pane.classification_editor
     assert editor is not None
-    for key, value in zip(("major", "middle", "minor"), ("유체·배관", "펌프", "도징펌프")):
+    for key, value in zip(("major", "middle", "minor"), ("유체·배관", "도징펌프", "손상")):
         combo = editor.single_picker.combos[key]
         combo.setCurrentIndex(combo.findData(value))
         assert combo.currentData() == value
     editor.apply_button.click()
     wait_refreshed(window, previous)
     assert row_for(window, event_id)["status"] == K["manual"]
-    assert row_for(window, event_id)["minor"] == "도징펌프"
+    assert row_for(window, event_id)["middle"] == "도징펌프"
+    assert row_for(window, event_id)["minor"] == "손상"
     assert window.result.metrics["review_rows"] == 2
     assert event_id not in event_ids(pane)
     assert pane.selected_record()["event_id"] == next_id

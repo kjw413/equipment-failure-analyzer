@@ -40,7 +40,9 @@ ACT = (
 
 def symptom_pattern(major: str, middle: str) -> str:
     """Require an observed failure/repair suited to the named component family."""
-    groups = [FAIL, BREAK, ACT]
+    # Physical damage and wear can occur on every named part, including sensors
+    # and controller housings; family-specific expressions extend this base.
+    groups = [FAIL, BREAK, WEAR, ACT]
     if major == "전기·제어":
         groups += [ELEC, LOOSE]
         if middle == "센서·검출":

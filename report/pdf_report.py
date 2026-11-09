@@ -15,6 +15,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.platypus import Image, PageBreak, SimpleDocTemplate, Table, TableStyle
 
 from core.equipment_breakdown import donut_slices, type_breakdown
+from core.equipment_names import active_name_mapping
 from core.i18n import K
 from core.models import AnalysisResult, Progress, UserError, noop_progress
 from core.preprocessing import review_target
@@ -101,7 +102,12 @@ class FinalReport:
     def __init__(self, result: AnalysisResult):
         self.result = classification_result(result)
         self.names = ReportNames(
-            result.config_snapshot.get("equipment_names", {}).get("mappings", {})
+            active_name_mapping(result.loaded, result.config_snapshot.get("equipment_names", {})),
+            protected=[
+                value
+                for field in ("equipment_group", "factory", "team")
+                for value in result.all_records.get(field, [])
+            ],
         )
         self.settings = result.config_snapshot.get("final_report", {})
         self.fonts = load_fonts(self.settings.get("font_path", ""))
@@ -187,6 +193,20 @@ class FinalReport:
                 f"유효 {m['valid_time_rows']:,}건 / 미기재·유효값 없음 {m['selected_rows'] - m['valid_time_rows']:,}건",
             ],
         ]
+        for field in ("factory", "team"):
+            selected = getattr(r.options, field)
+            if selected is not None:
+                rows.append([K[field + "_filter"], selected])
+            if field in r.selected:
+                values = sorted(
+                    {
+                        str(value)
+                        for value in r.selected[field].dropna()
+                        if str(value).strip() and value != K["missing"]
+                    }
+                )
+                if values:
+                    rows.append([K[field], ", ".join(values)])
         self.story.append(layout.table(["항목", "적용 기준"], rows, [115, self.width - 115]))
         self.story.append(
             layout.callout(
@@ -223,8 +243,45 @@ class FinalReport:
         )
         self.story.append(
             self.p(
-                "부품별 정지시간은 배분하지 않습니다. 전체 유형과 월별 부품 발생은 Excel의 16·17 시트에서 확인합니다.",
+                "부품별 정지시간은 배분하지 않습니다. 부품 건수·월별 발생은 Excel 16·17 시트, 부품·증상별 전체 분류는 18 시트에서 확인합니다.",
                 "small",
+            )
+        )
+
+    def fault_details(self):
+        table = self.result.tables.get("fault_detail")
+        if table is None or table.empty:
+            return
+        self.page("03-2  부품·증상별 분류")
+        self.story.append(
+            self.p(
+                "한 고장이력을 분야 / 부품 종류 / 증상으로 나눈 분류입니다. "
+                "같은 기록 ID의 행들은 하나의 사건이며 정지시간을 중복 배분하지 않습니다.",
+                "muted",
+            )
+        )
+        self.story.append(
+            self.p(
+                "교체·점검·조정은 증상과 별도로 기록합니다. 조치만 있는 기록은 '증상 미기재'로 표시합니다.",
+                "muted",
+            )
+        )
+        rows = [
+            [
+                row.get("record_id", ""),
+                row.get("equipment", ""),
+                row.get("major", ""),
+                row.get("middle", ""),
+                row.get("minor", ""),
+                row.get("actions", ""),
+            ]
+            for row in table.to_dict("records")
+        ]
+        self.story.append(
+            self.layout.table(
+                ["기록 ID", "설비", "분야", "부품 종류", "증상", "조치"],
+                rows,
+                [55, 97, 67, 110, 85, self.width - 414],
             )
         )
 
@@ -648,6 +705,7 @@ class FinalReport:
             self.overview()
             self.comparisons()
             self.components()
+            self.fault_details()
             progress(20, "PDF 종합 분석 작성")
             if self.settings.get("include_monthly", True):
                 self.monthly()

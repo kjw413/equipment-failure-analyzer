@@ -12,16 +12,16 @@ from dataclasses import replace
 
 import pandas as pd
 
-from core.equipment_names import code_key
+from core.equipment_names import active_name_mapping, code_key
 from core.models import AnalysisResult
 
 
 class ReportNames:
-    def __init__(self, mapping: dict[str, str]):
+    def __init__(self, mapping: dict[str, str], *, protected=()):
         self.mapping = {code_key(k): v for k, v in mapping.items() if k and v}
         # Preserve a display name that itself contains another code as a token.
         # Replacing twice must not turn a previously projected name into a new name.
-        self.protected = set(self.mapping.values())
+        self.protected = set(self.mapping.values()) | set(protected)
         codes = sorted(self.mapping, key=len, reverse=True)
         if codes:
             protected = sorted(self.protected, key=len, reverse=True)
@@ -63,17 +63,37 @@ class ReportNames:
                 projected.append(member)
                 continue
             item = dict(member)
-            for key in ("major", "middle", "minor", "evidence"):
+            for key in (
+                "major",
+                "middle",
+                "minor",
+                "part_group",
+                "part_type",
+                "symptom_evidence",
+                "evidence",
+            ):
                 if isinstance(item.get(key), str):
                     item[key] = self.text(item[key])
+            if isinstance(item.get("actions"), list):
+                item["actions"] = [self.text(action) for action in item["actions"]]
+            elif isinstance(item.get("actions"), str):
+                item["actions"] = self.text(item["actions"])
             projected.append(item)
         return json.dumps(projected, ensure_ascii=False, separators=(",", ":"))
 
-    def frame(self, frame: pd.DataFrame) -> pd.DataFrame:
+    def frame(self, frame: pd.DataFrame, *, preserve=()) -> pd.DataFrame:
         result = frame.copy(deep=True)
         # Hashes and event IDs are not display names and must never be modified.
         for column in result.columns:
-            if column in ("record_id", "event_id", "combination_key"):
+            if column in (
+                "record_id",
+                "event_id",
+                "combination_key",
+                "equipment_group",
+                "factory",
+                "team",
+                *preserve,
+            ):
                 continue
             if column == "component_details":
                 result[column] = result[column].map(self.components)
@@ -87,13 +107,18 @@ class ReportNames:
 
 def report_result(result: AnalysisResult) -> AnalysisResult:
     """Return a presentation snapshot, not a change to the analysis/source data."""
-    names = ReportNames(result.config_snapshot.get("equipment_names", {}).get("mappings", {}))
+    names = ReportNames(
+        active_name_mapping(result.loaded, result.config_snapshot.get("equipment_names", {}))
+    )
+    preserve = (
+        ("equipment",) if result.options.equipment_basis in ("group", "factory", "team") else ()
+    )
     loaded = replace(result.loaded, frame=names.frame(result.loaded.frame))
     return replace(
         result,
         loaded=loaded,
-        all_records=names.frame(result.all_records),
-        selected=names.frame(result.selected),
-        tables={key: names.frame(table) for key, table in result.tables.items()},
+        all_records=names.frame(result.all_records, preserve=preserve),
+        selected=names.frame(result.selected, preserve=preserve),
+        tables={key: names.frame(table, preserve=preserve) for key, table in result.tables.items()},
         notes=[names.text(note) for note in result.notes],
     )

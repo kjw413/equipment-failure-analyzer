@@ -370,7 +370,7 @@ class TablePane(QWidget):
         self.table.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.DescendingOrder)
         self.table.setSortingEnabled(True)
         for index, column in enumerate(prepared.columns):
-            hidden = column in ("record_id", "event_id", "__source_row")
+            hidden = column in ("record_id", "event_id", "__source_row", "classification_schema")
             self.table.setColumnHidden(index, hidden)
             width = (
                 270

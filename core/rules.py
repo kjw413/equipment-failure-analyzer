@@ -36,10 +36,11 @@ ROLES = ("component", "fallback", "override", "nopart")
 # Schema 2 = rules_v2 plus hidden compatibility/meta sheets.
 # Schema 3 protects the physical-part catalogue from pre-1.8 default mergers.
 # Schema 4 adds the nopart role, which earlier programs would reject as an unknown role.
-RULES_SCHEMA = 4
-MIN_APP_VERSION = "1.10.0"
+# Schema 5 prevents earlier programs from exposing part IDs as output symptoms.
+RULES_SCHEMA = 5
+MIN_APP_VERSION = "1.11.0"
 RULES_SHEET, LEGACY_SHEET, META_SHEET = "rules_v2", "rules", "meta"
-LEGACY_GUARD = "이 분류 규칙은 v1.10.0 이상 전용입니다. 최신 프로그램(START.bat 또는 v1.10.0 이상 EXE)으로 실행하세요"
+LEGACY_GUARD = "이 분류 규칙은 v1.11.0 이상 전용입니다. 최신 프로그램(START.bat 또는 v1.11.0 이상 EXE)으로 실행하세요"
 
 
 def validate_rules(rules: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -1,0 +1,95 @@
+"""Split part/symptom display rows keep their one source event and downtime."""
+# ruff: noqa: E402
+
+import os
+
+import pytest
+from conftest import analyze_file
+from openpyxl import load_workbook
+
+from core.i18n import DISPLAY
+from report.excel_report import SHEETS, export_report
+from report.pdf_report import export_pdf
+
+
+@pytest.fixture
+def split_result(store, input_file):
+    workbook = load_workbook(input_file)
+    sheet = workbook["Events"]
+    sheet.cell(4, 5).value = "실린더 및 베어링 손상"
+    sheet.cell(5, 5).value = "실린더 누설 및 베어링 마모"
+    workbook.save(input_file)
+    workbook.close()
+    return analyze_file(store, input_file)
+
+
+def test_excel_has_one_detail_row_per_component_and_no_repeated_time(split_result, tmp_path):
+    source = split_result.selected.loc[split_result.selected.source_row.eq(4)].iloc[0]
+    rows = split_result.tables["fault_detail"]
+    members = rows.loc[rows.record_id.eq(source.record_id)]
+    assert set(zip(members.middle, members.minor)) == {("실린더", "손상"), ("베어링", "손상")}
+    assert len(members) == 2 and members.event_id.nunique() == 1
+    assert not any("minutes" in key for key in rows)
+    assert split_result.metrics["selected_rows"] == 4
+    assert split_result.metrics["total_minutes"] == 95
+    workbook = load_workbook(export_report(split_result, tmp_path / "split.xlsx"), data_only=True)
+    try:
+        assert len(workbook.sheetnames) == 12
+        sheet = workbook[SHEETS["fault_detail"]]
+        headers = [cell.value for cell in sheet[6]]
+        assert DISPLAY["middle"] in headers and DISPLAY["minor"] in headers
+        assert not any("정지시간" in str(value) for value in headers)
+        record_column = headers.index(DISPLAY.get("record_id", "record_id")) + 1
+        middle_column = headers.index(DISPLAY["middle"]) + 1
+        minor_column = headers.index(DISPLAY["minor"]) + 1
+        observed = {
+            (sheet.cell(row, middle_column).value, sheet.cell(row, minor_column).value)
+            for row in range(7, sheet.max_row + 1)
+            if sheet.cell(row, record_column).value == source.record_id
+        }
+        assert observed == {("실린더", "손상"), ("베어링", "손상")}
+    finally:
+        workbook.close()
+
+
+def test_pdf_explains_axes_and_shows_both_classification_rows(split_result, tmp_path):
+    pypdf = pytest.importorskip("pypdf")
+    reader = pypdf.PdfReader(export_pdf(split_result, tmp_path / "split.pdf"))
+    compact = "".join("".join(page.extract_text() or "" for page in reader.pages).split())
+    for expected in (
+        "부품·증상별분류",
+        "중분류는부품종류",
+        "소분류는증상",
+        "실린더",
+        "베어링",
+        "손상",
+    ):
+        assert expected in compact
+
+
+def test_split_gui_rows_are_read_only_and_open_the_original_event(split_result, store, monkeypatch):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
+    from gui.main_window import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(MainWindow, "draw_chart", lambda self: None)
+    window = MainWindow(store)
+    window.loaded_ready(split_result.loaded)
+    window.analysis_ready(split_result)
+    pane = window.panes["fault_detail"]
+    index = pane.proxy.index(0, pane.model.frame.columns.get_loc("middle"))
+    assert not (index.flags() & Qt.ItemFlag.ItemIsEditable)
+    row = pane.model.frame.iloc[pane.proxy.mapToSource(index).row()]
+    window.panes["detail"].search.setText("no matching record")
+    window._open_fault_source(index)
+    app.processEvents()
+    detail = window.panes["detail"]
+    selected = detail.proxy.mapToSource(detail.table.currentIndex())
+    assert detail.model.frame.iloc[selected.row()].event_id == row.event_id
+    assert window.navigation.current_page_key() == "detail"
+    assert not detail.search.text()
+    window.close()

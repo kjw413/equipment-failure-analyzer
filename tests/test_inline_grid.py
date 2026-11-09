@@ -158,8 +158,8 @@ def test_category_cascade_saves_one_complete_patch_after_all_children_selected(p
     configure(pane, saved)
     assert pane.proxy.setData(index(pane, "major"), "전기·제어")
     assert not saved
-    assert index(pane, "middle").data().endswith("중분류 선택")
-    assert index(pane, "minor").data().endswith("소분류 선택")
+    assert index(pane, "middle").data().endswith("중분류(부품 종류) 선택")
+    assert index(pane, "minor").data().endswith("소분류(증상) 선택")
     assert "분류 선택 중" in pane.edit_status.text()
     assert pane.proxy.setData(index(pane, "middle"), "센서·검출")
     assert not saved

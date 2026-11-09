@@ -95,6 +95,13 @@ def test_retired_defaults_remain_known_to_migration(catalog):
     assert not set(catalog["legacy_rule_ids"]) & {rule["id"] for rule in build_rules(catalog)}
 
 
+@pytest.mark.parametrize("text", ["광전센서 손상", "PLC 손상", "센서 마모"])
+def test_explicit_physical_damage_matches_parts_across_families(classifier, text):
+    result = classifier(text)
+    assert result["status"] == K["auto"]
+    assert result["component_count"] == 1
+
+
 @pytest.mark.parametrize(
     "text,minor",
     [

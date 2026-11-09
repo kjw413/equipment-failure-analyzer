@@ -14,6 +14,8 @@ CLASSIFICATION_COMPONENT_COLUMNS = (
     "component_types",
     "component_details",
     "combination_key",
+    "part_count",
+    "classification_schema",
 )
 
 Progress = Callable[[int, str], None]
@@ -45,12 +47,16 @@ class LoadedData:
 @dataclass
 class AnalysisOptions:
     scope: str = "fault"  # fault or all; unknown labels remain unknown
-    equipment_basis: str = "mapped"  # mapped / target / registered / family
+    equipment_basis: str = (
+        "mapped"  # mapped / group / factory / team / target / registered / family
+    )
     date_from: str | None = None
     date_to: str | None = None
     duration_unit: str = "minutes"
     deduplicate: bool = False
     top_n: int = 10
+    factory: str | None = None
+    team: str | None = None
 
 
 @dataclass

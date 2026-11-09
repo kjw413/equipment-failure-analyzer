@@ -10,6 +10,7 @@ import hashlib
 import json
 from typing import Any
 
+from core.failure_modes import CLASSIFICATION_SCHEMA, part_key
 from core.models import UserError
 
 CATEGORY_FIELDS = ("major", "middle", "minor")
@@ -33,9 +34,30 @@ def canonical_components(components: list[dict]) -> list[dict]:
         ):
             raise UserError("각 고장 유형에 대·중·소분류를 모두 입력하세요.")
         member = {key: item[key].strip() for key in CATEGORY_FIELDS}
-        for key in ("rule_id", "evidence"):
+        for key in (
+            "rule_id",
+            "evidence",
+            "schema",
+            "part_key",
+            "part_group",
+            "part_type",
+            "symptom_evidence",
+        ):
             if isinstance(item.get(key), str) and item[key].strip():
                 member[key] = item[key].strip()
+        if isinstance(item.get("actions"), list):
+            member["actions"] = list(
+                dict.fromkeys(
+                    action.strip()
+                    for action in item["actions"]
+                    if isinstance(action, str) and action.strip()
+                )
+            )
+        legacy = item.get("legacy_category")
+        if isinstance(legacy, dict) and all(
+            isinstance(legacy.get(key), str) for key in CATEGORY_FIELDS
+        ):
+            member["legacy_category"] = {key: legacy[key] for key in CATEGORY_FIELDS}
         category = tuple(member[key] for key in CATEGORY_FIELDS)
         previous = unique.get(category)
 
@@ -79,6 +101,14 @@ def component_payload(components: list[dict], mode: str = "single") -> dict:
     return {
         "classification_mode": mode,
         "component_count": len(members),
+        "part_count": len(
+            {
+                part_key(member["major"], member["middle"])
+                if member.get("schema") == CLASSIFICATION_SCHEMA
+                else type_label(member)
+                for member in members
+            }
+        ),
         "component_types": "\n".join(labels),
         "component_details": json.dumps(members, ensure_ascii=False, separators=(",", ":")),
         "combination_key": key,

@@ -1,8 +1,8 @@
-"""The production correction menu uses the approved 240-path catalog."""
+"""The production correction menu selects field, concrete part and symptom."""
 # ruff: noqa: E402
 
+import json
 import os
-from pathlib import Path
 
 import pytest
 
@@ -11,10 +11,9 @@ pytest.importorskip("PySide6")
 from conftest import analyze_file
 from PySide6.QtWidgets import QApplication, QDialog
 
-from core.classification_catalog import catalog_categories
+from core.failure_modes import SYMPTOM_NAMES
 from core.fault_components import parse_components
 from core.i18n import K
-from core.rules import read_rules
 from gui.dialogs import CorrectionDialog
 
 
@@ -35,103 +34,78 @@ def select(picker, path):
         combo.setCurrentIndex(index)
 
 
-def test_fresh_profile_picker_traverses_all_approved_paths(app, store, approved_catalog_paths):
-    rules = store.load()["rules"]
-    dialog = CorrectionDialog({}, rules=rules)
+def test_fresh_profile_picker_selects_concrete_parts_and_observed_symptoms(app, store):
+    dialog = CorrectionDialog({}, rules=store.load()["rules"])
     picker = dialog.classification_picker
-    assert set(picker.categories) == approved_catalog_paths
-    assert len(picker.categories) == 240
     assert len(choices(picker.combos["major"])) == 6
     assert all(not combo.isEditable() for combo in picker.combos.values())
     assert not dialog.confirm.isChecked()
-    visited = set()
-    for path in sorted(approved_catalog_paths):
-        select(picker, path)
-        visited.add(tuple(picker.value()[key] for key in ("major", "middle", "minor")))
-        assert choices(picker.combos["middle"]) == {
-            candidate[1] for candidate in approved_catalog_paths if candidate[0] == path[0]
-        }
-        assert choices(picker.combos["minor"]) == {
-            candidate[2] for candidate in approved_catalog_paths if candidate[:2] == path[:2]
-        }
-    assert visited == approved_catalog_paths
-    assert len({path[:2] for path in visited}) == 59
-    assert dialog.confirm.isChecked()  # Explicitly selecting a new path is a correction.
+    for major, part in (
+        ("공압·진공", "실린더"),
+        ("기계", "베어링"),
+        ("전기·제어", "광전센서"),
+        ("유체·배관", "도징펌프"),
+    ):
+        for symptom in SYMPTOM_NAMES:
+            select(picker, (major, part, symptom))
+            assert picker.value() == dict(major=major, middle=part, minor=symptom)
+        assert choices(picker.combos["minor"]) == set(SYMPTOM_NAMES)
+    assert dialog.confirm.isChecked()
     dialog.reject()
 
 
 @pytest.mark.parametrize(
-    "major,middle,required",
+    "major,required",
     [
-        ("유체·배관", "펌프", {"도징펌프", "로터리펌프", "부스터펌프", "펌프(종류 미상)"}),
-        ("전기·제어", "센서·검출", {"근접센서", "광전센서", "엔코더", "센서(종류 미상)"}),
-        ("기계", "벨트·풀리", {"타이밍벨트", "V벨트", "풀리", "벨트(종류 미상)"}),
-        ("공압·진공", "실린더", {"로드리스실린더", "회전실린더", "실린더(종류 미상)"}),
+        ("유체·배관", {"도징펌프", "로터리펌프", "부스터펌프", "펌프"}),
+        ("전기·제어", {"근접센서", "광전센서", "엔코더", "센서"}),
+        ("기계", {"타이밍벨트", "V벨트", "풀리", "벨트"}),
+        ("공압·진공", {"로드리스실린더", "회전실린더", "실린더"}),
     ],
 )
-def test_current_component_families_show_concrete_types(
-    app, store, approved_catalog_paths, major, middle, required
+def test_part_subtypes_are_middle_choices_and_symptoms_are_minor_choices(
+    app, store, major, required
 ):
     dialog = CorrectionDialog({}, rules=store.load()["rules"])
     picker = dialog.classification_picker
-    select(picker, (major, middle, sorted(required)[0]))
-    actual = choices(picker.combos["minor"])
-    assert required <= actual
-    assert actual == {p[2] for p in approved_catalog_paths if p[:2] == (major, middle)}
-    if middle == "펌프":
-        assert actual == required
+    select(picker, (major, sorted(required)[0], "손상"))
+    assert required <= choices(picker.combos["middle"])
+    assert not required.intersection(choices(picker.combos["minor"]))
     dialog.reject()
 
 
-def test_old_manual_path_stays_local_and_never_pollutes_shared_lists(
-    app, store, approved_catalog_paths
-):
-    rules = store.load()["rules"]
+def test_legacy_manual_path_is_not_added_to_new_global_choices(app, store):
     legacy = {"major": "유체·배관", "middle": "펌프", "minor": "펌프 이상"}
-    store.update_override("saved-event", legacy)
+    store.override_path.write_text(json.dumps({"saved-event": legacy}), encoding="utf-8")
     saved_bytes = store.override_path.read_bytes()
-    old_dialog = CorrectionDialog(legacy, store.override("saved-event"), rules=rules)
-    assert old_dialog.classification_picker.value() == legacy
-    assert not old_dialog.confirm.isChecked()
-    old_dialog.edits["minutes"].setText("15")
-    old_dialog.validate_and_accept()
-    assert old_dialog.patch == {"minutes": "15"}
+    dialog = CorrectionDialog(legacy, store.override("saved-event"), rules=store.load()["rules"])
+    assert dialog.classification_picker.value() == legacy
+    dialog.edits["minutes"].setText("15")
+    dialog.validate_and_accept()
+    assert dialog.patch == {"minutes": "15"}
     assert store.override_path.read_bytes() == saved_bytes
-
-    blank = CorrectionDialog({}, rules=rules)
-    old_rules = read_rules(
-        Path(__file__).parent / "fixtures" / "v172_config" / "classification_config.xlsx"
-    )
-    old_paths = set(catalog_categories(old_rules))
-    assert set(blank.classification_picker.categories) == approved_catalog_paths
-    assert not (old_paths - approved_catalog_paths).intersection(blank.classification_picker.paths)
-    select(blank.classification_picker, ("유체·배관", "펌프", "도징펌프"))
+    blank = CorrectionDialog({}, rules=store.load()["rules"])
+    select(blank.classification_picker, ("유체·배관", "펌프", "손상"))
     assert "펌프 이상" not in choices(blank.classification_picker.combos["minor"])
-    old_dialog.component_picker.add_button.click()
-    fresh_member = old_dialog.component_picker.pickers[-1]
-    select(fresh_member, ("유체·배관", "펌프", "로터리펌프"))
-    assert "펌프 이상" not in choices(fresh_member.combos["minor"])
     blank.reject()
-    old_dialog.reject()
+    dialog.reject()
 
 
-def test_actual_catalog_multiple_confirmation_preserves_cross_family_types_and_totals(
-    app, store, catalog_input, approved_catalog_paths
+def test_multiple_confirmation_saves_part_symptom_rows_and_preserves_event_totals(
+    app, store, catalog_input
 ):
     before = analyze_file(store, catalog_input)
     record = before.selected.loc[before.selected.source_row.eq(4)].iloc[0].to_dict()
     expected = {
-        ("유체·배관", "펌프", "도징펌프"),
-        ("전기·제어", "센서·검출", "근접센서"),
+        ("유체·배관", "도징펌프", "파손"),
+        ("전기·제어", "근접센서", "고장·이상"),
     }
-    assert record["classification_mode"] == "multiple"
     dialog = CorrectionDialog(record, rules=store.load()["rules"])
     observed = {
         tuple(member[key] for key in ("major", "middle", "minor"))
         for member in dialog.component_picker.values()
     }
-    assert observed == expected and observed <= approved_catalog_paths
-    assert not dialog.multiple_confirm.isChecked()
+    assert observed == expected
     dialog.multiple_confirm.setChecked(True)
     dialog.validate_and_accept()
     assert dialog.result() == QDialog.DialogCode.Accepted

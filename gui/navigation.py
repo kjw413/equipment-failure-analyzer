@@ -19,6 +19,7 @@ class WorkspaceNavigation(QWidget):
         ("type", "유형별"),
         ("cross", "교차분석"),
         ("detail", "전체 기록 · 수정"),
+        ("fault_detail", "부품·증상 분류"),
         ("raw", "원본 확인"),
     )
 

@@ -115,7 +115,7 @@ class ConfigStore:
             logging.getLogger(__name__).exception("Defaults merge failed")
             self.merge_summary = {}
             self.merge_error = exc
-        # Keep pre-v1.5.0 programs from reading these rules with their old engine (see rules.write_rules).
+        # Older programs must not reinterpret the current part/symptom output schema.
         from core.rules import upgrade_rules_format
 
         try:
@@ -139,20 +139,22 @@ class ConfigStore:
         from core.classification_catalog import validate_catalog
 
         validate_catalog(result["classification_catalog"])
-        from core.equipment_names import validate_names
+        from core.equipment_names import normalize_name_settings
 
         final_report = result["final_report"]
         if not isinstance(final_report, dict) or final_report.get("schema_version") != 1:
             raise UserError("final_report.json: unsupported schema")
-        names = result["equipment_names"]
-        if not isinstance(names, dict) or names.get("schema_version") != 1:
-            raise UserError("equipment_names.json: unsupported schema")
-        names["mappings"] = validate_names(names.get("mappings", {}))
+        result["equipment_names"] = normalize_name_settings(result["equipment_names"])
         sections = result["settings"].get("report_sections", [])
         result["settings"]["report_sections"] = [key for key in sections if key != "product"]
         if "equipment_types" not in result["settings"]["report_sections"]:
             result["settings"]["report_sections"].append("equipment_types")
         result["settings"].setdefault("donut_top_n", 5)
+        from core.review_colors import normalized_review_colors
+
+        result["settings"]["review_colors"] = normalized_review_colors(
+            result["settings"].get("review_colors")
+        )
         engine = result["settings"].setdefault("classifier", {})
         if not isinstance(engine, dict):
             raise UserError("settings.json: classifier는 객체여야 합니다.")
@@ -177,6 +179,7 @@ class ConfigStore:
         """Set (text) or remove (None) individual corrected fields of one record."""
         overrides = self.read("manual_overrides.json")
         current = {k: v for k, v in overrides.get(event_id, {}).items() if k != "saved_at"}
+        from core.failure_modes import CLASSIFICATION_SCHEMA
         from core.fault_components import (
             CATEGORY_FIELDS,
             COMPONENT_OVERRIDE,
@@ -185,8 +188,14 @@ class ConfigStore:
         )
 
         patch = dict(patch)
+        if patch.get("classification_schema") not in (None, "", CLASSIFICATION_SCHEMA):
+            raise UserError("지원하지 않는 분류 저장 형식입니다.")
         multiple = patch.get(COMPONENT_OVERRIDE)
         single_selection = any(str(patch.get(key) or "").strip() for key in CATEGORY_FIELDS)
+        classification_changed = multiple not in (None, "") or single_selection
+        if single_selection and current.get("classification_schema") != CLASSIFICATION_SCHEMA:
+            if not all(str(patch.get(key) or "").strip() for key in CATEGORY_FIELDS):
+                raise UserError("새 부품·증상 분류는 대·중·소분류를 모두 입력하세요.")
         if multiple not in (None, ""):
             if single_selection:
                 raise UserError("단일 유형과 복수 유형을 동시에 확정할 수 없습니다.")
@@ -210,6 +219,19 @@ class ConfigStore:
                 current.pop(key, None)
             else:
                 current[key] = str(value).strip()
+        has_classification = bool(current.get(COMPONENT_OVERRIDE)) or any(
+            current.get(key) for key in CATEGORY_FIELDS
+        )
+        if classification_changed:
+            current["classification_schema"] = CLASSIFICATION_SCHEMA
+            current.pop("legacy_category", None)
+        elif not has_classification:
+            current.pop("classification_schema", None)
+            current.pop("legacy_category", None)
+        elif overrides.get(event_id, {}).get("classification_schema") == CLASSIFICATION_SCHEMA:
+            # Editing a date/time must not turn a current classification into a
+            # legacy unmarked triplet, even when an empty marker was submitted.
+            current["classification_schema"] = CLASSIFICATION_SCHEMA
         if current:
             overrides[event_id] = {
                 **current,
@@ -257,19 +279,43 @@ class ConfigStore:
         }
         atomic_json(self.mapping_path, saved)
 
-    def save_equipment_names(self, mapping: dict[str, str]) -> dict:
-        """Save one canonical current mapping; settings survive restart/upgrades."""
-        from core.equipment_names import validate_names
+    def save_equipment_names(
+        self,
+        mapping: dict[str, str],
+        *,
+        source: str = "equipment",
+        grouping: dict | None = None,
+        organization: dict | None = None,
+    ) -> dict:
+        """Save the selected mapping while preserving the other source and metadata."""
+        from core.equipment_names import (
+            normalize_grouping,
+            normalize_name_settings,
+            normalize_organization,
+            validate_names,
+        )
 
+        if source not in ("line", "equipment"):
+            raise UserError("설비명 변환 기준은 line 또는 equipment여야 합니다.")
         checked = validate_names(mapping)
         current = self.read("equipment_names.json")
-        if current.get("mappings") == checked:
+        value = normalize_name_settings(current)
+        key = "line_mappings" if source == "line" else "mappings"
+        value[key] = checked
+        value["source"] = source
+        if grouping is not None:
+            value["grouping"] = normalize_grouping(grouping)
+        if organization is not None:
+            checked_organization = normalize_organization(organization)
+            value["organization"] = {
+                name_source: checked_organization[name_source]
+                if name_source in organization
+                else value["organization"][name_source]
+                for name_source in ("line", "equipment")
+            }
+        if current == value:
             return current
-        value = {
-            "schema_version": 1,
-            "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-            "mappings": checked,
-        }
+        value["updated_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
         atomic_json(self.config_dir / "equipment_names.json", value)
         return value
 
@@ -283,3 +329,15 @@ class ConfigStore:
                     raise UserError(f"{key}: maximum {limit} characters")
                 value[key] = text
         atomic_json(self.config_dir / "final_report.json", value)
+
+    def save_review_colors(self, colors: dict[str, str]) -> dict[str, str]:
+        """Persist highlight choices without replacing other analysis settings."""
+        from core.review_colors import normalized_review_colors, validate_review_colors
+
+        checked = validate_review_colors(colors)
+        value = self.read("settings.json")
+        merged = normalized_review_colors(value.get("review_colors"))
+        merged.update(checked)
+        value["review_colors"] = merged
+        atomic_json(self.config_dir / "settings.json", value)
+        return merged

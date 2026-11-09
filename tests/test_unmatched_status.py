@@ -55,7 +55,11 @@ def test_unmatched_faults_are_labelled_by_source_downtime_codes(store, unmatched
     assert records.loc["센서 교체", "status"] == K["auto"]
     # Without a part in the description, the normalized 비가동코드(소) names it.
     coded = records.loc["이탈로 인해 정비및교체"]
-    assert (coded["status"], coded["minor"]) == (K["auto"], "컨베어(종류 미상)")
+    assert (coded["status"], coded["middle"], coded["minor"]) == (
+        K["auto"],
+        "컨베어",
+        "이탈·풀림",
+    )
     assert "비가동코드(소)" in coded["classification_reason"]
     assert result.metrics["code_missing_rows"] == 1
     assert result.metrics["rule_unmatched_rows"] == 1
@@ -76,7 +80,7 @@ def test_unmatched_labels_are_explained_and_never_offered_as_categories():
 def test_quality_sheet_counts_each_unmatched_label(store, unmatched_file, tmp_path):
     result = analyze_file(store, unmatched_file)
     out = export_report(result, tmp_path / "report.xlsx")
-    quality = load_workbook(out, data_only=True)[SHEETS["quality"]]
+    quality = load_workbook(out, data_only=True)[SHEETS["review"]]
     counts = {
         quality.cell(row, 1).value: quality.cell(row, 2).value
         for row in range(1, quality.max_row + 1)

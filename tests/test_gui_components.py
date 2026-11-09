@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QMessageBox
 
 from core.corrections import COMPONENT_FIELD, correction_patch, initial_values
 from core.excel_loader import load_excel
+from core.failure_modes import SYMPTOM_NAMES
 from core.fault_components import (
     combination_category,
     component_payload,
@@ -27,12 +28,16 @@ from gui.dialogs import CorrectionDialog
 from gui.main_window import MainWindow
 
 MEMBERS = [
+    {"major": "기계", "middle": "타이밍벨트", "minor": "마모"},
+    {"major": "전기·제어", "middle": "근접센서", "minor": "고장·이상"},
+]
+PART_MEMBERS = [
     {"major": "기계", "middle": "벨트·풀리", "minor": "타이밍벨트"},
     {"major": "전기·제어", "middle": "센서·검출", "minor": "근접센서"},
 ]
 RULES = [
-    {**MEMBERS[0], "enabled": True, "role": "component"},
-    {**MEMBERS[1], "enabled": True, "role": "component"},
+    {**PART_MEMBERS[0], "enabled": True, "role": "component"},
+    {**PART_MEMBERS[1], "enabled": True, "role": "component"},
     {
         "major": "기계",
         "middle": "벨트·풀리",
@@ -103,16 +108,16 @@ def test_category_lists_are_noneditable_and_follow_active_parent_choices(app):
     assert not combo_values(picker.combos["middle"])
     assert not combo_values(picker.combos["minor"])
 
-    select_category(picker, {"major": "기계", "middle": "베어링", "minor": "베어링(종류 미상)"})
-    assert combo_values(picker.combos["middle"]) == ["베어링", "벨트·풀리"]
-    assert combo_values(picker.combos["minor"]) == ["베어링(종류 미상)"]
-    picker.combos["middle"].setCurrentIndex(picker.combos["middle"].findData("벨트·풀리"))
+    select_category(picker, {"major": "기계", "middle": "베어링", "minor": "손상"})
+    assert combo_values(picker.combos["middle"]) == ["V벨트", "베어링", "타이밍벨트"]
+    assert set(combo_values(picker.combos["minor"])) == set(SYMPTOM_NAMES)
+    picker.combos["middle"].setCurrentIndex(picker.combos["middle"].findData("V벨트"))
     assert not picker.value()["minor"]
-    assert combo_values(picker.combos["minor"]) == ["V벨트", "타이밍벨트"]
-    picker.combos["minor"].setCurrentIndex(picker.combos["minor"].findData("타이밍벨트"))
+    assert set(combo_values(picker.combos["minor"])) == set(SYMPTOM_NAMES)
+    picker.combos["minor"].setCurrentIndex(picker.combos["minor"].findData("마모"))
     picker.combos["major"].setCurrentIndex(picker.combos["major"].findData("전기·제어"))
     assert picker.value() == {"major": "전기·제어", "middle": "", "minor": ""}
-    assert combo_values(picker.combos["middle"]) == ["센서·검출"]
+    assert combo_values(picker.combos["middle"]) == ["근접센서"]
     assert not combo_values(picker.combos["minor"])
     dialog.reject()
 
@@ -373,7 +378,10 @@ def test_gui_multiple_confirmation_is_applied_and_can_be_cleared(
     row = after.selected.loc[after.selected["event_id"].eq(record["event_id"])].iloc[0]
     assert row["status"] == K["manual_multi"]
     assert row["component_count"] == 2
-    assert parse_components(row["component_details"]) == MEMBERS
+    assert [
+        {key: member[key] for key in ("major", "middle", "minor")}
+        for member in parse_components(row["component_details"])
+    ] == MEMBERS
     assert after.metrics["selected_rows"] == before.metrics["selected_rows"]
     assert after.metrics["total_minutes"] == before.metrics["total_minutes"]
     assert "사용자확정" in row["classification_reason"]

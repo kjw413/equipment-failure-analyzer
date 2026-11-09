@@ -48,13 +48,15 @@ def test_equipment_charts_share_rendering_and_describe_configured_limit(
     assert all(call.kwargs["top_n"] == 3 for call in render.call_args_list)
     workbook = load_workbook(path, data_only=True)
     try:
-        for key in ("equipment", "equipment_types"):
-            assert len(workbook[excel.SHEETS[key]]._images) == result.metrics["equipment_count"]
+        assert (
+            len(workbook[excel.SHEETS["equipment"]]._images)
+            == result.metrics["equipment_count"] + 2
+        )
         overview = "\n".join(
             str(cell.value) for row in workbook[excel.SHEETS["equipment"]] for cell in row
         )
         quality = "\n".join(
-            str(cell.value) for row in workbook[excel.SHEETS["quality"]] for cell in row
+            str(cell.value) for row in workbook[excel.SHEETS["review"]] for cell in row
         )
         assert "상위 3개 유형 + 기타" in overview
         assert "상위 3개 외 유형 합산" in quality

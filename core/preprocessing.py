@@ -11,10 +11,20 @@ from typing import Any
 
 import pandas as pd
 
-from core.classifier import RuleClassifier
-from core.equipment_names import code_key, resolve_name
+from core.equipment_names import (
+    active_name_mapping,
+    code_key,
+    effective_name_source,
+    normalize_name_settings,
+    resolve_group,
+    resolve_name,
+    resolve_organization,
+)
+from core.failure_classification import FaultClassifier
+from core.failure_modes import CLASSIFICATION_SCHEMA, manual_category
 from core.fault_components import (
     COMPONENT_OVERRIDE,
+    canonical_components,
     combination_category,
     component_payload,
     parse_components,
@@ -83,9 +93,14 @@ RECORD_COLUMNS = [
     "family",
     "equipment",
     "equipment_basis",
+    "line_code",
+    "raw_line_name",
     "equipment_code",
     "raw_equipment_name",
     "report_equipment",
+    "equipment_group",
+    "factory",
+    "team",
     "name_mapped",
     "product",
     "raw_description",
@@ -181,7 +196,10 @@ def standardize(
                 f"{key}: \uceec\ub7fc\uc744 \ub2e4\uc2dc \uc120\ud0dd\ud558\uc138\uc694."
             )
     settings = config["settings"]
-    classifier = RuleClassifier(config["rules"], settings.get("classifier"))
+    name_settings = normalize_name_settings(config.get("equipment_names", {"schema_version": 1}))
+    name_source = effective_name_source(loaded, name_settings)
+    name_mapping = active_name_mapping(loaded, name_settings)
+    classifier = FaultClassifier(config["rules"], settings.get("classifier"))
     target_review = review_target(settings, options)
     fault_labels = {normalize(v) for v in settings["fault_labels"]}
     rows = []
@@ -245,13 +263,26 @@ def standardize(
         if line == K["missing"]:
             line = normalized_name(get("line_id"), {})
         registered = normalized_name(get("equipment_name"), config["equipment_aliases"])
+        line_code = text(get("line_id"))
+        raw_line_name = text(get("line_name"))
         raw_equipment_name = text(get("equipment_name"))
         equipment_code = text(get("equipment_id"))
         report_equipment, name_mapped = resolve_name(
-            equipment_code,
-            raw_equipment_name,
-            config.get("equipment_names", {}).get("mappings", {}),
+            line_code if name_source == "line" else equipment_code,
+            raw_line_name if name_source == "line" else raw_equipment_name,
+            name_mapping,
         )
+        equipment_group = resolve_group(report_equipment, name_settings["grouping"])
+        organization_code = (
+            line_code or raw_line_name
+            if name_source == "line"
+            else equipment_code or raw_equipment_name
+        )
+        organization = resolve_organization(
+            organization_code, raw_line_name, name_settings, source=name_source
+        )
+        factory, team = organization["factory"], organization["team"]
+        team_equipment = f"{factory} / {team}" if factory != K["missing"] else team
         raw_mid = text(get("code_mid"))
         if loaded.profile == "mes_downtime_v1":
             target = (
@@ -319,26 +350,48 @@ def standardize(
         manual_components = None
         if override.get(COMPONENT_OVERRIDE):
             # A malformed saved multi-selection must never silently revert to an automatic type.
-            manual_components = parse_components(override[COMPONENT_OVERRIDE], strict=True)
-            category = combination_category(manual_components)
             manual_components = [
-                {key: item[key] for key in ("major", "middle", "minor")}
-                for item in manual_components
+                manual_category(item, override.get("classification_schema"))
+                for item in parse_components(override[COMPONENT_OVERRIDE], strict=True)
             ]
+            manual_components = canonical_components(manual_components)
+            if not manual_components:
+                raise UserError("저장된 복수 고장 유형 목록이 비어 있습니다.")
+            is_multiple = len(manual_components) >= 2
+            category = (
+                combination_category(manual_components)
+                if is_multiple
+                else {key: manual_components[0][key] for key in ("major", "middle", "minor")}
+            )
             classification.update(category)
-            classification.update(component_payload(manual_components, "multiple"))
             classification.update(
-                status=K["manual_multi"], evidence=K["manual_multi"], candidates=""
+                component_payload(manual_components, "multiple" if is_multiple else "single")
+            )
+            classification.update(
+                status=K["manual_multi"] if is_multiple else K["manual"],
+                evidence=K["manual_multi"] if is_multiple else K["manual"],
+                candidates="",
             )
         elif all(override.get(k) for k in ("major", "middle", "minor")):
-            category = {key: override[key] for key in ("major", "middle", "minor")}
-            classification.update(category)
+            category = manual_category(
+                {key: override[key] for key in ("major", "middle", "minor")},
+                override.get("classification_schema"),
+            )
+            classification.update({key: category[key] for key in ("major", "middle", "minor")})
             classification.update(component_payload([category], "single"))
             classification.update(status=K["manual"], evidence=K["manual"], candidates="")
         if manual_components is not None or classification["status"] == K["manual"]:
             classification.update({field: "" for field in CLASSIFICATION_DECISION_COLUMNS})
             classification["classification_reason"] = "사용자확정: 저장된 분류를 적용합니다."
+            if any(
+                item.get("legacy_category")
+                for item in parse_components(classification["component_details"])
+            ):
+                classification["classification_reason"] += (
+                    " 기존 확정값을 보존하며 기록되지 않은 증상은 추정하지 않습니다."
+                )
             review_code = ""
+        classification["classification_schema"] = CLASSIFICATION_SCHEMA
         if override.get("product"):
             product = override["product"]
         if override.get("work_date"):
@@ -373,12 +426,16 @@ def standardize(
             if classification["status"] == K["review"]:
                 issue_key = (
                     review_code
-                    if review_code in ("multiple_faults", "alternative_types")
+                    if review_code in ("multiple_faults", "alternative_types", "uncertain_fault")
+                    and review_code in K
                     else "multi_rule"
                 )
                 issues.append(K[issue_key])
         equipment = {
             "mapped": report_equipment,
+            "group": equipment_group,
+            "factory": factory,
+            "team": team_equipment,
             "registered": registered,
             "target": target,
             "family": family,
@@ -404,9 +461,14 @@ def standardize(
             "target": target,
             "family": family,
             "equipment": equipment,
+            "line_code": line_code,
+            "raw_line_name": raw_line_name,
             "equipment_code": equipment_code,
             "raw_equipment_name": raw_equipment_name,
             "report_equipment": report_equipment,
+            "equipment_group": equipment_group,
+            "factory": factory,
+            "team": team,
             "name_mapped": name_mapped,
             "equipment_basis": target_basis
             if options.equipment_basis == "target"
@@ -431,10 +493,15 @@ def standardize(
             progress(10 + int(65 * (index + 1) / max(1, len(loaded.frame))), K["processing"])
     result = pd.DataFrame(rows, columns=RECORD_COLUMNS)
     if not result.empty:
-        identities = result[["equipment_code", "raw_equipment_name", "report_equipment"]].copy()
+        code_column, raw_name_column = (
+            ("line_code", "raw_line_name")
+            if name_source == "line"
+            else ("equipment_code", "raw_equipment_name")
+        )
+        identities = result[[code_column, raw_name_column, "report_equipment"]].copy()
         identities["_key"] = [
             code_key(c) or code_key(n)
-            for c, n in zip(identities.equipment_code, identities.raw_equipment_name)
+            for c, n in zip(identities[code_column], identities[raw_name_column])
         ]
         identities["_display"] = identities.report_equipment.astype(str).str.casefold()
         clashes = identities.groupby("_display")["_key"].nunique()
@@ -450,6 +517,9 @@ def standardize(
         result[key] = pd.to_numeric(result[key], errors="coerce")
     result["component_count"] = (
         pd.to_numeric(result["component_count"], errors="coerce").fillna(0).astype(int)
+    )
+    result["part_count"] = (
+        pd.to_numeric(result["part_count"], errors="coerce").fillna(0).astype(int)
     )
     for key in ("date", "start", "end"):
         result[key] = pd.to_datetime(result[key], errors="coerce")

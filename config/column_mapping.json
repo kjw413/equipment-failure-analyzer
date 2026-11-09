@@ -32,6 +32,8 @@
     "duration"
   ],
   "line_id": [
+    "라인 코드",
+    "라인(코드)",
     "라인",
     "라인코드",
     "line_id"
@@ -42,6 +44,7 @@
     "line"
   ],
   "equipment_id": [
+    "설비(코드)",
     "설비코드",
     "설비번호",
     "equipment_id"

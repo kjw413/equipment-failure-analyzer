@@ -22,6 +22,7 @@ def app():
 def test_mapping_autosaves_and_flushes_last_text(app, tmp_path):
     store = ConfigStore(tmp_path / "profile")
     dialog = EquipmentNamesDialog(store)
+    dialog.source_combo.setCurrentIndex(dialog.source_combo.findData("equipment"))
     dialog.show()
     edit = dialog.table.cellWidget(0, 2)
     edit.selectAll()
@@ -183,12 +184,13 @@ def test_grid_classification_picker_uses_current_profile_rules_when_opened(analy
     pane.open_classification_editor(pane.proxy.index(0, column))
     editor = pane.classification_editor
     picker = editor.single_picker
+    chosen = {"major": custom["major"], "middle": custom["minor"], "minor": "손상"}
     for field in ("major", "middle", "minor"):
         combo = picker.combos[field]
-        index = combo.findData(custom[field])
+        index = combo.findData(chosen[field])
         assert index >= 0
         combo.setCurrentIndex(index)
-    assert picker.value() == {key: custom[key] for key in ("major", "middle", "minor")}
+    assert picker.value() == chosen
     editor.cancel_button.click()
     assert not window.store.override(pane.selected_record()["event_id"])
 
@@ -203,7 +205,8 @@ def test_rule_editor_shows_role_column(app, tmp_path):
     headers = [
         editor.table.horizontalHeaderItem(i).text() for i in range(editor.table.columnCount())
     ]
-    assert headers == RULE_COLUMNS and "role" in headers
+    labels = {"major": "분야", "middle": "부품군", "minor": "부품 종류"}
+    assert headers == [labels.get(key, key) for key in RULE_COLUMNS] and "role" in headers
     roles = {
         editor.table.item(r, RULE_COLUMNS.index("role")).text()
         for r in range(editor.table.rowCount())

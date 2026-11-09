@@ -53,7 +53,7 @@ def workbook_text(workbook):
 
 
 def test_decision_columns_preserve_existing_formula_column_positions():
-    assert len(DETAIL_COLS) == 48
+    assert len(DETAIL_COLS) == 54
     assert DETAIL_COLS[:12] == [
         "record_id",
         "source_row",
@@ -76,17 +76,22 @@ def test_decision_columns_preserve_existing_formula_column_positions():
         "name_mapped",
     ]
     assert DETAIL_COLS[41:43] == list(DECISION_FIELDS)
-    assert DETAIL_COLS[43:] == list(COMPONENT_FIELDS)
+    assert DETAIL_COLS[43:49] == [
+        field for field in COMPONENT_FIELDS if field != "classification_schema"
+    ]
+    assert DETAIL_COLS[49:52] == ["line_code", "raw_line_name", "equipment_group"]
+    assert DETAIL_COLS[52:] == ["factory", "team"]
+    assert "classification_schema" not in DETAIL_COLS
     assert D["record_id"] == "A" and D["minutes"] == "I" and D["type"] == "J"
     assert not set(LEGACY_SCORE_FIELDS).intersection(DETAIL_COLS)
 
 
-def test_excel_detail_review_top_expose_rule_decisions(decision_result, tmp_path):
+def test_excel_detail_and_review_expose_rule_decisions(decision_result, tmp_path):
     workbook = load_workbook(
         export_report(decision_result, tmp_path / "rules.xlsx"), data_only=True
     )
     try:
-        for key in ("detail", "review", "top"):
+        for key in ("detail", "review"):
             sheet = workbook[SHEETS[key]]
             headers = {cell.value: cell.column for cell in sheet[6]}
             for field in DECISION_FIELDS:
@@ -94,7 +99,7 @@ def test_excel_detail_review_top_expose_rule_decisions(decision_result, tmp_path
                 assert any(sheet.cell(row, column).value for row in range(7, sheet.max_row + 1))
             assert not any(DISPLAY.get(field, field) in headers for field in LEGACY_SCORE_FIELDS)
         quality_counts = {
-            row[0].value: row[1].value for row in workbook[SHEETS["quality"]] if len(row) >= 2
+            row[0].value: row[1].value for row in workbook[SHEETS["review"]] if len(row) >= 2
         }
         assert quality_counts[K["review"]] == 1
         assert workbook[SHEETS["summary"]]["E7"].value == decision_result.metrics["total_minutes"]
@@ -182,9 +187,7 @@ def test_older_results_ignore_scores_without_mutating_input(decision_result, tmp
             detail[f"{D['classification_reason']}{row}"].value == LEGACY_REASON
             for row in legacy_rows
         )
-        counts = {
-            row[0].value: row[1].value for row in workbook[SHEETS["quality"]] if len(row) >= 2
-        }
+        counts = {row[0].value: row[1].value for row in workbook[SHEETS["review"]] if len(row) >= 2}
         assert counts[K["auto"]] == 0
         assert counts["이전 분석결과(재분석 필요)"] == len(legacy_rows)
     finally:

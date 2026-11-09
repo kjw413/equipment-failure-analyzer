@@ -95,8 +95,11 @@ def test_excel_components_are_snapshot_event_counts_without_time_allocation(
         assert sum(component.cell(row, 5).value for row in (7, 8, 9)) == 1.25
         assert "정적표" in component["A5"].value
         assert "정지시간" not in " ".join(str(cell.value) for cell in component[6])
-        assert values[SHEETS["component_trend"]]["A7"].value == "2026-01"
-        assert values[SHEETS["component_trend"]]["F6"].value == "해당 월 전체 고장기록 대비 비율"
+        monthly_header = next(
+            row for row in range(7, component.max_row + 1) if component.cell(row, 6).value == "월"
+        )
+        assert component.cell(monthly_header + 1, 6).value == "2026-01"
+        assert component.cell(monthly_header, 5).value == "해당 월 전체 고장기록 대비 비율"
         detail = values[SHEETS["detail"]]
         for record in component_result.selected.to_dict("records"):
             row = next(
@@ -109,15 +112,15 @@ def test_excel_components_are_snapshot_event_counts_without_time_allocation(
             if record["status"] == K["manual_multi"]:
                 assert detail[f"{D['classification_mode']}{row}"].value == "복수 유형 조합"
                 assert record["classification_mode"] == "multiple"
-        quality = values[SHEETS["quality"]]
+        quality = values[SHEETS["review"]]
         manual_row = next(
             row
             for row in range(1, quality.max_row + 1)
             if quality.cell(row, 1).value == K["manual"]
         )
         assert quality.cell(manual_row, 2).value == 1
-        assert "COUNTIF" in formulas[SHEETS["quality"]].cell(manual_row, 2).value
-        assert K["manual_multi"] in formulas[SHEETS["quality"]].cell(manual_row, 2).value
+        assert "COUNTIF" in formulas[SHEETS["review"]].cell(manual_row, 2).value
+        assert K["manual_multi"] in formulas[SHEETS["review"]].cell(manual_row, 2).value
         type_table = values[SHEETS["type"]]
         assert (
             sum(
@@ -160,12 +163,12 @@ def test_legacy_report_without_component_fields_or_tables_still_exports(
         tables={
             key: table.drop(columns=list(COMPONENT_FIELDS), errors="ignore")
             for key, table in result.tables.items()
-            if key not in ("component", "component_trend", "combination")
+            if key not in ("component", "component_trend", "combination", "fault_detail")
         },
     )
     workbook = load_workbook(export_report(result, tmp_path / "legacy.xlsx"), data_only=True)
     try:
-        assert len(workbook.sheetnames) == 15
+        assert len(workbook.sheetnames) == 10
         assert SHEETS["component"] not in workbook.sheetnames
         assert workbook[SHEETS["detail"]][f"{D['component_count']}7"].value is None
     finally:
@@ -213,7 +216,7 @@ def test_alternative_type_quality_counts_preserve_rule_review(component_result, 
     )
     workbook = load_workbook(export_report(result, tmp_path / "alternative.xlsx"), data_only=True)
     try:
-        quality = workbook[SHEETS["quality"]]
+        quality = workbook[SHEETS["review"]]
         counts = {row[0].value: row[1].value for row in quality if len(row) >= 2}
         assert counts[K["alternative_type_rows"]] == 1
         assert counts[K["review"]] == 1

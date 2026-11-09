@@ -64,7 +64,7 @@ DEFAULT_ENGINE = {
     # A part that was only adjusted is weaker evidence than a stated failure.
     "action_pattern": "조정|재조정|조절|점검|청소|보수|용접|체결|고정|재조임|세팅|리셋|reset|재부팅|셧다운|온오프|재투입|"
     "보강|수정|교정|calibration|영점|분해|조립|급유|도포|확인|제거|재가동|가동|조치|작업|"
-    "위치|각도|타이밍|원점|센터|높이|간격|텐션|감도|길이",
+    "위치|각도|타이밍|원점|센터|높이|간격|텐션|감도|길이|전원종료|전원차단",
     # Worker-selected MES part code (비가동 코드(소)) -> compatible standard majors.
     "part_code_majors": {},
     # Optional legacy first-stated-failure preference; off by default.
@@ -81,8 +81,15 @@ STRENGTH_REASON = {
 CLAUSE_SPLIT = re.compile(
     r"[\n\r/;|*()\[\]→]|->|=>|>>|(?<!\d)\.|\.(?!\d)|\s-\s|(?<=[가-힣])-(?=[가-힣\s])"
 )
-NEGATION = re.compile(r"없|무(?![가-힣])")
+NEGATION = re.compile(
+    r"(?:은|는|이|가|도|을|를)?(?:전혀)?(?:없|무(?![가-힣])|아님|아니(?!면)|하지않|하지안|"
+    r"안(?:함|했|하|됨|되)|않|불필요|취소|보류|미실시|한것이아니)"
+)
 NEGATED_PART = re.compile(r"(?:정상(?:작동)?|이상없|문제없|고장없|없음|무고장|ok)", re.I)
+NORMAL_AFTER_INSPECTION = re.compile(
+    r"^(?:(?:결과|후|은|는|이|가|로|한|시))*?(?:정상|이상(?:은|이)?없|문제(?:는|가)?없|고장없|ok)",
+    re.I,
+)
 # Keep independent markers in their new clause so continuation cannot attach them
 # to the previous failed part after punctuation or a source-field separator.
 INDEPENDENT_MARKER = re.compile(
@@ -90,7 +97,7 @@ INDEPENDENT_MARKER = re.compile(
 )
 INDEPENDENT_SPLIT = re.compile(r"(?=" + INDEPENDENT_MARKER.pattern + r")", re.I)
 # Parts listed together ('가이드 및 후크 조정') share the symptom; neither modifies the other.
-LIST_JOIN = re.compile(r"(?:\d*번?)?(?:및|,|·|&|와|과|하고)(?:\d*번?)?")
+LIST_JOIN = re.compile(r"(?:\d*번?)?(?:및|,|·|&|와|과|하고|또는|혹은|아니면)(?:\d*번?)?")
 # '…이탈로 인해 몰드 빠짐', '리크 발생하며 과동결': the stated failure caused what follows.
 CAUSAL = re.compile(
     r"(?:발생)?(?:지|져|되|돼|해|하)?(?:(?:으로|로)(?:인해|인한|인하여)?|에의한|에의해|때문|어서|어져|져|어|서|여|면서|며)"
@@ -211,6 +218,12 @@ class RuleClassifier:
             if any(a <= s.start() and s.end() <= b for a, b in nouns):
                 continue
             kind = self.kind(s.group())
+            if (
+                kind == "A"
+                and re.fullmatch(r"점검|확인|inspected", s.group(), re.I)
+                and NORMAL_AFTER_INSPECTION.match(text[s.end() : limit])
+            ):
+                continue
             if (
                 kind in {"R", "A"}
                 and not COMPLETED_AFTER.match(text[s.end() :])

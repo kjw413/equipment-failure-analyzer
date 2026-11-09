@@ -50,6 +50,10 @@ def guidance(record, target_review: bool = True):
             actions.append(
                 "복수 부품·고장이 함께 적혔습니다. 구성 유형과 원본 기록을 확인하고 행 수정에서 실제 고장 유형들을 복수 확정하세요. 점검만 한 부품이나 대안 후보는 제외하세요."
             )
+        elif K.get("uncertain_fault", "고장 추정") in issues:
+            actions.append(
+                "의심·추정된 부품과 증상을 실제 점검 결과로 확인한 뒤 분류를 확정하세요."
+            )
         else:
             actions.append(
                 "일치한 분류 규칙·고장 근거와 원본 설명을 비교한 뒤 대·중·소분류를 확정하세요."

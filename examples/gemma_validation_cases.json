@@ -1,0 +1,16 @@
+[
+  {"id":"variant_negative_scope","group":"negation","source":"모터에서는 이상을 발견하지 못함","expected_decision":"unclassified","expected_minors":[]},
+  {"id":"variant_normal_other","group":"negation","source":"광전센서는 정상이고 모터만 고장","expected_decision":"classify","expected_minors":["모터(종류 미상)"]},
+  {"id":"variant_unconfirmed","group":"negation","source":"PLC 고장은 확인되지 않았음","expected_decision":"unclassified","expected_minors":[]},
+  {"id":"variant_cancelled","group":"negation","source":"도징펌프 교환 작업은 취소함","expected_decision":"unclassified","expected_minors":[]},
+  {"id":"variant_deferred","group":"planned","source":"타이밍벨트는 아직 사용 가능하여 교체 보류","expected_decision":"unclassified","expected_minors":[]},
+  {"id":"variant_suspected","group":"uncertainty","source":"베어링 마모 의심되어 추가 확인 예정","expected_decision":"review","expected_minors":[]},
+  {"id":"variant_planned","group":"planned","source":"모터 교체를 계획 중","expected_decision":"unclassified","expected_minors":[]},
+  {"id":"variant_needed","group":"planned","source":"교체가 필요한 모터","expected_decision":"unclassified","expected_minors":[]},
+  {"id":"variant_fault_future","group":"planned","source":"금일 모터 고장 확정, 교체는 다음 주 실시","expected_decision":"classify","expected_minors":["모터(종류 미상)"]},
+  {"id":"variant_inverse","group":"word_order","source":"고장으로 확인된 광전센서","expected_decision":"classify","expected_minors":["광전센서"]},
+  {"id":"variant_history","group":"history","source":"작년에 PLC 교체. 이번 정지는 타이밍벨트 파손 때문","expected_decision":"classify","expected_minors":["타이밍벨트"]},
+  {"id":"variant_corrected_part","group":"negation","source":"모터를 교체한 것이 아니라 근접센서를 교체했음","expected_decision":"classify","expected_minors":["근접센서"]},
+  {"id":"variant_negative_list","group":"multiple","source":"베어링 및 축 교체 안함","expected_decision":"unclassified","expected_minors":[]},
+  {"id":"variant_synonym","group":"retrieval","source":"포토 아이 교체","expected_decision":"classify","expected_minors":["광전센서"]}
+]

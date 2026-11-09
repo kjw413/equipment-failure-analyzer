@@ -23,18 +23,22 @@ def pdf_text(path):
     return "\n".join(page.extract_text() or "" for page in pypdf.PdfReader(path).pages)
 
 
-def test_pair_generates_exactly_two_files_same_totals_and_name(store, input_file, tmp_path):
+def test_bundle_generates_three_files_same_totals_and_name(store, input_file, tmp_path):
     result = analyze_file(store, input_file)
     original = hashlib.sha256(input_file.read_bytes()).hexdigest()
     files = export_bundle(result, tmp_path / "pair" / "analysis.xlsx")
-    assert {p.name for p in files.excel.parent.iterdir()} == {files.excel.name, files.pdf.name}
+    assert {p.name for p in files.excel.parent.iterdir()} == {
+        files.excel.name,
+        files.pdf.name,
+        files.source_review.name,
+    }
     text = pdf_text(files.pdf)
     assert "VITAL#2" in text and "IF18115" not in text
     assert "95.0" in text and "31.7" in text
     wb = load_workbook(files.excel, data_only=True)
     assert wb[SHEETS["summary"]]["A7"].value == 4
     assert wb[SHEETS["summary"]]["E7"].value == 95
-    assert len(wb.sheetnames) == 17 and not any(
+    assert len(wb.sheetnames) == 12 and not any(
         "\uc81c\ud488\ubcc4\ubd84\uc11d" in x for x in wb.sheetnames
     )
     wb.close()

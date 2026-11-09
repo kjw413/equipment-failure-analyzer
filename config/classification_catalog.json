@@ -1,7 +1,18 @@
 {
   "schema_version": 1,
   "catalog_id": "parts_2025_2026_v1",
-  "catalog_version": "1.10.0",
+  "catalog_version": "1.11.0",
+  "output_schema": "part_symptom_v1",
+  "output_axes": {
+    "major": "분야",
+    "middle": "부품 종류",
+    "minor": "고장 증상"
+  },
+  "part_axes": {
+    "major": "분야",
+    "middle": "부품군",
+    "minor": "세부 부품 종류"
+  },
   "source": {
     "filename": "Classification_Catalog_2025_2026.xlsx",
     "path": "C:\\Users\\user\\Downloads\\Classification_Catalog_2025_2026.xlsx",
@@ -12,8 +23,10 @@
     "group_header_row": 5
   },
   "classification_policy": [
-    "대분류는 분야, 중분류는 부품군, 소분류는 첨부에 기재된 구체적인 부품 종류",
-    "소분류 이름과 계층은 첨부 정본 그대로 유지하며 이상·교체 등의 현상으로 바꾸지 않음",
+    "고장 분류 출력은 대분류=분야, 중분류=부품 종류, 소분류=원문에 명시된 표준 고장 증상",
+    "categories와 groups는 부품 식별용 원본 카탈로그이며 분야·부품군·세부 부품 종류 및 별칭을 보존",
+    "한 이력에 여러 부품이 있으면 각 부품과 증상을 개별 분류하되 원본 이력·정지시간은 중복 합산하지 않음",
+    "교체·점검·조정은 증상과 구분하며 고장 증상이 없으면 증상 미기재로 보존",
     "별칭은 입력과 동일한 prepare_text 정규화를 거친 뒤 규칙의 부품명 조건으로 사용",
     "부품명과 고장·조치 조건이 모두 일치해야 자동 후보로 사용하며 숫자 일치도나 임계값을 계산하지 않음",
     "부품 종류가 기재되지 않은 경우 해당 부품군의 종류 미상 선택값만 사용하고 알려지지 않은 세부 종류를 추정하지 않음",
