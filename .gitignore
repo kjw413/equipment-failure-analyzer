@@ -14,3 +14,6 @@ output/*
 !output/README.txt
 .ruff_cache/
 tmp/
+
+# local classifier experiments (contain MES data)
+ml_eval_work/
