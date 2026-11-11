@@ -14,19 +14,52 @@ E.mkdir(parents=True, exist_ok=True)
 CATALOG = json.load(open(REPO / "config/classification_catalog.json", encoding="utf-8"))
 GROUPS = [g["middle"] for g in CATALOG["groups"]]
 NONE = "없음"
-SEG_NAME = re.compile(
-    r"^\s*(?:(?:공무|기계|전기|생산|op|조치자\s*:)\s*(?:팀|반)?\s*)?[가-힣]{2,3}(?:\s*(?:님)?\s*[,·& ]\s*[가-힣]{2,3})*\s*(?:님)?\s*$",
-    re.I,
+SURNAMES = set(
+    "김이박최정강조윤장임한오서신권황안송류전홍고문양손배백허유남심노하곽성차주우구민진나지엄채원천방공현함변염여추도소석선설마길연위표명기반왕금옥육인맹제모탁국어은편용예경봉사부가복태목형피두감음빈동온호범좌팽승간상갈"
 )
-SEG_DEPT = re.compile(r"^\s*(?:공무|기계|전기|생산|공무팀|기계반|전기반)\s*(?:팀|반)?\s*$")
+# 3-letter words that start like a surname but are not names.
+NOT_NAMES = set(
+    "정상화 조정후 교체후 점검후 조치후 정리후 조립후 이송부 이탈됨 전기반 기계반 공무팀 생산팀 정비반 "
+    "안전문 전원부 정지됨 이상무 이물질 장착부 고정부 구동부 진행중 재가동 재조정 재셋팅 재부팅 "
+    "고장남 고장후 이상함 작동후 가동중 가동후 정지후 확인후 교체중 정비중 조정중 체결후 용접후 "
+    "제상후 인피드 인입부 배출부 공급부 이송중 전후진 상하강 좌우측 정위치 원점화 연결부 이음부 하단부 상단부".split()
+)
+DEPT_WORDS = {
+    "공무",
+    "기계",
+    "전기",
+    "생산",
+    "공무팀",
+    "기계반",
+    "전기반",
+    "정비반",
+    "생산팀",
+    "op",
+    "조치자",
+}
+
+
+def is_name(token: str) -> bool:
+    token = token.removesuffix("님")
+    return (
+        bool(re.fullmatch(r"[가-힣]{3}", token)) and token[0] in SURNAMES and token not in NOT_NAMES
+    )
+
+
+def is_signature(segment: str) -> bool:
+    """True when a '/'-separated segment holds only worker names and/or a department word."""
+    seg = re.sub(r"^\s*op(?=[가-힣])", "op ", segment.strip(), flags=re.I)
+    tokens = [t for t in re.split(r"[\s,·&:]+", seg) if t]
+    rest = [t for t in tokens if t.lower() not in DEPT_WORDS]
+    if not tokens:
+        return False
+    return all(is_name(t) for t in rest)
 
 
 def clean(text: str) -> str:
     """Drop '/'-separated segments that are only worker names or a department."""
     text = re.sub(r"[\r\n]+", " ", str(text))
-    segs = [
-        s for s in text.split("/") if s.strip() and not SEG_NAME.match(s) and not SEG_DEPT.match(s)
-    ]
+    segs = [s for s in text.split("/") if s.strip() and not is_signature(s)]
     return " / ".join(s.strip() for s in segs) or text.strip()
 
 

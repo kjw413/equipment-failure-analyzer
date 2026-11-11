@@ -3,13 +3,14 @@ Input per record: cleaned text, equipment name, the rule engine's part candidate
 rule-classified cases. Gold labels are never shown to the model."""
 
 import json
+import os
 import sys
 import time
 
 import pandas as pd
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent))
-from common import CATALOG, GROUPS, E, load
+from common import CATALOG, GROUPS, E, clean, load
 from llama_cpp import Llama
 
 
@@ -67,6 +68,9 @@ def main(model_file, tag, which="rest", limit=None):
     gold = gold.merge(knn, on="gid")
     if which == "rest":
         gold = gold[gold.status != "규칙분류"]
+    if os.environ.get("ML_EVAL_TEXT") == "normalized":
+        # The analyzer's standardized text (synonyms/typos unified), names still removed.
+        gold["text"] = gold.normalized.astype(str).map(clean)
     gold = gold.head(limit) if limit else gold
     llm = Llama(
         model_path=str(E.parent / "models" / model_file), n_ctx=4096, n_threads=4, verbose=False

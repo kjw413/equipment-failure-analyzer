@@ -54,6 +54,7 @@ def main():
     out.append(metrics(g, kp, np.ones(len(g), bool), "② 규칙 + 유사사례(e5) 전부 자동"))
     for tag, label in (
         ("gemma4e2b", "Gemma4-E2B"),
+        ("gemma4e2b_norm", "Gemma4-E2B(표준화 입력)"),
         ("gemma4e4b", "Gemma4-E4B"),
         ("qwen3_4b", "Qwen3-4B"),
     ):
