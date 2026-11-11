@@ -24,7 +24,11 @@ out = pd.DataFrame(
         "유사사례(e5)": gold.gid.map(knn.knn_top),
     }
 )
-for tag, label in (("gemma4e4b", "Gemma4-E4B"), ("qwen3_4b", "Qwen3-4B")):
+for tag, label in (
+    ("gemma4e2b", "Gemma4-E2B"),
+    ("gemma4e4b", "Gemma4-E4B"),
+    ("qwen3_4b", "Qwen3-4B"),
+):
     p = E / f"llm_{tag}.jsonl"
     if p.exists():
         d = {r["gid"]: r for r in map(json.loads, open(p, encoding="utf-8"))}

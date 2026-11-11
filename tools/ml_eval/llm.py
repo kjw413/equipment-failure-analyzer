@@ -109,3 +109,6 @@ if __name__ == "__main__":
         sys.argv[3] if len(sys.argv) > 3 else "rest",
         int(sys.argv[4]) if len(sys.argv) > 4 else None,
     )
+    import resource  # POSIX only; on Windows check Task Manager instead
+
+    print("peak RSS MB", resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024, flush=True)

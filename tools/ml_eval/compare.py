@@ -52,7 +52,11 @@ def main():
         for r, a, k in zip(g.rule_parts, rule_auto, knn.loc[g.gid, "knn_top"])
     ]
     out.append(metrics(g, kp, np.ones(len(g), bool), "② 규칙 + 유사사례(e5) 전부 자동"))
-    for tag, label in (("gemma4e4b", "Gemma4-E4B"), ("qwen3_4b", "Qwen3-4B")):
+    for tag, label in (
+        ("gemma4e2b", "Gemma4-E2B"),
+        ("gemma4e4b", "Gemma4-E4B"),
+        ("qwen3_4b", "Qwen3-4B"),
+    ):
         d = load_llm(tag)
         if d is None or len(d) < len(g):
             print(f"[{tag}] {0 if d is None else len(d)}/{len(g)} done")
@@ -75,6 +79,16 @@ def main():
         out.append(metrics(gg, p3, a4, f"④ 규칙 + {label} 교차검증"))
         out.append(metrics(gg, llm_parts, llm_auto, f"⑤ {label} 단독"))
         out[-1]["평균 처리시간(초)"] = dd.sec.mean()
+        # ⑥ strict agreement: auto only when rules (incl. provisional review parts) and LLM agree,
+        # or both find no part; everything else goes to a person.
+        both_none = np.array(
+            [
+                not r and not lp and dec == "none"
+                for r, lp, dec in zip(gg.rule_parts, llm_parts, dd.decision)
+            ]
+        )
+        p6 = [r if a else lp for r, a, lp in zip(gg.rule_parts, agree, llm_parts)]
+        out.append(metrics(gg, p6, agree | both_none, f"⑥ 규칙·{label} 일치 시에만 자동"))
     df = pd.concat(out, axis=1).T
     pd.set_option("display.width", 250)
     pd.set_option("display.max_columns", 20)
