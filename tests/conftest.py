@@ -1,6 +1,9 @@
 """Shared synthetic workbooks and current isolated profiles for regression tests."""
 
+import gc
+import importlib.util
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -11,6 +14,35 @@ from core.excel_loader import load_excel
 from core.i18n import K
 from core.models import AnalysisOptions
 from core.service import run_analysis
+
+
+@pytest.fixture(scope="session", autouse=True)
+def qt_application_lifetime():
+    """Keep Qt alive until deferred widget deletion and Python cycles are drained.
+
+    Per-module app fixtures reuse this instance. Without a session owner, hidden
+    popup/signal cycles can outlive their application during interpreter shutdown.
+    Pure-core environments without the GUI dependency still run their tests.
+    """
+    if importlib.util.find_spec("PySide6") is None:
+        yield
+        return
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QEvent
+    from PySide6.QtWidgets import QApplication
+
+    application = QApplication.instance() or QApplication([])
+    application.setQuitOnLastWindowClosed(False)
+    yield
+    for widget in application.topLevelWidgets():
+        widget.hide()
+        widget.deleteLater()
+    application.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    application.processEvents()
+    gc.collect()
+    application.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    application.processEvents()
+    application.quit()
 
 
 @pytest.fixture
@@ -132,3 +164,21 @@ def analyze_file(store, path, options=None):
     cfg = store.load()
     loaded = load_excel(path, cfg["column_mapping"])
     return run_analysis(loaded, cfg, options or AnalysisOptions())
+
+
+def finalize_classifications(store, path, options=None):
+    """Simulate explicit user choices for publication/rollback test fixtures."""
+    from core.classification_policy import unresolved_classifications
+
+    result = analyze_file(store, path, options)
+    for event_id in unresolved_classifications(result.selected).event_id:
+        store.update_override(
+            event_id,
+            {
+                "major": "기계",
+                "detail_equipment": "상세설비 미상",
+                "middle": "베어링(종류 미상)",
+                "minor": "손상·파손",
+            },
+        )
+    return analyze_file(store, path, options)

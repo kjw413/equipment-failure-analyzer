@@ -8,7 +8,7 @@ import pytest
 from openpyxl import load_workbook
 
 pypdf = pytest.importorskip("pypdf")
-from conftest import analyze_file
+from conftest import analyze_file, finalize_classifications
 
 import report.export_bundle as bundle
 from core.config import ConfigStore
@@ -33,6 +33,7 @@ def test_bundle_generates_three_files_same_totals_and_name(store, input_file, tm
         files.source_review.name,
     }
     text = pdf_text(files.pdf)
+    assert "미확정 분류" in text and "검토 중에도 출력 가능" in text
     assert "VITAL#2" in text and "IF18115" not in text
     assert "95.0" in text and "31.7" in text
     wb = load_workbook(files.excel, data_only=True)
@@ -178,7 +179,7 @@ def test_either_existing_file_prevents_unconfirmed_overwrite(
 
 
 def test_confirmed_overwrite_replaces_both_files(store, input_file, tmp_path, fake_writers):
-    result = analyze_file(store, input_file)
+    result = finalize_classifications(store, input_file)
     files = report_paths(tmp_path / "out.xlsx")
     files.excel.write_bytes(b"old excel")
     files.pdf.write_bytes(b"old pdf")
@@ -190,7 +191,7 @@ def test_confirmed_overwrite_replaces_both_files(store, input_file, tmp_path, fa
 def test_pdf_failure_leaves_no_half_pair(
     store, input_file, tmp_path, monkeypatch, fake_writers, existing
 ):
-    result = analyze_file(store, input_file)
+    result = finalize_classifications(store, input_file)
     files = report_paths(tmp_path / "out.xlsx")
     if existing:
         files.excel.write_bytes(b"old excel")
@@ -213,7 +214,7 @@ def test_pdf_failure_leaves_no_half_pair(
 def test_second_commit_failure_rolls_back_excel(
     store, input_file, tmp_path, monkeypatch, fake_writers, existing
 ):
-    result = analyze_file(store, input_file)
+    result = finalize_classifications(store, input_file)
     files = report_paths(tmp_path / "out.xlsx")
     if existing:
         files.excel.write_bytes(b"old excel")

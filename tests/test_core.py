@@ -151,12 +151,19 @@ def test_manual_override_survives_renaming(store, input_file):
     before = analyze_file(store, input_file)
     event = before.selected.iloc[0].event_id
     store.save_override(
-        event, {"major": "A", "middle": "B", "minor": "C", "product": "Corrected product"}
+        event,
+        {
+            "major": "A",
+            "detail_equipment": "상세설비 미상",
+            "middle": "B",
+            "minor": "C",
+            "product": "Corrected product",
+        },
     )
     store.save_equipment_names({"IF18115": "NEW NAME"})
     after = analyze_file(store, input_file)
     row = after.selected.loc[after.selected.event_id.eq(event)].iloc[0]
-    assert row.type == "A / B / C"
+    assert row.type == "A / 상세설비 미상 / B / C"
     assert row.equipment == "NEW NAME"
     assert row["product"] == "Corrected product"
 
@@ -309,15 +316,25 @@ def test_name_with_wildcards_and_formula_like_text(store, input_file, tmp_path):
 
 
 def test_legacy_override_save_merges_values_without_removing_existing_corrections(store):
-    store.update_override("event", {"major": "A", "middle": "B", "minor": "C", "minutes": "12"})
+    store.update_override(
+        "event",
+        {
+            "major": "A",
+            "detail_equipment": "상세설비 미상",
+            "middle": "B",
+            "minor": "C",
+            "minutes": "12",
+        },
+    )
     store.save_override("event", {"minutes": "", "product": "Updated product"})
     saved = store.override("event")
     assert {key: value for key, value in saved.items() if key != "saved_at"} == {
         "major": "A",
+        "detail_equipment": "상세설비 미상",
         "middle": "B",
         "minor": "C",
         "minutes": "12",
         "product": "Updated product",
-        "classification_schema": "part_symptom_v1",
+        "classification_schema": "equipment_part_failure_v3",
     }
     assert saved["saved_at"]

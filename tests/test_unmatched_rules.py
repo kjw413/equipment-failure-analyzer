@@ -128,11 +128,17 @@ def test_a_named_part_keeps_precedence_over_part_less_rules(classify, text, mino
         "스틱 원점타 이밍트러짐",
         "스틱 트러블 발생 타이밍 조정",
         "주입구압력낮음 오류 / 재가동 후 오류 재발생 / 제상 후 생산 시작",
-        "히팅박스 포밍상부 tc교체",
     ],
 )
 def test_held_terms_remain_unmatched(classify, text):
     assert classify(text)["status"] == K["rule_unmatched"]
+
+
+def test_tc_is_thermocouple_only_in_explicit_heating_context(classify):
+    result = classify("히팅박스 포밍상부 tc교체")
+    assert result["status"] == K["auto"]
+    assert result["minor"] == "열전대(써머커플)"
+    assert classify("tc교체")["status"] == K["rule_unmatched"]
 
 
 def test_nopart_rules_round_trip_in_the_current_rules_format(tmp_path):

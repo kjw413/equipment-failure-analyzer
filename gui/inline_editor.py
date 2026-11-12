@@ -2,30 +2,33 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 
 import pandas as pd
-from PySide6.QtCore import QEvent, QPoint, Qt, Signal
+from PySide6.QtCore import QEvent, QPersistentModelIndex, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemDelegate,
     QComboBox,
-    QFrame,
+    QDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
-    QScrollArea,
-    QStackedWidget,
     QStyledItemDelegate,
     QVBoxLayout,
-    QWidget,
 )
 
 from core.corrections import COMPONENT_FIELD, correction_patch, initial_values, shown, validate
 from core.models import UserError
 from core.parsing import parse_date
-from gui.classification_picker import FIELDS, ClassificationPicker, ComponentPicker
+from core.public_taxonomy import REPAIR_ACTIONS
+from gui.classification_picker import (
+    FIELDS,
+    CandidateListPicker,
+    ClassificationPicker,
+    RepairActionsPicker,
+    record_candidates,
+)
 
 EDITABLE_COLUMNS = {
     "date": "work_date",
@@ -35,8 +38,10 @@ EDITABLE_COLUMNS = {
     "type": "classification",
     "component_types": "classification",
     "major": "classification",
+    "detail_equipment": "classification",
     "middle": "classification",
     "minor": "classification",
+    "repair_actions": "repair_actions",
 }
 RECORD_ROLE = int(Qt.ItemDataRole.UserRole) + 31
 CHOICES_ROLE = RECORD_ROLE + 1
@@ -79,37 +84,60 @@ def field_patch(record: dict, existing: dict, column: str, text: str) -> dict:
     return {field: patch[field]} if field in patch else {}
 
 
-def classification_patch(record, existing, mode, single, components) -> dict:
+def classification_patch(
+    record, existing, mode, single, components, *, repair_actions=None
+) -> dict:
+    if mode != "single" or components:
+        raise UserError("최종 분류는 고장이력 한 건당 하나만 선택할 수 있습니다.")
     initial = initial_values(record, existing)
     values = dict(initial)
-    multiple = mode == "multiple"
-    if multiple:
-        values[COMPONENT_FIELD] = json.dumps(components, ensure_ascii=False)
-    else:
-        if not all(single.get(key) for key in FIELDS):
-            raise UserError("대·중·소분류를 모두 선택하세요.")
-        values.update(single)
-    error = validate(values, confirm_components=multiple)
+    unchanged = all(single.get(key, "") == initial.get(key, "") for key in FIELDS)
+    if record.get("status") == "부분분류" and unchanged:
+        if repair_actions is None or repair_actions == initial.get("repair_actions", ""):
+            return {}
+        return field_patch(record, existing, "repair_actions", repair_actions)
+    if not all(single.get(key) for key in FIELDS):
+        raise UserError("분야·상세설비·세부 부품·고장 현상을 모두 선택하세요.")
+    values.update(single)
+    if repair_actions is not None:
+        values["repair_actions"] = repair_actions
+    checked = dict(values)
+    if checked.get("repair_actions", "") == initial.get("repair_actions", ""):
+        checked.pop("repair_actions", None)
+    error = validate(checked)
     if error:
         raise UserError(error)
-    patch = correction_patch(initial, values, existing, not multiple, confirm_components=multiple)
-    return {key: value for key, value in patch.items() if key in (*FIELDS, COMPONENT_FIELD)}
+    patch = correction_patch(initial, values, existing, True)
+    return {
+        key: value
+        for key, value in patch.items()
+        if key in (*FIELDS, COMPONENT_FIELD, "repair_actions")
+    }
 
 
-class ClassificationCellEditor(QFrame):
-    """A popup anchored to the classification cell; changes need an explicit Apply."""
+class ClassificationCellEditor(QDialog):
+    """A movable, centered non-modal dialog; changes need an explicit Apply."""
 
-    def __init__(self, record, existing, categories, submit: Callable, parent=None):
-        super().__init__(parent, Qt.WindowType.Popup)
+    def __init__(
+        self, record, existing, categories, submit: Callable, parent=None, *, deferred=False
+    ):
+        super().__init__(
+            parent,
+            Qt.WindowType.Dialog
+            | Qt.WindowType.WindowTitleHint
+            | Qt.WindowType.WindowSystemMenuHint
+            | Qt.WindowType.WindowCloseButtonHint,
+        )
         self.setObjectName("classificationCellEditor")
-        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setWindowTitle("최종 분류 한 건 선택")
+        self.setSizeGripEnabled(True)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.record = dict(record)
         self.existing = {key: value for key, value in existing.items() if key != "saved_at"}
         self.submit = submit
-        self.setMinimumWidth(660)
+        self.setMinimumWidth(880)
         outer = QVBoxLayout(self)
-        heading = QLabel("분류 직접 수정")
+        heading = QLabel("최종 분류 한 건 선택")
         heading.setStyleSheet("font-weight: 700; font-size: 15px;")
         outer.addWidget(heading)
         source = QLabel(shown(record.get("raw_description")) or "고장 내용 없음")
@@ -118,53 +146,47 @@ class ClassificationCellEditor(QFrame):
         source.setToolTip(shown(record.get("raw_description")))
         source.setObjectName("muted")
         outer.addWidget(source)
-        mode_row = QHBoxLayout()
-        mode_row.addWidget(QLabel("유형 선택"))
-        self.mode_combo = QComboBox()
-        self.mode_combo.setAccessibleName("단일 또는 복수 유형")
-        self.mode_combo.addItem("단일 유형", "single")
-        self.mode_combo.addItem("복수 유형", "multiple")
-        mode_row.addWidget(self.mode_combo)
-        mode_row.addStretch()
-        outer.addLayout(mode_row)
         initial = initial_values(record, self.existing)
+        self.initial_classification = {key: initial.get(key, "") for key in FIELDS}
+        if record.get("classification_mode") in (
+            "multiple",
+            "pending",
+            "ambiguous",
+        ) or self.existing.get(COMPONENT_FIELD):
+            initial = {**initial, **dict.fromkeys(FIELDS, "")}
         self.single_picker = ClassificationPicker(categories, initial)
-        from core.fault_components import parse_components
-
-        components = parse_components(initial.get(COMPONENT_FIELD))
-        if not components and all(initial.get(key) for key in FIELDS):
-            components = [{key: initial[key] for key in FIELDS}]
-        self.component_picker = ComponentPicker(categories, components)
-        self.stack = QStackedWidget()
-        self.stack.addWidget(self.single_picker)
-        multiple_content = QWidget()
-        multiple_layout = QVBoxLayout(multiple_content)
-        multiple_layout.setContentsMargins(0, 0, 0, 0)
-        note = QLabel(
-            "동시에 발생한 서로 다른 유형을 2개 이상 선택하세요. 모호한 후보를 모두 확정하지 마세요."
+        self.candidate_picker = CandidateListPicker(record_candidates(record, self.existing))
+        self.candidate_list = self.candidate_picker.table
+        self.candidate_picker.selected.connect(self.choose_candidate)
+        outer.addWidget(self.candidate_picker, 1)
+        outer.addWidget(
+            QLabel("직접 선택 · 설비 → 부품 → 고장 현상 → 분야 확인 / 각 항목 독립 선택")
         )
-        note.setWordWrap(True)
-        multiple_layout.addWidget(note)
-        multiple_layout.addWidget(self.component_picker)
-        multiple_layout.addStretch()
-        self.stack.addWidget(multiple_content)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(self.stack)
-        scroll.setMinimumHeight(150)
-        outer.addWidget(scroll, 1)
-        self.mode_combo.currentIndexChanged.connect(self.stack.setCurrentIndex)
-        initial_multiple = (
-            bool(self.existing.get(COMPONENT_FIELD))
-            or record.get("classification_mode") == "multiple"
-        )
-        self.mode_combo.setCurrentIndex(1 if initial_multiple else 0)
+        outer.addWidget(self.single_picker)
+        if record.get("status") == "부분분류":
+            note = QLabel(
+                "부분분류 · 확인된 항목은 유지됩니다. 원문에 없는 현상·분야를 추측해 입력할 필요가 없습니다. "
+                "조치만 바꾸면 분류를 재확정하지 않고 저장합니다."
+                + (
+                    "\n미기재: " + str(record["classification_missing_fields"])
+                    if record.get("classification_missing_fields")
+                    else ""
+                )
+            )
+            note.setWordWrap(True)
+            note.setObjectName("muted")
+            outer.addWidget(note)
+        outer.addWidget(QLabel("조치 내역 · 복수 선택 가능"))
+        self.actions_picker = RepairActionsPicker(initial.get("repair_actions", ""))
+        outer.addWidget(self.actions_picker)
         self.error = QLabel()
         self.error.setWordWrap(True)
         self.error.setStyleSheet("color: #a52a2a;")
         outer.addWidget(self.error)
         help_label = QLabel(
-            "적용하면 이 기록의 분류만 사용자확정됩니다. 취소·Esc는 변경 내용을 저장하지 않습니다."
+            "후보는 더블클릭이나 Enter로 선택할 수 있습니다. 표준화 버튼을 눌러 일괄 확정합니다."
+            if deferred
+            else "적용하면 이 기록의 분류와 조치 내역을 저장합니다. 취소·Esc는 변경 내용을 저장하지 않습니다."
         )
         help_label.setWordWrap(True)
         help_label.setObjectName("muted")
@@ -180,7 +202,10 @@ class ClassificationCellEditor(QFrame):
         self.clear_button.clicked.connect(self.clear_classification)
         self.cancel_button = QPushButton("취소")
         self.cancel_button.clicked.connect(self.close)
-        self.apply_button = QPushButton("적용")
+        self.apply_button = QPushButton("선택" if deferred else "적용")
+        if deferred:
+            self.apply_button.setDefault(True)
+            self.candidate_list.activated.connect(lambda _: self.apply())
         self.apply_button.setObjectName("primary")
         self.apply_button.clicked.connect(self.apply)
         buttons.addWidget(self.clear_button)
@@ -188,42 +213,77 @@ class ClassificationCellEditor(QFrame):
         buttons.addWidget(self.cancel_button)
         buttons.addWidget(self.apply_button)
         outer.addLayout(buttons)
-        self.resize(850, 430 if initial_multiple else 340)
+        self.resize(1000, 590)
 
-    def show_at(self, position: QPoint):
-        screen = self.screen()
+    def choose_candidate(self, candidate):
+        try:
+            self.single_picker.select_candidate(candidate)
+            self.error.setStyleSheet(
+                "color: #AD6817;" if not self.single_picker.value()["minor"] else "color: #697681;"
+            )
+            self.error.setText(
+                "실제 고장 현상을 선택한 뒤 적용하세요."
+                if not self.single_picker.value()["minor"]
+                else "선택한 후보를 확인한 뒤 적용하세요."
+            )
+        except UserError as exc:
+            self.single_picker.set_value(dict.fromkeys(FIELDS, ""))
+            self.error.setStyleSheet("color: #a52a2a;")
+            self.error.setText(str(exc))
+
+    def show_centered(self):
+        owner = self.parentWidget().window() if self.parentWidget() else None
+        screen = owner.screen() if owner is not None else self.screen()
+        available = screen.availableGeometry() if screen is not None else None
         if screen is not None:
-            available = screen.availableGeometry()
             self.setMinimumWidth(min(660, available.width()))
             self.resize(
                 min(self.width(), available.width()), min(self.height(), available.height())
             )
-            position.setX(
-                max(available.left(), min(position.x(), available.right() - self.width() + 1))
-            )
-            position.setY(
-                max(available.top(), min(position.y(), available.bottom() - self.height() + 1))
-            )
-        self.move(position)
         self.show()
-        self.mode_combo.setFocus()
+        frame = self.frameGeometry()
+        if available is not None:
+            # Fit the native title bar and borders as well as the dialog contents.
+            width = max(1, available.width() - (frame.width() - self.width()))
+            height = max(1, available.height() - (frame.height() - self.height()))
+            self.setMinimumWidth(min(660, width))
+            self.resize(min(self.width(), width), min(self.height(), height))
+            frame = self.frameGeometry()
+        if owner is not None:
+            frame.moveCenter(owner.frameGeometry().center())
+        elif available is not None:
+            frame.moveCenter(available.center())
+        if available is not None:
+            frame.moveLeft(
+                max(available.left(), min(frame.left(), available.right() - frame.width() + 1))
+            )
+            frame.moveTop(
+                max(available.top(), min(frame.top(), available.bottom() - frame.height() + 1))
+            )
+        self.move(frame.topLeft())
+        self.raise_()
+        self.activateWindow()
+        self.candidate_list.setFocus()
 
     def apply(self):
         try:
-            components = (
-                self.component_picker.values()
-                if self.mode_combo.currentData() == "multiple"
-                else []
+            single = self.single_picker.value()
+            keep_partial = (
+                self.record.get("status") == "부분분류" and single == self.initial_classification
             )
+            if not keep_partial:
+                single = self.single_picker.validate_path()
             patch = classification_patch(
                 self.record,
                 self.existing,
-                self.mode_combo.currentData(),
-                self.single_picker.value(),
-                components,
+                "single",
+                single,
+                [],
+                repair_actions=self.actions_picker.value(),
             )
             self._save(patch)
         except (UserError, ValueError, TypeError) as exc:
+            self.error.setStyleSheet("color: #a52a2a;")
             self.error.setText(str(exc))
 
     def clear_classification(self):
@@ -249,6 +309,7 @@ class ClassificationCellEditor(QFrame):
 
 class CellEditDelegate(QStyledItemDelegate):
     classification_requested = Signal(object)
+    classification_advanced = Signal(object)
     draft_cancel_requested = Signal(object)
 
     def __init__(self, parent=None):
@@ -272,17 +333,29 @@ class CellEditDelegate(QStyledItemDelegate):
             editor.addItem("목록에서 선택", "")
             for choice in index.data(CHOICES_ROLE) or []:
                 editor.addItem(choice, choice)
-            editor.activated.connect(lambda _: self.commitData.emit(editor))
-            editor.activated.connect(
-                lambda _: self.closeEditor.emit(editor, QAbstractItemDelegate.EndEditHint.NoHint)
-            )
+            position = QPersistentModelIndex(index)
+
+            def chosen(_):
+                self.commitData.emit(editor)
+                accepted = editor.property("edit_accepted")
+                self.closeEditor.emit(editor, QAbstractItemDelegate.EndEditHint.NoHint)
+                if accepted:
+                    self.classification_advanced.emit(position)
+
+            editor.activated.connect(chosen)
             self.active_editor = editor
             editor.setProperty("edit_record", index.data(RECORD_ROLE))
             return editor
         editor = QLineEdit(parent)
         editor.setFrame(False)
-        editor.setPlaceholderText("비우면 원본 값으로 복원")
-        editor.setToolTip("Enter 또는 다른 셀 클릭: 저장 / Esc: 취소 / 비우기: 해당 보정 해제")
+        if column == "repair_actions":
+            editor.setPlaceholderText("교체, 점검 · 쉼표로 복수 입력 / 비우면 조치 없음")
+            editor.setToolTip(
+                ", ".join(REPAIR_ACTIONS) + "\n쉼표로 복수 입력 · 비우면 조치 없음으로 저장"
+            )
+        else:
+            editor.setPlaceholderText("비우면 원본 값으로 복원")
+            editor.setToolTip("Enter 또는 다른 셀 클릭: 저장 / Esc: 취소 / 비우기: 해당 보정 해제")
         self.active_editor = editor
         return editor
 
@@ -296,7 +369,7 @@ class CellEditDelegate(QStyledItemDelegate):
 
     def setModelData(self, editor, model, index):
         value = editor.currentData() if isinstance(editor, QComboBox) else editor.text()
-        model.setData(index, value, Qt.ItemDataRole.EditRole)
+        editor.setProperty("edit_accepted", model.setData(index, value, Qt.ItemDataRole.EditRole))
 
     def destroyEditor(self, editor, index):
         if self.active_editor is editor:

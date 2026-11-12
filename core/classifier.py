@@ -59,7 +59,7 @@ DEFAULT_ENGINE = {
     # Max characters (spaces removed) between a part and its symptom in one clause.
     "window": 15,
     # Symptom words that report a part replacement or repair: the strongest evidence of the failed part.
-    "replace_pattern": "교체|교환|신규|새것|a급|b급|수리|정비|재정비|가공|재가공",
+    "replace_pattern": "교체|교환|신규|새것|a급|b급|수리(?!크)|정비|재정비|가공|재가공",
     # Other repair words (adjust, inspect, clean) and adjusted attributes (위치, 타이밍).
     # A part that was only adjusted is weaker evidence than a stated failure.
     "action_pattern": "조정|재조정|조절|점검|청소|보수|용접|체결|고정|재조임|세팅|리셋|reset|재부팅|셧다운|온오프|재투입|"
@@ -83,7 +83,7 @@ CLAUSE_SPLIT = re.compile(
 )
 NEGATION = re.compile(
     r"(?:은|는|이|가|도|을|를)?(?:전혀)?(?:없|무(?![가-힣])|아님|아니(?!면)|하지않|하지안|"
-    r"안(?:함|했|하|됨|되)|않|불필요|취소|보류|미실시|한것이아니)"
+    r"안(?:함|했|하|됨|되)|(?:되)?지않|(?:되)?지안|않|불필요|취소|보류|미실시|한것이아니)"
 )
 NEGATED_PART = re.compile(r"(?:정상(?:작동)?|이상없|문제없|고장없|없음|무고장|ok)", re.I)
 NORMAL_AFTER_INSPECTION = re.compile(
@@ -103,7 +103,7 @@ CAUSAL = re.compile(
     r"(?:발생)?(?:지|져|되|돼|해|하)?(?:(?:으로|로)(?:인해|인한|인하여)?|에의한|에의해|때문|어서|어져|져|어|서|여|면서|며)"
 )
 # '스프라켓에서 이탈': a part followed by '에서' names a location, not the failed part.
-LOCATIVE = re.compile(r"에서|쪽")
+LOCATIVE = re.compile(r"에서|쪽|(?:와|과)(?:직접)?연결(?:되는|된|되|하는)")
 PLANNED_BEFORE = re.compile(r"추후|향후|예정|계획")
 PLANNED_AFTER = re.compile(r"^(?:이|가|는)?(?:필요|예정|계획|요망)")
 COMPLETED_AFTER = re.compile(r"^(?:완료|실시|하였|했|함)")
@@ -115,7 +115,15 @@ STOPPAGE = re.compile(r"정지|중지|다운|멈춤|작동불|작동이상")
 SINGLE_COMPONENT_REASON = "부품별 근거 묶음 결과 단일 유형"
 LISTED_COMPONENTS_REASON = "나열 부품의 공통 고장·교체 근거로 복수 유형 조합"
 # Suspected or guessed parts are not recorded facts and keep a combination under review.
-UNCERTAIN = re.compile(r"의심|추정|추측|것같|듯")
+UNCERTAIN = re.compile(r"의심|추정|추측|예상|가능성|것같|듯")
+PREVENTIVE_FAILURE = re.compile(r"^(?:이|가|을|를)?(?:예방|방지|대비|우려|예상|가능성|예정)")
+# A following subject-less clause may continue a part, but an unrecognized
+# subject ('브라인교체') must never be attributed to that previous part.
+CONTINUATION_PREFIX = re.compile(
+    r"(?:(?:후|이후|그후|즉시|이에|따라서|이로인해|으로|로|인해|인하여|및|하고|하여|해서|신품|새것|신규|재차|우선|다시|:|,)|(?:then|after|and|new))*",
+    re.I,
+)
+NAME_LIST = re.compile(r"[가-힣]{2,4}(?:,[가-힣]{2,4})+")
 CODE_PART_REASON = "고장내용에 부품명이 없어 비가동코드(소) '{code}'의 부품명으로 판정했습니다."
 NOPART_REASON = "부품 후보가 없어 부품 미기재 규칙으로 판정했습니다."
 # Unambiguous list joins; '와/과' also mean 'connected with' and are excluded.
@@ -167,6 +175,11 @@ class Pair:
         return {s.kind for s in self.symptoms}
 
 
+def repair_word_boundary(pattern: str) -> str:
+    """Keep legacy regex alternatives from consuming '수리' inside '냉각수리크'."""
+    return re.sub(r"수리(?!\(\?!)", "수리(?!크)", pattern)
+
+
 class RuleClassifier:
     """Deterministic, auditable part/symptom classification; no root-cause guessing.
 
@@ -179,10 +192,9 @@ class RuleClassifier:
         self.engine = {**DEFAULT_ENGINE, **(engine or {})}
         self.engine.pop("scoring", None)  # Ignore thresholds saved by earlier releases.
         self.window = int(self.engine["window"])
-        self.replace = re.compile(f"(?:{self.engine['replace_pattern']})+", re.I)
-        self.action = re.compile(
-            f"(?:{self.engine['replace_pattern']}|{self.engine['action_pattern']})+", re.I
-        )
+        replace_pattern = repair_word_boundary(self.engine["replace_pattern"])
+        self.replace = re.compile(f"(?:{replace_pattern})+", re.I)
+        self.action = re.compile(f"(?:{replace_pattern}|{self.engine['action_pattern']})+", re.I)
         self.part_majors = {
             re.sub(r"\s+", "", str(k)): set(v)
             for k, v in (self.engine.get("part_code_majors") or {}).items()
@@ -192,7 +204,11 @@ class RuleClassifier:
         self.nopart_rules = []
         for row in sorted(validate_rules(rules), key=lambda r: (-r["priority"], r["id"])):
             if row["enabled"]:
-                symptom = None if row["symptom"] == "." else re.compile(row["symptom"], re.I)
+                symptom = (
+                    None
+                    if row["symptom"] == "."
+                    else re.compile(repair_word_boundary(row["symptom"]), re.I)
+                )
                 (self.nopart_rules if row["role"] == "nopart" else self.rules).append(
                     (
                         row,
@@ -215,9 +231,22 @@ class RuleClassifier:
             # '이상 없음' is not a failure; '고정' inside the noun '고정볼트' is not a symptom.
             if not s.group() or NEGATION.match(text, s.end()):
                 continue
+            # '냉각수리크' contains the syllables '수리', but reports a leak.
+            # Keep this lexical boundary even for older customized regexes.
+            if s.group() == "수리" and text[s.end() :].startswith("크"):
+                continue
             if any(a <= s.start() and s.end() <= b for a, b in nouns):
                 continue
             kind = self.kind(s.group())
+            if kind in {"R", "A"}:
+                from core.failure_modes import incomplete_action_context
+
+                if incomplete_action_context(
+                    text[max(0, s.start() - 10) : s.start()], text[s.end() : limit]
+                ):
+                    continue
+            if kind == "F" and PREVENTIVE_FAILURE.match(text[s.end() : limit]):
+                continue
             if (
                 kind == "A"
                 and re.fullmatch(r"점검|확인|inspected", s.group(), re.I)
@@ -263,7 +292,11 @@ class RuleClassifier:
                 if not (exclude and exclude.search(text))
             ]
             hits = {
-                rule["id"]: [m for m in context.finditer(text) if m.group()]
+                rule["id"]: [
+                    m
+                    for m in context.finditer(text)
+                    if m.group() and self.supported_context(rule, m, text)
+                ]
                 for rule, context, _ in active
             }
             # Part names only; fallback contexts are symptom words themselves (파손, 틀어짐).
@@ -273,6 +306,9 @@ class RuleClassifier:
                 if rule["role"] != "fallback"
                 for m in hits[rule["id"]]
             )
+            if not nouns and self.metadata_name_list(text, active):
+                previous = None
+                continue
             # A location ('스프라켓에서') does not end the previous part's statement.
             bounds = [(a, b) for a, b in nouns if not LOCATIVE.match(text, b)]
             last = []
@@ -309,16 +345,64 @@ class RuleClassifier:
                             last.append((rule, symptom, c))
                     if words or rule["role"] != "fallback":
                         add(rule, index, c, words)
+            if nouns and previous:
+                # A parenthesized alias may end just before its failure, then
+                # another part starts later: '(ICM 밸브) 누설 확인, 자동밸브…'.
+                # Only the prefix before the next named part can continue it.
+                origin, previous_parts = previous
+                prefix_end = min(a for a, _ in nouns)
+                if origin == index - 1 and 0 < prefix_end <= self.window:
+                    for rule, symptom, c in previous_parts:
+                        if symptom is not None:
+                            words = self.symptoms(symptom, text, index, 0, prefix_end, ())
+                            if words and self.subjectless_continuation(text, words):
+                                add(rule, origin, c, words)
             if nouns:
                 previous = (index, last) if last else None
             elif previous:
-                # '로드리스 실린더 파손/교체': a clause without a part continues the previous part.
+                # Only genuinely subject-less adjacent clauses continue a part.
                 origin, previous_parts = previous
+                continued = False
                 for rule, symptom, c in previous_parts:
                     words = self.symptoms(symptom, text, index, 0, len(text), ())
-                    if words:
+                    if words and self.subjectless_continuation(text, words):
                         add(rule, origin, c, words)
+                        continued = True
+                if not continued:
+                    previous = None
         return list(found.values())
+
+    @staticmethod
+    def subjectless_continuation(text: str, words: list[Symptom]) -> bool:
+        return bool(CONTINUATION_PREFIX.fullmatch(text[: words[0].start]))
+
+    def metadata_name_list(self, text: str, active) -> bool:
+        """A short comma-separated name list is metadata, unless it names work."""
+        if not NAME_LIST.fullmatch(text):
+            return False
+        if any(
+            self.action.fullmatch(token)
+            or any(symptom and symptom.fullmatch(token) for _, _, symptom in active)
+            for token in text.split(",")
+        ):
+            return False
+        from core.public_taxonomy import default_catalog
+
+        return not any(
+            re.sub(r"\s+", "", alias).casefold() in text.casefold()
+            for equipment in default_catalog().get("equipment_types", [])
+            for alias in [equipment["name"], *equipment.get("aliases", [])]
+            if len(re.sub(r"\s+", "", alias)) >= 2
+        )
+
+    @staticmethod
+    def supported_context(rule: dict, match, text: str) -> bool:
+        """Ambiguous short aliases require their recorded equipment context."""
+        if match.group().casefold() == "tc" and rule["minor"].startswith("열전대"):
+            # TC can also mean a controller. Only the heating/sealing context
+            # observed in the history supports its thermocouple abbreviation.
+            return bool(re.search(r"히터|히팅|씰러|실러|포밍|온도|열전", text[: match.start()]))
+        return True
 
     def causal(self, pair: Pair, parts: list[str]) -> bool:
         """'…이탈로 인해 몰드 빠짐' links two failures; '고장으로 교체' is a self-contained repair."""
@@ -788,7 +872,7 @@ class RuleClassifier:
         code = (part_code if code_text is None else code_text).strip()
         if code:
             # The worker-selected MES part code names the part the description omits.
-            coded = self.decide(f"{code} | {text}", part_code)
+            coded = self.decide(f"{code} {text}", part_code)
             if coded["status"] != K["rule_unmatched"]:
                 return self.staged(coded, CODE_PART_REASON.format(code=part_code or code))
         if self.nopart_rules:

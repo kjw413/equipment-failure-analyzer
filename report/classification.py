@@ -7,10 +7,18 @@ import json
 import re
 from dataclasses import replace
 
-from core.i18n import K
+import pandas as pd
+
+from core.aggregation import grouped, trend
+from core.classification_policy import unresolved_classifications
+from core.component_analysis import component_tables
+from core.failure_modes import LEGACY_CLASSIFICATION_SCHEMAS, UNKNOWN_EQUIPMENT, UNKNOWN_PART
+from core.fault_components import CATEGORY_FIELDS, component_payload, parse_components, type_label
+from core.i18n import UNMATCHED, K
 from core.models import CLASSIFICATION_COMPONENT_COLUMNS, CLASSIFICATION_DECISION_COLUMNS
 from core.parsing import text
 from core.report_view import report_result
+from core.sorting import descending
 
 COMPONENT_FIELDS = CLASSIFICATION_COMPONENT_COLUMNS
 DECISION_FIELDS = CLASSIFICATION_DECISION_COLUMNS
@@ -32,19 +40,24 @@ _LEGACY_TEXT = re.compile(r"점수|격차|저점수|접전|\bscore\b", re.IGNORE
 
 def classification_principles() -> list[str]:
     return [
-        "대분류는 분야, 중분류는 부품 종류, 소분류는 증상입니다. 한 이력의 각 부품·증상을 별도 분류 항목으로 기록합니다.",
+        "최종 분류는 고장 분야 / 상세설비·모듈 / 세부 부품 / 고장 현상입니다. 부품군은 세부 부품에 따라 표시하고 조치는 별도 열에 보존합니다. 한 고장이력은 하나의 최종 분류만 갖습니다. 부분분류는 확인된 항목을 보존하고 미기재 항목을 표시합니다. 후보가 충돌한 미확정 분류는 빈칸으로 두고 판정은 상태·사유에 표시합니다.",
+        "상세설비는 고장·조치 근거가 붙은 원문과 비가동코드(중)를 확인해 표준화합니다. 근거가 없으면 상세설비 미상으로 보존하며, 등록 설비명만으로 실제 고장 설비를 추정하지 않습니다.",
+        "고장 분야·상세설비·세부 부품·고장 현상은 독립적으로 선택합니다. 부품군은 부품 종류를 찾는 탐색 기준입니다. 부품의 고유 소속 분야를 실제 고장 분야로 강제하지 않습니다.",
+        "상세설비 본체만 적힌 기록은 세부 부품 미기재로 표시합니다. 부품을 추정하지 않으며 제품·자재 대상과 함께 실제 부품 발생 건수에서는 제외합니다.",
         "분류 규칙의 부품·문맥·증상 조건과 원문이 일치하는지 확인하고 판정 사유와 후보별 근거를 기록합니다.",
-        "'실린더 및 베어링 손상'은 '실린더 / 손상', '베어링 / 손상'으로 나눕니다. 교체·점검·조정은 증상과 구분하며, 조치만 적혀 있으면 증상을 추정하지 않고 '증상 미기재'로 남깁니다. 모호한 후보와 대안 표현은 검토합니다.",
+        "명확한 단일 고장을 먼저 선택하고, 남은 복수 부품·현상·설비 후보는 원문 고장 또는 완료 조치 근거가 있는 1순위를 이력 대표로 자동 선택합니다. 의심·대안, 미등록 다른 물리 고장, 불명확한 공동주어, 같은 명사의 동률 상충 규칙, 부품명만 있는 기록은 검토합니다. 조치로 고장 현상을 추정하지 않으며 현상이 없으면 '현상 미기재'로 보존합니다.",
+        "완전 자동분류는 네 분류축이 모두 확인된 기록입니다. 부분 자동분류는 단일 대상을 확인했지만 일부 분류축이 미기재인 기록입니다. 자동처리는 두 항목의 합이며, 검토 대상(중복 제외)은 충돌·미일치·시간/일자 등 품질 확인이 필요한 기록입니다. 각 숫자를 별도로 표시합니다.",
+        "차단기 '떨어짐'은 보호장치 동작으로 분류합니다. 낙하나 과부하를 임의로 추정하지 않습니다. 손상·파손은 통합하고 마모·부식은 구별합니다.",
         "수동확정은 사용자가 선택한 유형을 보존합니다. 규칙과 일치하는 후보가 없으면 비가동코드(중·소)가 비어 있을 때 '비가동코드 미기입', 입력돼 있을 때 '규칙 미일치'로 남깁니다.",
     ]
 
 
 def component_principles() -> list[str]:
     return [
-        "조합별 유형과 설비별 유형순위는 하나의 고장기록을 사건 1회·정지시간 1회로 집계합니다. 복수유형의 정지시간을 각 부품에 나누거나 반복 합산하지 않습니다.",
-        "부품별 발생 건수는 해당 부품이 포함된 고장기록 수입니다. 같은 부품에 증상이 여러 개 있어도 부품 건수는 한 번만 셉니다. 비율의 분모는 선택한 전체 고장기록이며, 월별 표에서는 해당 월 전체 고장기록입니다. 한 사건에 여러 부품이 포함될 수 있어 비율 합계는 100%를 초과할 수 있습니다.",
-        "부품별 사용자확정 건수와 잠정 검토 건수를 구분합니다. 검토필요 유형은 확정된 부품 고장이 아니며 원문과 후보 근거를 확인해야 합니다.",
-        "'또는'·'혹은' 등 대안 유형은 실제 동시고장 구성원이 아닙니다. 대안 후보의 규칙 근거와 원문을 비교해 유형을 확정하며, 서로 대안인 유형들을 동시에 구성원으로 합산하지 않습니다.",
+        "한 고장이력은 최종 분류 하나로 사건 1회·정지시간 1회만 집계합니다. 여러 후보를 실제 부품 고장으로 반복 합산하지 않습니다.",
+        "부품별 발생 건수는 최종 분류가 단일 실제 부품으로 정해진 고장기록 수입니다. 세부 부품 미기재·제품·자재 대상·검토필요·규칙 미일치·분류 없는 기록은 부품 집계에서 제외하며, 전체 이력과 정지시간 합계에는 보존합니다.",
+        "부품 비율의 분모는 선택한 전체 고장기록이며, 월별 표에서는 해당 월 전체 고장기록입니다. 미확정 기록을 분모에 포함하므로 비율 합계는 100%보다 작을 수 있습니다. 잠정 후보는 부품 건수에 포함하지 않습니다.",
+        "후보 순위는 규칙 근거에 따른 대표 선택 순서이며 정확도나 확률이 아닙니다. '1순위 대표 자동선택'은 이력당 대표 하나를 정하는 정책으로, 다른 실제 고장이 없다는 뜻이 아닙니다. 원문과 전체 후보를 보존하고 대표 부품만 한 번 집계합니다. 검토 중에도 보고서를 저장하고 대표 분류를 수정할 수 있습니다.",
     ]
 
 
@@ -106,6 +119,65 @@ def classification_result(result):
             value["component_details"] = value["component_details"].map(
                 _components_without_legacy_fields
             )
+            if "classification_candidates" not in value:
+                value["classification_candidates"] = "[]"
+            else:
+                value["classification_candidates"] = value["classification_candidates"].map(
+                    _components_without_legacy_fields
+                )
+            for index, record in value.to_dict("index").items():
+                members = parse_components(record.get("component_details"))
+                previous_axes = record.get(
+                    "classification_schema"
+                ) in LEGACY_CLASSIFICATION_SCHEMAS or any(
+                    member.get("schema") in LEGACY_CLASSIFICATION_SCHEMAS for member in members
+                )
+                pending = (
+                    previous_axes
+                    or len(members) > 1
+                    or record.get("classification_mode") in ("multiple", "ambiguous")
+                    or record.get("status") in (K["review"], K["manual_multi"])
+                )
+                if not pending:
+                    continue
+                candidates = record.get("classification_candidates")
+                try:
+                    candidates = (
+                        json.loads(candidates) if isinstance(candidates, str) else candidates
+                    )
+                except (TypeError, ValueError):
+                    candidates = []
+                candidates = candidates if isinstance(candidates, list) else []
+                if not candidates:
+                    candidates = members
+                value.at[index, "classification_candidates"] = json.dumps(
+                    candidates, ensure_ascii=False, separators=(",", ":")
+                )
+                for field, field_value in component_payload([], "ambiguous").items():
+                    if field != "repair_actions":
+                        value.at[index, field] = field_value
+                value.at[index, "status"] = K["review"]
+                for field in CATEGORY_FIELDS:
+                    value.at[index, field] = ""
+                value.at[index, "type"] = K["review"]
+                if previous_axes:
+                    value.at[index, "classification_reason"] = (
+                        "이전 분류를 후보로 보존했습니다. 고장 분야·상세설비·세부 부품·고장 현상을 새 기준으로 다시 확인하세요. 조치는 별도로 보존합니다."
+                    )
+                if members:
+                    candidate_text = "\n".join(
+                        f"{number}. {type_label(member)}"
+                        + (" | " + str(member.get("evidence")) if member.get("evidence") else "")
+                        for number, member in enumerate(members, 1)
+                    )
+                    previous = text(record.get("candidate_evidence"))
+                    value.at[index, "candidate_evidence"] = "\n".join(
+                        item for item in (previous, candidate_text) if item
+                    )
+                if len(members) > 1 or record.get("status") == K["manual_multi"]:
+                    value.at[index, "classification_reason"] = (
+                        "이전 복수 분류를 검토 후보로 보존했습니다. 원문과 후보 근거를 확인하여 최종 분류 하나를 선택하세요."
+                    )
         for field, fallback in (
             ("classification_reason", "evidence"),
             ("candidate_evidence", "candidates"),
@@ -114,6 +186,15 @@ def classification_result(result):
                 value[field] = value[fallback]
         if legacy is not None and legacy.any():
             value.loc[legacy, "classification_reason"] = LEGACY_REASON
+        if "status" in value:
+            unresolved = value.status.isin([*UNMATCHED, K["review"], K["manual_multi"]])
+            for field in CATEGORY_FIELDS:
+                if field in value:
+                    value.loc[unresolved, field] = ""
+            if "part_group" in value:
+                value.loc[unresolved, "part_group"] = ""
+            if "type" in value:
+                value.loc[unresolved, "type"] = K["review"]
         return value
 
     snapshot = copy.deepcopy(projected.config_snapshot)
@@ -126,6 +207,55 @@ def classification_result(result):
         if key not in ("scoring_review_rows", "low_score_rows", "close_score_rows")
     }
     selected = frame(projected.selected)
+    metrics["unresolved_classification_rows"] = len(unresolved_classifications(selected))
+    tables = {key: frame(table) for key, table in projected.tables.items()}
+    if "component_details" in selected:
+        # A caller may pass an older saved result directly to a low-level exporter.
+        # Rebuild its classifications so stale multiple-member tables cannot leak
+        # into the review workbook or charts.
+        for key, keys in {
+            "equipment": ["equipment"],
+            "line": ["line"],
+            "product": ["product"],
+            "type": ["type"],
+            "equipment_type": ["equipment", "type"],
+            "product_type": ["product", "type"],
+            "equipment_product": ["equipment", "product"],
+            "triple": ["equipment", "product", "type"],
+        }.items():
+            if key in tables:
+                source = selected
+                if key == "product" and not metrics.get("product_count"):
+                    source = selected.iloc[:0]
+                tables[key] = grouped(source, keys)
+        for freq in ("day", "week", "month", "year"):
+            if "trend_" + freq in tables:
+                tables["trend_" + freq] = trend(selected, freq)
+        if "long_stops" in tables:
+            tables["long_stops"] = descending(selected, "minutes").head(projected.options.top_n)
+        if "review" in tables:
+            previous_ids = set(tables["review"].get("record_id", []))
+            mask = selected.record_id.isin(previous_ids) | selected.status.eq(K["review"])
+            tables["review"] = descending(selected.loc[mask], "minutes")
+            metrics["review_rows"] = int(mask.sum())
+        components = component_tables(selected)
+        for key, table in components.items():
+            if key in tables:
+                tables[key] = table
+        if "combination" in tables:
+            tables["combination"] = grouped(selected.iloc[:0], ["type"])
+        metrics["auto_rows"] = int(selected.status.eq(K["auto"]).sum())
+        metrics["partial_rows"] = int(selected.status.eq(K.get("partial", "부분분류")).sum())
+        metrics["auto_processed_rows"] = metrics["auto_rows"] + metrics["partial_rows"]
+        metrics["manual_rows"] = int(selected.status.eq(K["manual"]).sum())
+        metrics["classification_review_rows"] = int(selected.status.eq(K["review"]).sum())
+        metrics["missing_detail_equipment_rows"] = int(
+            selected.get("detail_equipment", pd.Series("", index=selected.index))
+            .eq(UNKNOWN_EQUIPMENT)
+            .sum()
+        )
+        metrics["missing_part_rows"] = int(selected["middle"].eq(UNKNOWN_PART).sum())
+        metrics["manual_multi_rows"] = metrics["combination_rows"] = 0
     legacy_count = int(selected["status"].eq(LEGACY_STATUS).sum()) if "status" in selected else 0
     if legacy_count:
         metrics["legacy_classification_rows"] = legacy_count
@@ -135,8 +265,15 @@ def classification_result(result):
         projected,
         all_records=frame(projected.all_records),
         selected=selected,
-        tables={key: frame(table) for key, table in projected.tables.items()},
-        notes=[note for note in projected.notes if not _LEGACY_TEXT.search(note)],
+        tables=tables,
+        notes=[
+            note
+            for note in projected.notes
+            if not _LEGACY_TEXT.search(note)
+            and not any(
+                phrase in note for phrase in ("복수 유형 조합", "중복을 허용", "잠정검토 포함")
+            )
+        ],
         metrics=metrics,
         config_snapshot=snapshot,
     )

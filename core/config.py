@@ -178,16 +178,31 @@ class ConfigStore:
     def update_override(self, event_id: str, patch: dict[str, str | None]) -> dict[str, str]:
         """Set (text) or remove (None) individual corrected fields of one record."""
         overrides = self.read("manual_overrides.json")
+        current = self._patch_override(overrides, event_id, patch)
+        atomic_json(self.override_path, overrides)
+        return current
+
+    @staticmethod
+    def _patch_override(overrides, event_id, patch):
+        """Validate and merge in memory; callers choose the atomic write boundary."""
         current = {k: v for k, v in overrides.get(event_id, {}).items() if k != "saved_at"}
         from core.failure_modes import CLASSIFICATION_SCHEMA
         from core.fault_components import (
             CATEGORY_FIELDS,
             COMPONENT_OVERRIDE,
-            combination_category,
             parse_components,
         )
 
         patch = dict(patch)
+        if "repair_actions" in patch and patch["repair_actions"] is not None:
+            from core.public_taxonomy import parse_repair_actions
+
+            try:
+                patch["repair_actions"] = ", ".join(
+                    parse_repair_actions(patch["repair_actions"], strict=True)
+                )
+            except ValueError as exc:
+                raise UserError(str(exc)) from exc
         if patch.get("classification_schema") not in (None, "", CLASSIFICATION_SCHEMA):
             raise UserError("지원하지 않는 분류 저장 형식입니다.")
         multiple = patch.get(COMPONENT_OVERRIDE)
@@ -195,30 +210,38 @@ class ConfigStore:
         classification_changed = multiple not in (None, "") or single_selection
         if single_selection and current.get("classification_schema") != CLASSIFICATION_SCHEMA:
             if not all(str(patch.get(key) or "").strip() for key in CATEGORY_FIELDS):
-                raise UserError("새 부품·증상 분류는 대·중·소분류를 모두 입력하세요.")
+                raise UserError("새 분류는 대분류·상세설비·세부 부품·소분류를 모두 입력하세요.")
         if multiple not in (None, ""):
             if single_selection:
                 raise UserError("단일 유형과 복수 유형을 동시에 확정할 수 없습니다.")
             members = parse_components(multiple, strict=True)
-            combination_category(members)
-            patch[COMPONENT_OVERRIDE] = json.dumps(
-                [{key: member[key] for key in CATEGORY_FIELDS} for member in members],
-                ensure_ascii=False,
-                separators=(",", ":"),
-            )
-            for key in CATEGORY_FIELDS:
-                current.pop(key, None)
+            if len(members) != 1:
+                raise UserError("고장이력 한 건에는 최종 분류 하나만 확정할 수 있습니다.")
+            if not all(members[0].get(key) for key in CATEGORY_FIELDS):
+                raise UserError("새 분류는 대분류·상세설비·세부 부품·소분류를 모두 입력하세요.")
+            patch.update({key: members[0][key] for key in CATEGORY_FIELDS})
+            patch[COMPONENT_OVERRIDE] = None
+            single_selection = True
+            current.pop(COMPONENT_OVERRIDE, None)
         elif single_selection and current.get(COMPONENT_OVERRIDE):
             if not all(
                 str(patch.get(key, current.get(key, "")) or "").strip() for key in CATEGORY_FIELDS
             ):
-                raise UserError("단일 유형으로 바꾸려면 대·중·소분류를 모두 입력하세요.")
+                raise UserError(
+                    "단일 유형으로 바꾸려면 대분류·상세설비·세부 부품·소분류를 모두 입력하세요."
+                )
             current.pop(COMPONENT_OVERRIDE, None)
         for key, value in patch.items():
-            if value is None or str(value).strip() == "":
+            if value is None or (str(value).strip() == "" and key != "repair_actions"):
                 current.pop(key, None)
             else:
                 current[key] = str(value).strip()
+        if any(key in patch for key in CATEGORY_FIELDS):
+            from core.corrections import validate
+
+            error = validate({key: current.get(key, "") for key in CATEGORY_FIELDS})
+            if error:
+                raise UserError(error)
         has_classification = bool(current.get(COMPONENT_OVERRIDE)) or any(
             current.get(key) for key in CATEGORY_FIELDS
         )
@@ -239,8 +262,25 @@ class ConfigStore:
             }
         else:
             overrides.pop(event_id, None)
-        atomic_json(self.override_path, overrides)
         return current
+
+    def apply_classifications(self, patches: dict) -> int:
+        """Validate in-memory selections together, then write the confirmed file once."""
+        from core.fault_components import CATEGORY_FIELDS, COMPONENT_OVERRIDE
+
+        if not patches:
+            return 0
+        overrides = self.read("manual_overrides.json")
+        for event_id, patch in patches.items():
+            if (
+                not isinstance(patch, dict)
+                or not patch
+                or set(patch) - {*CATEGORY_FIELDS, COMPONENT_OVERRIDE, "repair_actions"}
+            ):
+                raise UserError("저장된 임시 분류의 형식을 확인하세요.")
+            self._patch_override(overrides, event_id, patch)
+        atomic_json(self.override_path, overrides)
+        return len(patches)
 
     def clear_override(self, event_id: str) -> None:
         self.update_override(event_id, {key: None for key in self.override(event_id)})

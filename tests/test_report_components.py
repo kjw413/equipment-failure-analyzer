@@ -1,4 +1,4 @@
-"""Combined events retain one downtime and expose separate member-event counts."""
+"""One final classification counts once; ranked candidates remain review evidence."""
 
 import json
 from dataclasses import replace
@@ -9,79 +9,76 @@ from conftest import analyze_file
 from openpyxl import load_workbook
 
 from core.aggregation import grouped
-from core.fault_components import combination_category, component_payload, type_label
+from core.component_analysis import component_tables
+from core.fault_components import component_payload, type_label
 from core.i18n import K
 from core.sorting import descending
-from report.classification import COMPONENT_FIELDS
+from report.charts import figure_for, tidy_label
+from report.classification import COMPONENT_FIELDS, classification_result
 from report.excel_report import SHEETS, D, export_report
-from report.pdf_report import brief_type, export_pdf
+from report.pdf_report import export_pdf
+
+
+def test_type_chart_labels_keep_part_and_symptom_instead_of_collapsing_to_symptom():
+    labels = ["기계 / 베어링 / 손상", "공압·진공 / 실린더 / 손상"]
+    assert tidy_label(labels[0]) != tidy_label(labels[1])
+    table = pd.DataFrame({"type": labels, "count": [1, 1], "total_minutes": [20, 10]})
+    figure = figure_for(table, "type")
+    try:
+        shown = " ".join(tick.get_text() for tick in figure.axes[0].get_yticklabels())
+        assert "베어링" in shown and "실린더" in shown and "손상" in shown
+    finally:
+        figure.clear()
 
 
 @pytest.fixture
 def component_result(store, input_file):
     result = analyze_file(store, input_file)
     selected = result.selected.copy(deep=True)
-    a = {"major": "기계", "middle": "구동", "minor": "모터*?#1 이상"}
-    b = {"major": "기계", "middle": "구동", "minor": "모터*?#10 이상"}
-    c = {"major": "전기", "middle": "감지", "minor": "센서 동시 이상"}
-    members = ([a, b], [a, c], [b], [])
-    for index, values in enumerate(members):
-        mode = "multiple" if len(values) > 1 else "single"
-        for field, value in component_payload(values, mode).items():
-            selected.loc[index, field] = value
-        if len(values) > 1:
-            category = combination_category(values)
-            for field, value in category.items():
-                selected.loc[index, field] = value
-            selected.loc[index, "type"] = type_label(category)
-    selected.loc[0, "status"] = K["manual_multi"]
-    selected.loc[1, "status"] = K["review"]
-    selected.loc[2, "status"] = K["auto"]
-    selected.loc[2, "type"] = type_label(b)
-    tables = dict(result.tables)
-    tables["type"] = grouped(selected, ["type"])
-    tables["equipment_type"] = grouped(selected, ["equipment", "type"])
-    tables["review"] = selected.iloc[[1]].copy()
-    tables["long_stops"] = descending(selected, "minutes")
-    tables["component"] = pd.DataFrame(
-        [
-            {
-                "component_type": type_label(a),
-                "count": 2,
-                "manual_count": 1,
-                "review_count": 1,
-                "count_share": 0.5,
-            },
-            {
-                "component_type": type_label(b),
-                "count": 2,
-                "manual_count": 1,
-                "review_count": 0,
-                "count_share": 0.5,
-            },
-            {
-                "component_type": type_label(c),
-                "count": 1,
-                "manual_count": 0,
-                "review_count": 1,
-                "count_share": 0.25,
-            },
-        ]
-    )
-    tables["component_trend"] = tables["component"].assign(period="2026-01")
-    tables["combination"] = grouped(selected.iloc[:2], ["type"])
+    a = {"major": "기계", "middle": "모터*?#1", "minor": "손상"}
+    b = {"major": "전기", "middle": "센서*?#10", "minor": "감지불량"}
+    for index in selected.index:
+        category = a if index < 2 else {key: "" for key in a}
+        for key, value in {
+            **category,
+            **component_payload([a] if index < 2 else [], "single" if index < 2 else "ambiguous"),
+        }.items():
+            selected.loc[index, key] = value
+        selected.loc[index, "type"] = type_label(a) if index < 2 else K["review"]
+        selected.loc[index, "classification_candidates"] = json.dumps(
+            [a, b] if index == 2 else [], ensure_ascii=False
+        )
+    selected.loc[0, "status"] = K["manual"]
+    selected.loc[1, "status"] = K["auto"]
+    selected.loc[2, "status"] = K["review"]
+    selected.loc[2, "candidate_evidence"] = "1. 모터*?#1 / 손상; 2. 센서*?#10 / 감지불량"
+    selected.loc[3, "status"] = K["code_missing"]
+    selected.loc[3, "classification_mode"] = "unclassified"
+    tables = {
+        **result.tables,
+        **component_tables(selected),
+        "type": grouped(selected, ["type"]),
+        "equipment_type": grouped(selected, ["equipment", "type"]),
+        "review": selected.iloc[[2, 3]].copy(),
+        "long_stops": descending(selected, "minutes"),
+    }
     return replace(
         result,
         selected=selected,
         tables=tables,
-        metrics={**result.metrics, "manual_rows": 1},
+        metrics={
+            **result.metrics,
+            "manual_rows": 1,
+            "auto_rows": 1,
+            "review_rows": 2,
+            "classification_review_rows": 1,
+        },
     )
 
 
-def test_excel_components_are_snapshot_event_counts_without_time_allocation(
-    component_result, tmp_path
-):
-    path = export_report(component_result, tmp_path / "components.xlsx")
+def test_excel_single_final_counts_exclude_pending_candidates(component_result, tmp_path):
+    original = component_result.selected.copy(deep=True)
+    path = export_report(component_result, tmp_path / "single.xlsx")
     values = load_workbook(path, data_only=True)
     formulas = load_workbook(path, data_only=False)
     try:
@@ -89,68 +86,71 @@ def test_excel_components_are_snapshot_event_counts_without_time_allocation(
         assert values[SHEETS["summary"]]["A7"].value == 4
         assert values[SHEETS["summary"]]["E7"].value == 95
         component = values[SHEETS["component"]]
-        assert [component.cell(row, 2).value for row in (7, 8, 9)] == [2, 2, 1]
-        assert [component.cell(row, 3).value for row in (7, 8, 9)] == [1, 1, 0]
-        assert [component.cell(row, 4).value for row in (7, 8, 9)] == [1, 0, 1]
-        assert sum(component.cell(row, 5).value for row in (7, 8, 9)) == 1.25
-        assert "정적표" in component["A5"].value
-        assert "정지시간" not in " ".join(str(cell.value) for cell in component[6])
-        monthly_header = next(
+        assert [component.cell(7, column).value for column in (2, 3, 4, 5)] == [2, 1, 0, 0.5]
+        assert "미확정 후보는 집계하지 않" in component["A5"].value
+        monthly = next(
             row for row in range(7, component.max_row + 1) if component.cell(row, 6).value == "월"
         )
-        assert component.cell(monthly_header + 1, 6).value == "2026-01"
-        assert component.cell(monthly_header, 5).value == "해당 월 전체 고장기록 대비 비율"
+        assert component.cell(monthly + 1, 2).value == 2
+        assert component.cell(monthly + 1, 5).value == 0.5
+        assert component.cell(monthly + 1, 6).value == "2026-01"
         detail = values[SHEETS["detail"]]
-        for record in component_result.selected.to_dict("records"):
-            row = next(
-                row for row in range(7, 11) if detail.cell(row, 1).value == record["record_id"]
-            )
-            assert detail[f"{D['component_count']}{row}"].value == record["component_count"]
-            assert json.loads(detail[f"{D['component_details']}{row}"].value) == json.loads(
-                record["component_details"]
-            )
-            if record["status"] == K["manual_multi"]:
-                assert detail[f"{D['classification_mode']}{row}"].value == "복수 유형 조합"
-                assert record["classification_mode"] == "multiple"
-        quality = values[SHEETS["review"]]
+        rows = {detail[f"{D['record_id']}{row}"].value: row for row in range(7, 11)}
+        for record in original.to_dict("records"):
+            row = rows[record["record_id"]]
+            members = json.loads(detail[f"{D['component_details']}{row}"].value)
+            assert len(members) <= 1
+            if record["status"] == K["review"]:
+                assert members == []
+                assert len(json.loads(detail[f"{D['classification_candidates']}{row}"].value)) == 2
+        faults = values[SHEETS["fault_detail"]]
+        assert faults.max_row == 10
+        assert len({faults.cell(row, 1).value for row in range(7, 11)}) == 4
+        headers = [cell.value for cell in faults[6]]
+        from core.i18n import DISPLAY
+
+        status_column = headers.index(DISPLAY["status"]) + 1
+        review_row = next(
+            row for row in range(7, 11) if faults.cell(row, status_column).value == K["review"]
+        )
+        classification_columns = [
+            headers.index(DISPLAY[key]) + 1
+            for key in ("major", "detail_equipment", "middle", "minor")
+        ]
+        assert [faults.cell(review_row, column).value for column in classification_columns] == [
+            None,
+            None,
+            None,
+            None,
+        ]
         manual_row = next(
             row
-            for row in range(1, quality.max_row + 1)
-            if quality.cell(row, 1).value == K["manual"]
+            for row in range(7, values[SHEETS["criteria"]].max_row + 1)
+            if values[SHEETS["criteria"]].cell(row, 1).value == K["manual"]
         )
-        assert quality.cell(manual_row, 2).value == 1
-        assert "COUNTIF" in formulas[SHEETS["review"]].cell(manual_row, 2).value
-        assert K["manual_multi"] in formulas[SHEETS["review"]].cell(manual_row, 2).value
-        type_table = values[SHEETS["type"]]
-        assert (
-            sum(
-                type_table.cell(row, 5).value or 0
-                for row in range(7, 7 + len(component_result.tables["type"]))
-            )
-            == 95
-        )
+        assert values[SHEETS["criteria"]].cell(manual_row, 2).value == 1
+        assert "COUNTIF" in formulas[SHEETS["criteria"]].cell(manual_row, 2).value
     finally:
         values.close()
         formulas.close()
+    pd.testing.assert_frame_equal(component_result.selected, original)
 
 
-def test_pdf_components_explain_combination_policy_and_keep_full_names(component_result, tmp_path):
+def test_pdf_explains_single_selection_and_preserves_candidate_evidence(component_result, tmp_path):
     pypdf = pytest.importorskip("pypdf")
-    reader = pypdf.PdfReader(export_pdf(component_result, tmp_path / "components.pdf"))
-    text = "\n".join(page.extract_text() or "" for page in reader.pages)
-    compact = "".join(text.split())
+    reader = pypdf.PdfReader(export_pdf(component_result, tmp_path / "single.pdf"))
+    compact = "".join("".join(page.extract_text() or "" for page in reader.pages).split())
     for phrase in (
-        "사건 1회·정지시간 1회",
-        "100%를 초과",
-        "잠정 검토",
-        "규칙 기반 분류 원칙",
-        "모터*?#1 이상",
-        "모터*?#10 이상",
-        "센서 동시 이상",
+        "한 고장이력은 하나의 최종 분류",
+        "최종 분류 하나",
+        "미확정 후보",
+        "모터*?#1",
+        "센서*?#10",
+        "100%보다 작을 수",
     ):
         assert "".join(phrase.split()) in compact
-    label = component_result.selected.iloc[0]["type"]
-    assert brief_type(label) == label
+    assert "100%를초과" not in compact
+    assert "복수유형조합" not in compact
 
 
 def test_legacy_report_without_component_fields_or_tables_still_exports(
@@ -175,62 +175,62 @@ def test_legacy_report_without_component_fields_or_tables_still_exports(
         workbook.close()
 
 
-def test_pdf_preserves_many_long_manual_component_names_across_pages(component_result, tmp_path):
-    pypdf = pytest.importorskip("pypdf")
+def test_legacy_multiple_classification_is_candidates_only_and_one_detail_row(
+    component_result, tmp_path
+):
     selected = component_result.selected.copy(deep=True)
     members = [
-        {
-            "major": "장문 부품 검증",
-            "middle": f"다중확정 구성 {index:02d}",
-            "minor": f"구성{index:02d}시작 "
-            + "고장 부위와 증상 상세 설명 " * 9
-            + f" 구성{index:02d}끝",
-        }
+        {"major": "기계", "middle": f"후보 부품 {index:02d}", "minor": f"증상 {index:02d}"}
         for index in range(40)
     ]
-    category = combination_category(members)
-    for field, value in {**category, **component_payload(members, "multiple")}.items():
+    for field, value in component_payload(members, "multiple").items():
         selected.loc[0, field] = value
-    selected.loc[0, "type"] = type_label(category)
-    tables = {
-        **component_result.tables,
-        "type": grouped(selected, ["type"]),
-        "equipment_type": grouped(selected, ["equipment", "type"]),
-        "long_stops": descending(selected, "minutes"),
-    }
-    result = replace(component_result, selected=selected, tables=tables)
-    reader = pypdf.PdfReader(export_pdf(result, tmp_path / "long_components.pdf"))
-    text = "".join((page.extract_text() or "") for page in reader.pages)
-    compact = "".join(text.split())
-    assert len(reader.pages) > 5
-    for index in range(40):
-        assert f"구성{index:02d}시작" in compact
-        assert f"구성{index:02d}끝" in compact
-
-
-def test_alternative_type_quality_counts_preserve_rule_review(component_result, tmp_path):
-    pypdf = pytest.importorskip("pypdf")
-    result = replace(
-        component_result,
-        metrics={**component_result.metrics, "alternative_type_rows": 1},
+    selected.loc[0, "status"] = K["manual_multi"]
+    result = replace(component_result, selected=selected)
+    snapshot = classification_result(result)
+    pending = snapshot.selected.iloc[0]
+    assert pending.status == K["review"]
+    assert pending.component_details == "[]" and pending.component_count == 0
+    assert len(json.loads(pending.classification_candidates)) == 40
+    assert snapshot.tables["fault_detail"].record_id.is_unique
+    assert len(snapshot.tables["fault_detail"]) == len(selected)
+    assert snapshot.tables["component"]["count"].sum() == 1
+    workbook = load_workbook(
+        export_report(result, tmp_path / "older_multiple.xlsx"), data_only=True
     )
-    workbook = load_workbook(export_report(result, tmp_path / "alternative.xlsx"), data_only=True)
     try:
-        quality = workbook[SHEETS["review"]]
-        counts = {row[0].value: row[1].value for row in quality if len(row) >= 2}
-        assert counts[K["alternative_type_rows"]] == 1
-        assert counts[K["review"]] == 1
-        sheet = workbook[SHEETS["component"]]
-        policy_row = next(
-            row[0].row
-            for row in sheet
-            if "대안 유형은 실제 동시고장 구성원이 아닙니다" in str(row[0].value)
+        detail = workbook[SHEETS["detail"]]
+        row = next(
+            row
+            for row in range(7, 11)
+            if detail[f"{D['record_id']}{row}"].value == pending.record_id
         )
-        assert int(str(sheet.print_area).rsplit("$", 1)[-1]) >= policy_row
+        candidates = json.loads(detail[f"{D['classification_candidates']}{row}"].value)
+        assert {member["middle"] for member in candidates} == {
+            member["middle"] for member in members
+        }
+        assert detail[f"{D['component_details']}{row}"].value == "[]"
+        assert workbook[SHEETS["summary"]]["E7"].value == 95
     finally:
         workbook.close()
-    reader = pypdf.PdfReader(export_pdf(result, tmp_path / "alternative.pdf"))
-    compact = "".join("".join(page.extract_text() or "" for page in reader.pages).split())
-    assert "대안유형검토1건" in compact
-    assert "분류검토필요1건" in compact
-    assert "대안유형은실제동시고장구성원이아닙니다" in compact
+    assert len(json.loads(result.selected.iloc[0].component_details)) == 40
+
+
+def test_manual_single_confirmation_adds_only_selected_part_and_keeps_event_totals(
+    component_result,
+):
+    selected = component_result.selected.copy(deep=True)
+    candidates = json.loads(selected.iloc[2].classification_candidates)
+    choice = candidates[1]
+    for field, value in {**choice, **component_payload([choice], "single")}.items():
+        selected.loc[2, field] = value
+    selected.loc[2, "type"] = type_label(choice)
+    selected.loc[2, "status"] = K["manual"]
+    selected.loc[2, "classification_candidates"] = "[]"
+    result = classification_result(replace(component_result, selected=selected))
+    assert result.tables["component"]["count"].sum() == 3
+    assert result.tables["component"]["count_share"].sum() == 0.75
+    assert result.tables["component"]["manual_count"].sum() == 2
+    assert result.tables["type"]["count"].sum() == 4
+    assert result.tables["type"]["total_minutes"].sum() == 95
+    assert len(result.tables["fault_detail"]) == 4

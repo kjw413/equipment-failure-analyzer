@@ -148,15 +148,30 @@ def test_correction_dialog_saves_only_changed_fields(app):
     dialog.edits["minutes"].setText("25")
     dialog.validate_and_accept()
     assert dialog.patch == {"minutes": "25"}  # a tentative classification is not confirmed silently
-    confirm = CorrectionDialog(record, {"minutes": "25", "saved_at": "2026-10-14T10:00:00"})
+    confirm = CorrectionDialog(
+        record,
+        {"minutes": "25", "saved_at": "2026-10-14T10:00:00"},
+        rules=[
+            {
+                "major": "기계",
+                "middle": "벨트·풀리",
+                "minor": "타이밍벨트",
+                "enabled": True,
+                "role": "component",
+            }
+        ],
+    )
     assert confirm.clear_button.isEnabled() and confirm.edits["minutes"].text() == "25"
+    chosen = {
+        "major": "기계",
+        "detail_equipment": "상세설비 미상",
+        "middle": "타이밍벨트",
+        "minor": "마모",
+    }
+    confirm.classification_picker.set_value(chosen)
     confirm.confirm.setChecked(True)
     confirm.validate_and_accept()
-    assert confirm.patch == {
-        "major": "기계",
-        "middle": "벨트·풀리",
-        "minor": "벨트·풀리 끊어짐·마모",
-    }
+    assert confirm.patch == chosen
 
 
 def test_grid_classification_picker_uses_current_profile_rules_when_opened(analyzed_window):
@@ -184,8 +199,13 @@ def test_grid_classification_picker_uses_current_profile_rules_when_opened(analy
     pane.open_classification_editor(pane.proxy.index(0, column))
     editor = pane.classification_editor
     picker = editor.single_picker
-    chosen = {"major": custom["major"], "middle": custom["minor"], "minor": "손상"}
-    for field in ("major", "middle", "minor"):
+    chosen = {
+        "major": custom["major"],
+        "detail_equipment": "상세설비 미상",
+        "middle": custom["minor"],
+        "minor": "손상·파손",
+    }
+    for field in ("major", "detail_equipment", "middle", "minor"):
         combo = picker.combos[field]
         index = combo.findData(chosen[field])
         assert index >= 0
@@ -351,7 +371,14 @@ def test_decision_fields_are_visible_in_details_and_prioritized_in_review(analyz
             assert pane.model.headerData(column, Qt.Orientation.Horizontal) == K[field]
             assert pane.model.index(0, column).data() == frame.iloc[0][field]
         assert not hasattr(pane, "score_note")
-    assert window.panes["review"].model.frame.columns[:3].tolist() == ["major", "middle", "minor"]
+    assert window.panes["review"].model.frame.columns[:6].tolist() == [
+        "major",
+        "detail_equipment",
+        "part_group",
+        "middle",
+        "minor",
+        "repair_actions",
+    ]
 
 
 def test_correction_dialog_explains_rule_evidence_without_auto_confirming(app):
@@ -378,7 +405,25 @@ def test_correction_dialog_explains_rule_evidence_without_auto_confirming(app):
     dialog.validate_and_accept()
     assert dialog.patch == {"minutes": "25"}
 
-    confirmed = CorrectionDialog(record)
+    confirmed = CorrectionDialog(
+        record,
+        rules=[
+            {
+                "major": "기계",
+                "middle": "벨트·풀리",
+                "minor": "타이밍벨트",
+                "enabled": True,
+                "role": "component",
+            }
+        ],
+    )
+    chosen = {
+        "major": "기계",
+        "detail_equipment": "상세설비 미상",
+        "middle": "타이밍벨트",
+        "minor": "마모",
+    }
+    confirmed.classification_picker.set_value(chosen)
     confirmed.confirm.setChecked(True)
     confirmed.validate_and_accept()
-    assert confirmed.patch == {key: record[key] for key in ("major", "middle", "minor")}
+    assert confirmed.patch == chosen

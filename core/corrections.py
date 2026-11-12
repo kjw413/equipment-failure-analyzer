@@ -7,15 +7,34 @@ import math
 
 import pandas as pd
 
-from core.failure_modes import CLASSIFICATION_SCHEMA, manual_category
+from core.failure_modes import UNKNOWN_SYMPTOM
 from core.fault_components import CATEGORY_FIELDS as CLASSIFICATION
 from core.fault_components import COMPONENT_OVERRIDE as COMPONENT_FIELD
 from core.fault_components import parse_components
 from core.i18n import UNMATCHED, K
 from core.models import UserError
+from core.public_taxonomy import parse_repair_actions
 
-FIELDS = (*CLASSIFICATION, COMPONENT_FIELD, "target", "product", "work_date", "minutes")
-PLACEHOLDERS = (K["missing"], K["unclassified"], *UNMATCHED, K["target_missing"], K["nonfault"])
+FIELDS = (
+    *CLASSIFICATION,
+    COMPONENT_FIELD,
+    "repair_actions",
+    "target",
+    "product",
+    "work_date",
+    "minutes",
+)
+PLACEHOLDERS = (
+    K["missing"],
+    K["unclassified"],
+    *UNMATCHED,
+    K["target_missing"],
+    K["nonfault"],
+    K["review"],
+    UNKNOWN_SYMPTOM,
+    "증상 미기재",
+    "복수 고장",
+)
 
 
 def shown(value) -> str:
@@ -26,8 +45,10 @@ def shown(value) -> str:
 def component_override(value, *, multiple: bool = False) -> str:
     """Persist only canonical category names, never candidate scores or rule metadata."""
     components = parse_components(value, strict=True)
-    if multiple and len(components) < 2:
-        raise UserError("복수 유형 확정에는 서로 다른 대/중/소분류가 2개 이상 필요합니다.")
+    if multiple or len(components) > 1:
+        raise UserError("고장이력 한 건에는 최종 분류 하나만 확정할 수 있습니다.")
+    if any(not all(component.get(key) for key in CLASSIFICATION) for component in components):
+        raise UserError("대분류·상세설비·세부 부품·소분류를 모두 선택하세요.")
     return (
         json.dumps(
             [{key: component[key] for key in CLASSIFICATION} for component in components],
@@ -40,42 +61,49 @@ def component_override(value, *, multiple: bool = False) -> str:
 
 
 def initial_values(record: dict, existing: dict) -> dict[str, str]:
-    """Show observed components without confirming them while editing another field."""
+    """Keep old saved data intact until a user explicitly chooses one final type."""
     values = {key: shown(record.get(key)) for key in (*CLASSIFICATION, "target", "product")}
     saved_components = existing.get(COMPONENT_FIELD)
-    observed = (
-        record.get("component_details")
-        if record.get("classification_mode") in ("single", "multiple")
-        else None
-    )
-    parsed = (
-        parse_components(saved_components, strict=True)
-        if saved_components
-        else parse_components(observed)
-    )
-    if saved_components and record.get("classification_schema") == CLASSIFICATION_SCHEMA:
-        parsed = [manual_category(item, existing.get("classification_schema")) for item in parsed]
-    values[COMPONENT_FIELD] = component_override(parsed) if parsed else ""
-    if saved_components or record.get("classification_mode") == "multiple":
-        # A composite event label is not a single standard category.
+    parsed = parse_components(saved_components or record.get("component_details"))
+    values[COMPONENT_FIELD] = str(saved_components or "")
+    if (
+        saved_components
+        or len(parsed) > 1
+        or record.get("status") in (K["review"], *UNMATCHED)
+        or record.get("classification_mode") in ("multiple", "ambiguous")
+        or (record.get("minor") == UNKNOWN_SYMPTOM and record.get("status") != K["partial"])
+        or (
+            any(existing.get(key) for key in CLASSIFICATION)
+            and not existing.get("detail_equipment")
+        )
+    ):
         for key in CLASSIFICATION:
-            values[key] = shown(existing.get(key))
+            values[key] = ""
     values.update(
         work_date=shown(existing.get("work_date")), minutes=shown(existing.get("minutes"))
+    )
+    values["repair_actions"] = str(
+        existing.get("repair_actions", record.get("repair_actions", "")) or ""
     )
     return values
 
 
 def validate(values: dict[str, str], *, confirm_components: bool = False) -> str | None:
     if confirm_components:
-        try:
-            component_override(values.get(COMPONENT_FIELD), multiple=True)
-        except (UserError, ValueError, TypeError) as exc:
-            return str(exc)
+        return "고장이력 한 건에는 최종 분류 하나만 확정할 수 있습니다."
     else:
         parts = [values.get(key, "").strip() for key in CLASSIFICATION]
         if any(parts) and not all(parts):
-            return "대/중/소분류를 모두 선택하거나 모두 비우세요."
+            return "대분류·상세설비·세부 부품·소분류를 모두 선택하거나 모두 비우세요."
+        if all(parts) and any(part in PLACEHOLDERS for part in parts):
+            return "검토 상태 대신 실제 대분류·상세설비·세부 부품·소분류를 선택하세요. 증상을 확인할 수 없으면 검토 상태로 남겨두세요."
+        if values.get("minor") in {"교체", "수리", "조정", "점검", "청소", "급유"}:
+            return "조치는 고장 현상 대신 조치 내역에서 선택하세요."
+    if "repair_actions" in values:
+        try:
+            parse_repair_actions(values["repair_actions"], strict=True)
+        except ValueError as exc:
+            return str(exc)
     if values.get("work_date", "").strip():
         from core.parsing import parse_date
 
@@ -100,15 +128,17 @@ def correction_patch(
     *,
     confirm_components: bool = False,
 ) -> dict[str, str | None]:
-    """Require an explicit choice before confirming multiple observed fault types."""
+    """Only an explicit single choice can replace a pending or legacy classification."""
+    if confirm_components:
+        raise UserError("고장이력 한 건에는 최종 분류 하나만 확정할 수 있습니다.")
     values = {key: str(values.get(key, "")).strip() for key in FIELDS}
     patch = {}
     parts = tuple(values[key] for key in CLASSIFICATION)
     before = tuple(initial.get(key, "") for key in CLASSIFICATION)
-    if confirm_components:
-        patch[COMPONENT_FIELD] = component_override(values[COMPONENT_FIELD], multiple=True)
-        patch.update({key: None for key in CLASSIFICATION if key in existing})
-    elif all(parts) and (confirm or parts != before):
+    if all(parts) and (confirm or parts != before):
+        error = validate(dict(zip(CLASSIFICATION, parts)))
+        if error:
+            raise UserError(error)
         patch.update(zip(CLASSIFICATION, parts))
         if COMPONENT_FIELD in existing:
             patch[COMPONENT_FIELD] = None
@@ -120,4 +150,11 @@ def correction_patch(
     for key in ("target", "product", "work_date", "minutes"):
         if values[key] != initial.get(key, ""):
             patch[key] = values[key] or None
+    if values["repair_actions"] != initial.get("repair_actions", ""):
+        try:
+            patch["repair_actions"] = ", ".join(
+                parse_repair_actions(values["repair_actions"], strict=True)
+            )
+        except ValueError as exc:
+            raise UserError(str(exc)) from exc
     return {key: value for key, value in patch.items() if value is not None or key in existing}

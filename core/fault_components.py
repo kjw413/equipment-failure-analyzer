@@ -10,15 +10,18 @@ import hashlib
 import json
 from typing import Any
 
-from core.failure_modes import CLASSIFICATION_SCHEMA, part_key
+from core.failure_modes import CLASSIFICATION_SCHEMA, UNKNOWN_PART, part_key
 from core.models import UserError
+from core.public_taxonomy import part_group
 
-CATEGORY_FIELDS = ("major", "middle", "minor")
+PART_CATEGORY_FIELDS = ("major", "middle", "minor")
+CATEGORY_FIELDS = ("major", "detail_equipment", "middle", "minor")
 COMPONENT_OVERRIDE = "classification_components"
 
 
 def type_label(component: dict) -> str:
-    return " / ".join(str(component[key]).strip() for key in CATEGORY_FIELDS)
+    fields = CATEGORY_FIELDS if component.get("detail_equipment") else PART_CATEGORY_FIELDS
+    return " / ".join(str(component[key]).strip() for key in fields)
 
 
 def canonical_components(components: list[dict]) -> list[dict]:
@@ -29,11 +32,14 @@ def canonical_components(components: list[dict]) -> list[dict]:
     for item in components:
         if not isinstance(item, dict):
             raise UserError("각 고장 유형에 대·중·소분류를 입력하세요.")
-        if any(
-            not isinstance(item.get(key), str) or not item[key].strip() for key in CATEGORY_FIELDS
-        ):
-            raise UserError("각 고장 유형에 대·중·소분류를 모두 입력하세요.")
-        member = {key: item[key].strip() for key in CATEGORY_FIELDS}
+        fields = (
+            CATEGORY_FIELDS
+            if item.get("schema") == CLASSIFICATION_SCHEMA or item.get("detail_equipment")
+            else PART_CATEGORY_FIELDS
+        )
+        if any(not isinstance(item.get(key), str) or not item[key].strip() for key in fields):
+            raise UserError("각 고장 유형에 대분류·상세설비·세부 부품·소분류를 모두 입력하세요.")
+        member = {key: item[key].strip() for key in fields}
         for key in (
             "rule_id",
             "evidence",
@@ -42,23 +48,37 @@ def canonical_components(components: list[dict]) -> list[dict]:
             "part_group",
             "part_type",
             "symptom_evidence",
+            "detail_equipment_source",
+            "detail_equipment_evidence",
+            "legacy_schema",
+            "selection_method",
+            "selection_basis",
         ):
             if isinstance(item.get(key), str) and item[key].strip():
                 member[key] = item[key].strip()
-        if isinstance(item.get("actions"), list):
-            member["actions"] = list(
+        selected_rank = item.get("selected_rank")
+        if (
+            isinstance(selected_rank, int)
+            and not isinstance(selected_rank, bool)
+            and selected_rank > 0
+        ):
+            member["selected_rank"] = selected_rank
+        for list_field in ("actions", "observed_symptoms"):
+            if not isinstance(item.get(list_field), list):
+                continue
+            member[list_field] = list(
                 dict.fromkeys(
                     action.strip()
-                    for action in item["actions"]
+                    for action in item[list_field]
                     if isinstance(action, str) and action.strip()
                 )
             )
         legacy = item.get("legacy_category")
         if isinstance(legacy, dict) and all(
-            isinstance(legacy.get(key), str) for key in CATEGORY_FIELDS
+            isinstance(legacy.get(key), str) for key in PART_CATEGORY_FIELDS
         ):
-            member["legacy_category"] = {key: legacy[key] for key in CATEGORY_FIELDS}
-        category = tuple(member[key] for key in CATEGORY_FIELDS)
+            member["legacy_category"] = {key: legacy[key] for key in PART_CATEGORY_FIELDS}
+        category = tuple(member.get(key, "") for key in CATEGORY_FIELDS)
         previous = unique.get(category)
 
         def evidence_key(value):
@@ -93,7 +113,7 @@ def component_payload(components: list[dict], mode: str = "single") -> dict:
     """Attach typed members without counting them as separate downtime records."""
     members = canonical_components(components)
     labels = [type_label(member) for member in members]
-    categories = [[member[key] for key in CATEGORY_FIELDS] for member in members]
+    categories = [[member.get(key, "") for key in CATEGORY_FIELDS] for member in members]
     key = ""
     if len(members) > 1:
         identity = json.dumps(categories, ensure_ascii=False, separators=(",", ":"))
@@ -103,15 +123,18 @@ def component_payload(components: list[dict], mode: str = "single") -> dict:
         "component_count": len(members),
         "part_count": len(
             {
-                part_key(member["major"], member["middle"])
+                part_key(member["major"], member["middle"], member.get("detail_equipment", ""))
                 if member.get("schema") == CLASSIFICATION_SCHEMA
                 else type_label(member)
                 for member in members
+                if member["middle"]
+                not in (UNKNOWN_PART, "제품·자재", "제품 걸림·막힘", "제품 낙하", "자재 불량")
             }
         ),
         "component_types": "\n".join(labels),
         "component_details": json.dumps(members, ensure_ascii=False, separators=(",", ":")),
         "combination_key": key,
+        "part_group": part_group(members[0]["middle"]) if len(members) == 1 else "",
     }
 
 

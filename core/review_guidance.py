@@ -24,31 +24,49 @@ def guidance(record, target_review: bool = True):
     actions = []
     active = review_issues(target_review)
     status = record.get("status", "")
+    if status == K["partial"]:
+        explanations.append(
+            "원문에서 확인된 항목은 자동 분류했습니다. 미기재 항목: "
+            + str(record.get("classification_missing_fields", ""))
+        )
+        actions.append(
+            "추가 근거가 확보되면 미기재 항목만 보완할 수 있습니다. 기록에 없는 현상을 추측해 입력할 필요는 없습니다."
+        )
     issues = str(record.get("issues", "") or "")
     if status == K["code_missing"]:
         explanations.append(
             "비가동코드 미기입: 원본의 비가동코드(중·소)가 비어 있고 고장 설명과 일치하는 분류 규칙도 없습니다."
         )
         actions.append(
-            "원본의 비가동코드 입력을 확인하고, 행 수정에서 대·중·소분류를 확정하거나 분류 규칙을 보완하세요."
+            "원본의 비가동코드 입력을 확인하고, 행 수정에서 대분류·상세설비·세부 부품·소분류를 확정하거나 분류 규칙을 보완하세요."
         )
     elif status == K["rule_unmatched"]:
         explanations.append(
             "규칙 미일치: 비가동코드는 입력됐지만 고장 설명과 일치하는 분류 규칙이 없습니다."
         )
-        actions.append("분류 규칙을 보완하거나 행 수정에서 대·중·소분류를 확정하세요.")
+        actions.append(
+            "분류 규칙을 보완하거나 행 수정에서 대분류·상세설비·세부 부품·소분류를 확정하세요."
+        )
     if status == K["review"]:
         decision_reason = str(record.get("classification_reason", "") or "")
         explanations.append(
             decision_reason or "복수 분류 충돌: 서로 다른 분류의 규칙이 동시에 일치합니다."
         )
-        if K["alternative_types"] in issues:
+        if K["symptom_missing"] in issues:
             actions.append(
-                "원문이 여러 유형을 대안으로 제시합니다. 실제 고장 유형을 확인해 단일 확정하거나, 실제로 모두 고장난 것이 확인되면 복수 확정하세요."
+                "실제 고장 현상을 확인한 뒤 최종 분류를 선택하세요. 교체·점검·조정은 별도 조치 내역에 저장하며 고장 현상을 추정하지 않습니다."
+            )
+        elif K["multiple_symptoms"] in issues:
+            actions.append(
+                "같은 부품에 여러 증상 후보가 있습니다. 기록의 대표 고장 증상 하나를 선택하세요."
+            )
+        elif K["alternative_types"] in issues:
+            actions.append(
+                "추천순 후보의 근거와 원문을 비교하여 이 고장이력의 최종 분류 하나를 선택하세요."
             )
         elif K["multiple_faults"] in issues:
             actions.append(
-                "복수 부품·고장이 함께 적혔습니다. 구성 유형과 원본 기록을 확인하고 행 수정에서 실제 고장 유형들을 복수 확정하세요. 점검만 한 부품이나 대안 후보는 제외하세요."
+                "여러 부품·고장이 함께 적혔습니다. 추천순 후보와 원문을 확인해 이 이력을 대표하는 최종 분류 하나를 선택하세요."
             )
         elif K.get("uncertain_fault", "고장 추정") in issues:
             actions.append(
@@ -56,7 +74,7 @@ def guidance(record, target_review: bool = True):
             )
         else:
             actions.append(
-                "일치한 분류 규칙·고장 근거와 원본 설명을 비교한 뒤 대·중·소분류를 확정하세요."
+                "일치한 분류 규칙·고장 근거와 원본 설명을 비교한 뒤 대분류·상세설비·세부 부품·소분류를 확정하세요."
             )
     checks = [
         (
@@ -98,11 +116,11 @@ def guidance(record, target_review: bool = True):
         return "검토 사유 없음", "추가 수정 없이 집계됩니다.", "정상"
     # A known classification is included as-is; review is not synonymous with exclusion.
     if status in UNMATCHED:
-        effect = f"건수·정지시간에 포함되나 유형은 '{status}' 항목으로 집계됩니다."
-    elif status == K["review"] and record.get("classification_mode") == "multiple":
-        effect = "건수·정지시간은 해당 유형 조합에 한 번만 잠정 집계됩니다. 부품별 포함 건수는 각각 반영하고 시간은 중복 배분하지 않습니다."
+        effect = "전체 이력·정지시간에는 한 건으로 포함됩니다. 미확정 상태에서도 출력하고 검토품질 시트에 정답을 적어 규칙 보완 자료로 사용할 수 있습니다."
     elif status == K["review"]:
-        effect = "건수·정지시간에 포함되며 대표 규칙의 유형으로 잠정 집계됩니다. 확정 후 유형 집계가 바뀝니다."
+        effect = "전체 이력·정지시간에는 한 건으로 포함되며 후보는 확정 부품으로 합산하지 않습니다. 검토 중에도 출력할 수 있으며 검토품질 시트에 정답을 적을 수 있습니다."
+    elif status == K["partial"]:
+        effect = "확인된 항목과 미기재 항목을 구분하여 전체 이력·정지시간에 한 건으로 포함합니다. 미기재 부품은 실제 부품 건수에 포함하지 않습니다."
     else:
         effect = "기본 건수에 포함될 수 있으나 시간·날짜·설비별 집계의 정확도에 영향이 있습니다."
     if record.get("minutes") is None or str(record.get("minutes")).lower() == "nan":

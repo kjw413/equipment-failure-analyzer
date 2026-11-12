@@ -7,22 +7,30 @@ from PySide6.QtWidgets import QHeaderView, QStyle, QStyleOptionHeader
 SOURCE_FIELDS = ("raw_equipment_name", "raw_mid", "raw_small", "raw_description")
 PRIMARY_FIELDS = (
     "major",
+    "detail_equipment",
+    "part_group",
     "middle",
     "minor",
+    "repair_actions",
+    "classification_missing_fields",
     *SOURCE_FIELDS,
     "component_types",
     "combination_decision",
 )
 LABELS = {
-    "major": "대분류\n분야",
-    "middle": "중분류\n부품 종류",
-    "minor": "소분류\n증상",
+    "major": "고장 분야\n분야 확인",
+    "detail_equipment": "상세설비·모듈\n고장 대상",
+    "part_group": "부품군\n자동 표시",
+    "middle": "세부 부품\n설비 내 부품",
+    "minor": "고장 현상\n관찰 증상",
+    "repair_actions": "조치 내역\n복수 입력",
+    "classification_missing_fields": "미기재 분류 항목\n원문에 없음",
     "raw_equipment_name": "설비명",
     "raw_mid": "비가동 코드(중)",
     "raw_small": "비가동 코드(소)",
     "raw_description": "고장내용/비고",
-    "component_types": "유형조합",
-    "combination_decision": "조합판정",
+    "component_types": "최종 분류",
+    "combination_decision": "분류 판정",
 }
 
 
@@ -57,7 +65,13 @@ class GroupedHeader(QHeaderView):
         option.text = text
         option.textAlignment = Qt.AlignmentFlag.AlignCenter
         option.section = logical
-        if self._field(logical) in ("major", "middle", "minor", "component_types"):
+        if self._field(logical) in (
+            "major",
+            "detail_equipment",
+            "middle",
+            "minor",
+            "component_types",
+        ):
             option.icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowDown)
         option.sortIndicator = QStyleOptionHeader.SortIndicator.None_
         if logical >= 0 and logical == self.sortIndicatorSection() and self.isSortIndicatorShown():

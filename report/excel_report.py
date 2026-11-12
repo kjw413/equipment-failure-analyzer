@@ -75,8 +75,11 @@ DETAIL_COLS = [
     "status",
     "raw_description",
     "major",
+    "detail_equipment",
+    "part_group",
     "middle",
     "minor",
+    "repair_actions",
     "normalized",
     "evidence",
     "candidates",
@@ -104,14 +107,43 @@ DETAIL_COLS = [
     "report_equipment",
     "name_mapped",
     *DECISION_FIELDS,
-    *(field for field in COMPONENT_FIELDS if field != "classification_schema"),
+    *(
+        field
+        for field in COMPONENT_FIELDS
+        if field not in ("classification_schema", "part_group", "repair_actions")
+    ),
     "line_code",
     "raw_line_name",
     "equipment_group",
     "factory",
     "team",
+    "classification_candidates",
 ]
 D = {k: get_column_letter(i + 1) for i, k in enumerate(DETAIL_COLS)}
+REVIEW_COLS = [
+    "source_row",
+    "date",
+    "line",
+    "registered",
+    "target",
+    "raw_big",
+    "raw_mid",
+    "raw_small",
+    "equipment",
+    "product",
+    "minutes",
+    "type",
+    "status",
+    "raw_description",
+    "normalized",
+    "major",
+    "detail_equipment",
+    "part_group",
+    "middle",
+    "minor",
+    "repair_actions",
+    "candidates",
+]
 STAT_KEYS = [
     "count",
     "count_share",
@@ -354,6 +386,8 @@ class ReportBuilder:
         ws.add_image(image, anchor)
 
     def detail(self, key="detail", frame=None):
+        if key == "review":
+            return self.review(frame)
         frame = self.data if frame is None else descending(frame, "minutes")
         ws = self.new_sheet(key, span=12)
         ws.merge_cells("A5:L5")
@@ -364,7 +398,7 @@ class ReportBuilder:
             f"정지시간 내림차순. 시간 값이 있는 상위 {self.r.options.top_n}건을 연한 노랑으로 표시합니다. "
             "전체 이력은 필터로 조회하며, 분류·설정 변경 후에는 보고서를 다시 생성하세요."
             if key == "detail"
-            else "먼저 아래 검토 이력을 확인하고, 하단 데이터 품질·분석 조건을 확인하세요.",
+            else "검토 중에도 출력할 수 있습니다.",
             role="muted",
         )
         ws.row_dimensions[5].height = 34
@@ -418,6 +452,7 @@ class ReportBuilder:
             "candidate_evidence",
             "component_types",
             "component_details",
+            "classification_candidates",
         ):
             ws.column_dimensions[D[name]].width = (
                 48
@@ -434,6 +469,7 @@ class ReportBuilder:
                     "candidate_evidence",
                     "component_types",
                     "component_details",
+                    "classification_candidates",
                 )
                 else 40
             )
@@ -450,6 +486,60 @@ class ReportBuilder:
             self.put(
                 ws, 7, 2, "검토필요 이력 없음" if key == "review" else K["empty"], role="muted"
             )
+        return ws
+
+    def review(self, frame):
+        frame = descending(frame, "minutes")
+        ws = self.new_sheet("review", span=len(REVIEW_COLS))
+        last_column = get_column_letter(len(REVIEW_COLS))
+        ws.merge_cells(f"A5:{last_column}5")
+        self.put(
+            ws,
+            5,
+            1,
+            "정지시간 내림차순. 검토 중에도 출력할 수 있습니다. "
+            "품질 집계·분석 조건은 11_기준정보, 이력 ID·상세 근거는 07_고장이력에서 확인하세요.",
+            role="muted",
+        )
+        ws.row_dimensions[5].height = 32
+        self.header(ws, 6, [self.display_header(name) for name in REVIEW_COLS])
+        widths = {
+            "source_row": 11,
+            "date": 14,
+            "minutes": 18,
+            "type": 40,
+            "raw_description": 48,
+            "normalized": 48,
+            "candidates": 48,
+            "repair_actions": 30,
+        }
+        for column, name in enumerate(REVIEW_COLS, 1):
+            ws.column_dimensions[get_column_letter(column)].width = widths.get(name, 26)
+        for row, record in enumerate(frame.to_dict("records"), 7):
+            for column, name in enumerate(REVIEW_COLS, 1):
+                cell = self.put(
+                    ws,
+                    row,
+                    column,
+                    record.get(name),
+                    role="raw"
+                    if name.startswith("raw_")
+                    else "review"
+                    if name == "status"
+                    else "derived",
+                )
+                if name == "date":
+                    cell.number_format = "yyyy-mm-dd"
+                elif name == "minutes":
+                    cell.number_format = NUM
+            ws.row_dimensions[row].height = decision_row_height(
+                record, widths={"raw_description": 48, "normalized": 48, "candidates": 48}
+            )
+        if frame.empty:
+            self.put(ws, 7, 1, "검토필요 이력 없음", role="muted")
+        ws.freeze_panes = "D7"
+        ws.auto_filter.ref = f"A6:{last_column}{max(6, 6 + len(frame))}"
+        ws.print_area = f"A1:{last_column}{max(7, 6 + len(frame))}"
         return ws
 
     def max_formula(self, matching: pd.DataFrame):
@@ -739,10 +829,14 @@ class ReportBuilder:
         )
         quality_rows = [
             (K["auto"], "auto_rows", True),
+            (K.get("partial", "부분분류"), "partial_rows", True),
+            ("자동처리 합계(완전+부분)", "auto_processed_rows", False),
             (K["manual"], "manual_rows", True),
             (K["code_missing"], "code_missing_rows", True),
             (K["rule_unmatched"], "rule_unmatched_rows", True),
             (K["review"], "ambiguous_rows", True),
+            ("상세설비 미상", "missing_detail_equipment_rows", False),
+            ("세부 부품 미기재", "missing_part_rows", False),
             (K["multiple_fault_rows"], "multiple_fault_rows", False),
             (K["alternative_type_rows"], "alternative_type_rows", False),
             (K["auto_resolved_rows"], "auto_resolved_rows", False),
@@ -880,7 +974,44 @@ class ReportBuilder:
         for col, width in zip("ABCDEFGH", [22, 42, 26, 24, 24, 24, 24, 32]):
             ws.column_dimensions[col].width = width
         ws.auto_filter.ref = f"A6:H{max(6, 6 + len(codes))}"
-        self.rules(ws, max(9, 10 + len(codes)))
+        row = max(9, 10 + len(codes))
+        equipment_types = self.r.config_snapshot.get("classification_catalog", {}).get(
+            "equipment_types", []
+        )
+        if equipment_types:
+            row = self.section(ws, row, "상세설비 표준명과 별칭", span=len(RULE_COLUMNS))
+            self.header(ws, row, ["상세설비", "원문 별칭"])
+            for item in equipment_types:
+                row += 1
+                self.put(ws, row, 1, item["name"], role="raw")
+                self.put(ws, row, 2, ", ".join(item.get("aliases", [])), role="raw")
+                ws.row_dimensions[row].height = 42
+            row += 3
+        public = self.r.config_snapshot.get("classification_catalog", {}).get("public_taxonomy", {})
+        if public:
+            row = self.section(ws, row, "표준 고장 분야·현상·조치", span=len(RULE_COLUMNS))
+            self.header(ws, row, ["구분", "표준 선택 목록"])
+            for label, key in (
+                ("고장 분야", "domains"),
+                ("고장 현상", "modes"),
+                ("별도 조치", "actions"),
+            ):
+                row += 1
+                self.put(ws, row, 1, label, role="raw")
+                ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=8)
+                self.put(ws, row, 2, ", ".join(public.get(key, [])), role="raw")
+                ws.row_dimensions[row].height = 60 if key == "modes" else 42
+            row += 3
+            row = self.section(ws, row, "표준 부품군과 세부 부품", span=len(RULE_COLUMNS))
+            self.header(ws, row, ["부품군", "세부 부품", "원문 별칭"])
+            for part in public.get("parts", []):
+                row += 1
+                self.put(ws, row, 1, part["family"], role="raw")
+                self.put(ws, row, 2, part["name"], role="raw")
+                self.put(ws, row, 3, ", ".join(part.get("aliases", [])), role="raw")
+                ws.row_dimensions[row].height = 42
+            row += 3
+        self.rules(ws, row)
 
     def rules(self, ws, row):
         keys = RULE_COLUMNS
@@ -942,15 +1073,23 @@ class ReportBuilder:
             for row in range(6, 10):
                 for col in range(left, right + 1):
                     ws.cell(row, col).fill = PatternFill("solid", fgColor=FILL)
-        info = f"{K['raw_rows']} {self.r.metrics['source_rows']:,}  |  {K['excluded_rows']} {self.r.metrics['excluded_rows']:,}  |  {K['line']} {self.r.metrics['line_count']}  |  {K['review_tab']} {self.r.metrics['review_rows']}"
+        info = f"{K['raw_rows']} {self.r.metrics['source_rows']:,}  |  {K['excluded_rows']} {self.r.metrics['excluded_rows']:,}  |  {K['line']} {self.r.metrics['line_count']}"
         ws.merge_cells("A11:L11")
         self.put(ws, 11, 1, info, role="muted")
+        ws.merge_cells("A12:L12")
+        self.put(
+            ws,
+            12,
+            1,
+            f"완전 자동분류 {self.r.metrics['auto_rows']:,}건  |  부분 자동분류 {self.r.metrics.get('partial_rows', 0):,}건  |  검토 대상(중복 제외) {self.r.metrics['review_rows']:,}건",
+            role="derived",
+        )
         ws.merge_cells("A13:L14")
         self.put(
             ws,
             13,
             1,
-            "설비별 유형 구성비·전체 순위는 02_설비별분석, 장시간 정지 사례는 07_고장이력에서 확인하세요.",
+            "부분분류는 확인된 항목을 보존하고 미기재 항목을 표시합니다. 상세 정보는 07_고장이력에서 확인하세요.",
             role="review",
         )
         ws.merge_cells("A16:F16")
@@ -1099,6 +1238,7 @@ class ReportBuilder:
         # Codes remain available in the original workbook and in the name editor,
         # not in this human-readable report projection.
         return {
+            "classification_candidates": "검토 후보 목록(순위·근거 JSON)",
             "line_code": "라인명(코드 변환)",
             "raw_line_name": "원본 라인명(변환)",
             "equipment_code": "\uc124\ube44\uba85(\ucf54\ub4dc \ubcc0\ud658)",
@@ -1318,7 +1458,7 @@ class ReportBuilder:
                 ws,
                 5,
                 1,
-                "집계 스냅샷(정적표): 부품이 포함된 고장기록 수. 비율 합계는 100%를 넘을 수 있습니다. 변경 후에는 보고서를 다시 생성하세요.",
+                "집계 스냅샷(정적표): 최종 단일 부품으로 분류된 고장기록 수. 미확정 후보는 집계하지 않으며, 비율 분모에는 전체 고장기록을 포함합니다. 변경 후에는 보고서를 다시 생성하세요.",
                 role="muted",
             )
             ws.row_dimensions[5].height = 34
@@ -1359,29 +1499,34 @@ class ReportBuilder:
         ws.print_area = f"A1:F{last + 2 + len(notes)}"
 
     def fault_details(self, table: pd.DataFrame):
-        """One displayed row per part/symptom, without duplicating downtime."""
+        """One displayed row per event, with failure and action kept separate."""
         columns = [
             "record_id",
             "date",
             "equipment",
             "line",
             "major",
+            "detail_equipment",
+            "part_group",
             "middle",
             "minor",
+            "repair_actions",
             "status",
             "description",
             "evidence",
             "actions",
             "event_id",
         ]
-        ws = self.new_sheet("fault_detail", title="부품·증상별 분류 상세", span=11)
-        ws.merge_cells("A5:K5")
+        visible = len(columns) - 1
+        last_column = get_column_letter(visible)
+        ws = self.new_sheet("fault_detail", title="상세설비·부품·고장 현상 상세", span=visible)
+        ws.merge_cells(f"A5:{last_column}5")
         self.put(
             ws,
             5,
             1,
-            "같은 기록 ID의 행은 하나의 고장이력을 나눈 분류입니다. "
-            "중분류는 부품 종류, 소분류는 증상이며 정지시간은 이 표에 반복 배분하지 않습니다.",
+            "한 고장이력당 한 행을 보존합니다. 고장 분야 / 상세설비·모듈 / 부품군 / 세부 부품 / 고장 현상과 별도 조치를 표시합니다. "
+            "미확정 기록은 최종 분류를 비워 두고 상태와 후보 근거를 확인합니다.",
             role="muted",
         )
         ws.row_dimensions[5].height = 34
@@ -1407,12 +1552,13 @@ class ReportBuilder:
         if not records:
             self.put(ws, 7, 1, K["empty"], role="muted")
         last = max(7, 6 + len(records))
-        ws.auto_filter.ref = f"A6:K{last}"
-        for index, width in enumerate((15, 14, 28, 16, 20, 27, 23, 18, 55, 38, 28, 18), 1):
-            ws.column_dimensions[get_column_letter(index)].width = width
-        ws.column_dimensions["L"].hidden = True
+        ws.auto_filter.ref = f"A6:{last_column}{last}"
+        widths = {"description": 55, "evidence": 38, "repair_actions": 30, "actions": 28}
+        for index, key in enumerate(columns, 1):
+            ws.column_dimensions[get_column_letter(index)].width = widths.get(key, 23)
+        ws.column_dimensions[get_column_letter(len(columns))].hidden = True
         ws.freeze_panes = "E7"
-        ws.print_area = f"A1:K{last}"
+        ws.print_area = f"A1:{last_column}{last}"
 
     def build(self, progress: Progress = noop_progress):
         self.detail()
@@ -1440,8 +1586,11 @@ class ReportBuilder:
         if "cross" in self.sections and self.r.metrics["product_count"]:
             self.crosses()
         ws = self.detail("review", self.r.tables["review"])
-        self.quality(ws, max(10, 10 + len(self.r.tables["review"])))
         self.names()
+        criteria_ws = self.wb[SHEETS["criteria"]]
+        criteria_columns = criteria_ws.max_column
+        self.quality(criteria_ws, criteria_ws.max_row + 3)
+        criteria_ws.print_area = f"A1:{get_column_letter(criteria_columns)}{criteria_ws.max_row}"
         if "component" in self.r.tables:
             self.component_statistics("component", self.r.tables["component"])
         elif "component_trend" in self.r.tables:

@@ -11,6 +11,7 @@ from typing import Any
 
 import pandas as pd
 
+from core.classification_candidates import parse_candidates, rank_candidates
 from core.equipment_names import (
     active_name_mapping,
     code_key,
@@ -21,13 +22,15 @@ from core.equipment_names import (
     resolve_organization,
 )
 from core.failure_classification import FaultClassifier
-from core.failure_modes import CLASSIFICATION_SCHEMA, manual_category
+from core.failure_modes import CLASSIFICATION_SCHEMA, UNKNOWN_SYMPTOM, manual_category
 from core.fault_components import (
+    CATEGORY_FIELDS,
     COMPONENT_OVERRIDE,
+    PART_CATEGORY_FIELDS,
     canonical_components,
-    combination_category,
     component_payload,
     parse_components,
+    type_label,
 )
 from core.i18n import UNMATCHED, K
 from core.models import (
@@ -111,6 +114,7 @@ RECORD_COLUMNS = [
     "raw_mid",
     "raw_small",
     "major",
+    "detail_equipment",
     "middle",
     "minor",
     "type",
@@ -124,6 +128,7 @@ RECORD_COLUMNS = [
     "duplicate",
     *CLASSIFICATION_DECISION_COLUMNS,
     *CLASSIFICATION_COMPONENT_COLUMNS,
+    "classification_candidates",
 ]
 
 
@@ -199,7 +204,12 @@ def standardize(
     name_settings = normalize_name_settings(config.get("equipment_names", {"schema_version": 1}))
     name_source = effective_name_source(loaded, name_settings)
     name_mapping = active_name_mapping(loaded, name_settings)
-    classifier = FaultClassifier(config["rules"], settings.get("classifier"))
+    classifier = FaultClassifier(
+        config["rules"],
+        settings.get("classifier"),
+        config.get("classification_catalog", {}).get("equipment_types"),
+        config.get("classification_catalog", {}).get("public_taxonomy"),
+    )
     target_review = review_target(settings, options)
     fault_labels = {normalize(v) for v in settings["fault_labels"]}
     rows = []
@@ -313,11 +323,16 @@ def standardize(
         raw_small = text(get("code_small"))
         classification = (
             classifier.classify(
-                combined, raw_small, prepare_text(raw_small, config["normalization"])
+                combined,
+                raw_small,
+                prepare_text(raw_small, config["normalization"]),
+                equipment_context=prepare_text(raw_mid, config["normalization"]),
+                registered_equipment=prepare_text(raw_equipment_name, config["normalization"]),
             )
             if kind == K["fault"]
             else {
                 "major": K["nonfault"],
+                "detail_equipment": K["nonfault"],
                 "middle": K["nonfault"],
                 "minor": K["nonfault"],
                 "status": K["nonfault"],
@@ -328,11 +343,13 @@ def standardize(
         review_code = classification.pop("review_code", "")
         for field in CLASSIFICATION_DECISION_COLUMNS:
             classification.setdefault(field, "")
+        classification.setdefault("detail_equipment", "")
+        classification.setdefault("classification_candidates", "[]")
         if classification["status"] == K["rule_unmatched"] and not raw_mid and not raw_small:
             # Without a rule match, only records whose downtime codes were never entered
             # are reported as missing codes; the rest point to a gap in the rules.
             classification.update(
-                {key: K["code_missing"] for key in ("major", "middle", "minor", "status")},
+                status=K["code_missing"],
                 classification_reason="비가동코드(중·소)가 비어 있고 고장 설명과 일치하는 분류 규칙이 없습니다.",
             )
         # Older classifier snapshots and non-fault records have no component payload.
@@ -343,55 +360,120 @@ def standardize(
                 classification.update(component_payload([], "unclassified"))
             else:
                 classification.update(
-                    component_payload(
-                        [{key: classification[key] for key in ("major", "middle", "minor")}]
-                    )
+                    component_payload([{key: classification[key] for key in PART_CATEGORY_FIELDS}])
                 )
         manual_components = None
+        manual_current = False
         if override.get(COMPONENT_OVERRIDE):
             # A malformed saved multi-selection must never silently revert to an automatic type.
+            stored_components = parse_components(override[COMPONENT_OVERRIDE], strict=True)
+            manual_current = override.get("classification_schema") == CLASSIFICATION_SCHEMA and all(
+                all(item.get(key) for key in CATEGORY_FIELDS) for item in stored_components
+            )
             manual_components = [
                 manual_category(item, override.get("classification_schema"))
-                for item in parse_components(override[COMPONENT_OVERRIDE], strict=True)
+                for item in stored_components
             ]
             manual_components = canonical_components(manual_components)
             if not manual_components:
                 raise UserError("저장된 복수 고장 유형 목록이 비어 있습니다.")
-            is_multiple = len(manual_components) >= 2
-            category = (
-                combination_category(manual_components)
-                if is_multiple
-                else {key: manual_components[0][key] for key in ("major", "middle", "minor")}
+        elif all(override.get(k) for k in PART_CATEGORY_FIELDS):
+            manual_current = override.get("classification_schema") == CLASSIFICATION_SCHEMA and all(
+                override.get(key) for key in CATEGORY_FIELDS
             )
-            classification.update(category)
-            classification.update(
-                component_payload(manual_components, "multiple" if is_multiple else "single")
-            )
-            classification.update(
-                status=K["manual_multi"] if is_multiple else K["manual"],
-                evidence=K["manual_multi"] if is_multiple else K["manual"],
-                candidates="",
-            )
-        elif all(override.get(k) for k in ("major", "middle", "minor")):
             category = manual_category(
-                {key: override[key] for key in ("major", "middle", "minor")},
+                {key: override[key] for key in CATEGORY_FIELDS if override.get(key)},
                 override.get("classification_schema"),
             )
-            classification.update({key: category[key] for key in ("major", "middle", "minor")})
-            classification.update(component_payload([category], "single"))
-            classification.update(status=K["manual"], evidence=K["manual"], candidates="")
-        if manual_components is not None or classification["status"] == K["manual"]:
-            classification.update({field: "" for field in CLASSIFICATION_DECISION_COLUMNS})
-            classification["classification_reason"] = "사용자확정: 저장된 분류를 적용합니다."
-            if any(
-                item.get("legacy_category")
-                for item in parse_components(classification["component_details"])
+            manual_components = [category]
+        if manual_components is not None:
+            if (
+                len(manual_components) == 1
+                and manual_components[0]["minor"] != UNKNOWN_SYMPTOM
+                and manual_current
+                and all(manual_components[0].get(key) for key in CATEGORY_FIELDS)
             ):
-                classification["classification_reason"] += (
-                    " 기존 확정값을 보존하며 기록되지 않은 증상은 추정하지 않습니다."
+                category = manual_components[0]
+                classification.update({key: category[key] for key in CATEGORY_FIELDS})
+                classification.update(
+                    detail_equipment_source=K["manual"], detail_equipment_evidence="사용자 확정값"
                 )
-            review_code = ""
+                classification.update(component_payload([category], "single"))
+                classification.update(status=K["manual"], evidence=K["manual"], candidates="")
+                classification.update({field: "" for field in CLASSIFICATION_DECISION_COLUMNS})
+                classification["classification_reason"] = (
+                    "사용자확정: 고장이력 한 건에 선택한 최종 분류 하나를 적용합니다."
+                )
+                review_code = ""
+            else:
+                reason = (
+                    "이전에 저장된 복수 분류입니다. 후보를 확인한 뒤 최종 분류 하나를 선택하세요."
+                    if len(manual_components) > 1
+                    else (
+                        "이전에 저장된 분류에 증상이 없습니다. 실제 증상을 확인해 최종 분류 하나를 선택하세요."
+                        if manual_components[0]["minor"] == UNKNOWN_SYMPTOM
+                        else "이전 기준으로 저장된 분류입니다. 새 부품·고장 현상 기준을 확인해 최종 분류를 다시 선택하세요."
+                    )
+                )
+                candidates = rank_candidates(
+                    [
+                        *parse_candidates(classification.get("classification_candidates")),
+                        *[
+                            {
+                                **item,
+                                "reason": reason,
+                                "evidence": item.get("evidence", "이전 사용자 저장값"),
+                            }
+                            for item in manual_components
+                        ],
+                    ]
+                )
+                classification.update(component_payload([], "ambiguous"))
+                classification.update({key: "" for key in CATEGORY_FIELDS})
+                classification.update(detail_equipment_source="", detail_equipment_evidence="")
+                classification.update(
+                    status=K["review"],
+                    classification_reason=reason,
+                    classification_candidates=json.dumps(candidates, ensure_ascii=False),
+                    candidates=" | ".join(
+                        f"{item['rank']}. {type_label(item)}" for item in candidates
+                    ),
+                    candidate_evidence="\n".join(
+                        f"{item['rank']}. {type_label(item)}: {item.get('reason', '')}"
+                        for item in candidates
+                    ),
+                )
+                review_code = (
+                    "multiple_faults"
+                    if len(manual_components) > 1
+                    else "symptom_missing"
+                    if manual_components[0]["minor"] == UNKNOWN_SYMPTOM
+                    else "legacy_equipment_missing"
+                )
         classification["classification_schema"] = CLASSIFICATION_SCHEMA
+        from core.classification_completeness import missing_fields_text
+
+        classification["classification_missing_fields"] = (
+            missing_fields_text(classification)
+            if classification.get("status") in (K["auto"], K["manual"], K["partial"])
+            else ""
+        )
+        from core.public_taxonomy import parse_repair_actions, part_group
+
+        classification["part_group"] = part_group(classification.get("middle", ""))
+        if "repair_actions" in override:
+            classification["repair_actions"] = ", ".join(
+                parse_repair_actions(override["repair_actions"])
+            )
+        else:
+            classification.setdefault("repair_actions", "")
+        if manual_components and manual_current and classification.get("status") == K["manual"]:
+            category = {
+                **manual_components[0],
+                "part_group": classification["part_group"],
+                "actions": parse_repair_actions(classification["repair_actions"]),
+            }
+            classification.update(component_payload([category], "single"))
         if override.get("product"):
             product = override["product"]
         if override.get("work_date"):
@@ -426,7 +508,15 @@ def standardize(
             if classification["status"] == K["review"]:
                 issue_key = (
                     review_code
-                    if review_code in ("multiple_faults", "alternative_types", "uncertain_fault")
+                    if review_code
+                    in (
+                        "multiple_faults",
+                        "alternative_types",
+                        "uncertain_fault",
+                        "multiple_symptoms",
+                        "symptom_missing",
+                        "domain_missing",
+                    )
                     and review_code in K
                     else "multi_rule"
                 )
@@ -482,7 +572,9 @@ def standardize(
             "raw_mid": raw_mid,
             "raw_small": raw_small,
             **classification,
-            "type": " / ".join(classification[k] for k in ("major", "middle", "minor")),
+            "type": type_label(classification)
+            if all(classification.get(k) for k in CATEGORY_FIELDS)
+            else K["review"],
             "issues": " | ".join(dict.fromkeys(issues)),
             "duplicate": False,
         }

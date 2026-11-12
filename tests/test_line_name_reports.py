@@ -3,7 +3,7 @@
 import hashlib
 
 import pytest
-from conftest import analyze_file
+from conftest import analyze_file, finalize_classifications
 from openpyxl import Workbook, load_workbook
 
 import analyze_cli
@@ -13,6 +13,7 @@ from core.report_view import report_result
 from report.excel_report import DETAIL_COLS, SHEETS, export_report
 from report.export_bundle import export_bundle, report_paths
 from report.pdf_report import export_pdf
+from report.source_review import export_source_review
 
 
 @pytest.fixture
@@ -263,15 +264,24 @@ def test_factory_team_filters_apply_to_all_three_outputs(store, line_file, tmp_p
     result = analyze_file(store, line_file, AnalysisOptions(factory="서울공장", team="포장팀"))
     assert result.metrics["selected_rows"] == 2 and result.metrics["total_minutes"] == 30
     assert result.metrics["excluded_rows"] == 1 and result.metrics["review_rows"] == 1
+    draft = export_source_review(result, tmp_path / "before_confirmation.xlsx")
+    marked = load_workbook(draft)
+    assert marked["MES"]["A2"].fill.patternType == "solid"
+    assert marked["MES"]["A4"].fill.patternType is None
+    marked.close()
+    result = finalize_classifications(
+        store, line_file, AnalysisOptions(factory="서울공장", team="포장팀")
+    )
+    assert result.metrics["review_rows"] == 0
     files = export_bundle(result, tmp_path / "filtered.xlsx")
     book = load_workbook(files.excel, data_only=True)
     assert book[SHEETS["summary"]]["A7"].value == 2
     assert book[SHEETS["summary"]]["E7"].value == 30
-    criteria = {row[0].value: row[1].value for row in book[SHEETS["review"]]}
+    criteria = {row[0].value: row[1].value for row in book[SHEETS["criteria"]]}
     assert criteria["공장 필터"] == "서울공장" and criteria["팀 필터"] == "포장팀"
     book.close()
     marked = load_workbook(files.source_review)
-    assert marked["MES"]["A2"].fill.patternType == "solid"
+    assert marked["MES"]["A2"].fill.patternType is None
     assert marked["MES"]["A4"].fill.patternType is None
     marked.close()
     pypdf = pytest.importorskip("pypdf")
@@ -289,7 +299,7 @@ def test_unmatched_filter_names_are_exported_exactly_and_select_no_records(
     assert result.selected.empty and result.metrics["selected_rows"] == 0
     path = export_report(result, tmp_path / "empty_filter.xlsx")
     book = load_workbook(path, data_only=True)
-    criteria = {row[0].value: row[1].value for row in book[SHEETS["review"]]}
+    criteria = {row[0].value: row[1].value for row in book[SHEETS["criteria"]]}
     assert criteria["공장 필터"] == "LN02" and criteria["팀 필터"] == "LN01"
     book.close()
 

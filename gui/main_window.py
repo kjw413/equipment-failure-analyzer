@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.classification_candidates import parse_candidates
 from core.classification_catalog import fault_catalog_categories
 from core.config import ConfigStore, output_root
 from core.corrections import FIELDS, validate
@@ -37,11 +38,13 @@ from core.defaults_merge import describe
 from core.equipment_breakdown import type_breakdown
 from core.equipment_names import organization_filter_choices
 from core.excel_loader import load_excel, validate_path
+from core.fault_components import CATEGORY_FIELDS
 from core.i18n import UNMATCHED, K
 from core.models import AnalysisOptions, UserError
 from core.preprocessing import event_ids
 from core.rules import read_rules
 from core.service import run_analysis
+from gui.category_index import ClassificationPathIndex
 from gui.dialogs import ColumnMappingDialog, EquipmentNamesDialog, RuleEditor
 from gui.grouped_header import PRIMARY_FIELDS, GroupedHeader
 from gui.navigation import WorkspaceNavigation
@@ -67,6 +70,19 @@ class MainWindow(QMainWindow):
         self._analysis_stale = False
         self._grid_view_state = None
         self.config = store.load()
+        self._pending_classifications = {}
+        self._pending_grid_events = set()
+        self._pending_grid_update_queued = False
+        self._confirmed_overrides = self.config.get("overrides", {})
+        self._classification_categories = ClassificationPathIndex(
+            fault_catalog_categories(
+                self.config["rules"],
+                self.config.get("classification_catalog", {}).get("equipment_types"),
+            )
+        )
+        self._classification_catalog_stamp = None
+        self._selected_event_ids = set()
+        self._current_event_ids = set()
         self.setWindowTitle(f"{K['app']}  v{VERSION}")
         self.setMinimumSize(1050, 690)
         self.resize(1430, 940)
@@ -241,7 +257,11 @@ class MainWindow(QMainWindow):
 
     def _build_report_controls(self, layout):
         run = QHBoxLayout()
-        self.analyze_button = self.button(K["analyze"], self.analyze, run, "primary")
+        self.analyze_button = self.button(K["analyze"], self.standardize, run, "primary")
+        self.analyze_button.setToolTip("현재 파일의 확정 대기 분류를 일괄 적용하고 분석합니다.")
+        self.pending_label = QLabel()
+        self.pending_label.setObjectName("muted")
+        run.addWidget(self.pending_label)
         self.report_button = self.button(
             "Excel + PDF \uc0dd\uc131", self.save_report, run, "primary"
         )
@@ -279,8 +299,8 @@ class MainWindow(QMainWindow):
         pane = TablePane(sort_policy="grouped")
         self.panes["equipment_types"] = pane
         component_note = (
-            "유형 포함 사건수는 한 사건에 여러 유형을 중복 포함하므로 "
-            "유형별 합계가 전체 사건수보다 클 수 있습니다. "
+            "고장이력 한 건의 최종 분류는 하나입니다. "
+            "미확정 추천 후보는 부품별 확정 건수에 포함하지 않습니다. "
             f"정지시간은 부품별로 중복 배분하지 않으며 {K['type_tab']} 탭에서 확인하세요."
         )
         for key, title in (
@@ -307,12 +327,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.navigation, 1)
         for key in ("review", "detail"):
             pane = self.panes[key]
+            pane.prepare_classification_picker = self._refresh_classification_categories
+            if key == "review":
+                pane.enable_corner_copy()
             pane.configure_editing(
-                lambda: fault_catalog_categories(
-                    read_rules(self.store.config_dir / "classification_config.xlsx")
-                ),
+                lambda: self._classification_categories,
                 self._save_grid_edit,
-                self.store.override,
+                self._grid_override,
+                defer_classification=True,
             )
             pane.edit_saved.connect(self._grid_edit_saved)
             pane.edit_failed.connect(self.show_error)
@@ -331,9 +353,10 @@ class MainWindow(QMainWindow):
             )
             pane.layout().itemAt(0).layout().insertWidget(1, pane.extra_columns)
             pane.description.setText(
-                "분류 셀을 더블클릭하여 분야 → 부품 종류 → 증상을 선택하세요. "
-                "세 항목이 완성되면 저장됩니다. 유형조합 셀에서는 단일·복수 유형을 확정할 수 있습니다. "
-                "일자·시간·대상설비·제품명은 Enter 또는 셀 이동으로 저장합니다. Esc는 취소입니다."
+                "분야·상세설비·세부 부품·고장 현상은 모두 독립 선택합니다. 부분분류는 확인된 항목을 보존하고 미기재 항목을 표시합니다. "
+                "원문에 없는 정보를 추측해 입력할 필요가 없습니다. 모든 항목을 선택하면 확정 대기로 표시합니다. "
+                "후보 비교는 최종 분류 셀에서 열 수 있습니다. 확정은 [표준화 + 분석 실행]에서 합니다. "
+                "분류 선택은 메모리에만 유지하며 프로그램을 닫으면 사라집니다."
             )
             pane.description.setVisible(True)
 
@@ -505,20 +528,24 @@ class MainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(15, 15, 15, 15)
-        cards = QHBoxLayout()
+        cards = QGridLayout()
         self.card_labels = {}
-        for key, label in [
-            ("selected_rows", K["count"]),
-            ("total_minutes", K["total"]),
-            ("mean_minutes", K["mean"]),
-            ("review_rows", K["review_tab"]),
-        ]:
+        for index, (key, label) in enumerate(
+            [
+                ("selected_rows", K["count"]),
+                ("total_minutes", K["total"]),
+                ("mean_minutes", K["mean"]),
+                ("auto_rows", "완전 자동분류"),
+                ("partial_rows", "부분 자동분류"),
+                ("review_rows", K["review_tab"]),
+            ]
+        ):
             group = QGroupBox(label)
             group_layout = QVBoxLayout(group)
             value = QLabel("-")
             value.setStyleSheet("font-size: 30px; font-weight: 700; padding: 12px; color: #355767;")
             group_layout.addWidget(value)
-            cards.addWidget(group)
+            cards.addWidget(group, index // 3, index % 3)
             self.card_labels[key] = value
         layout.addLayout(cards)
         self.notes = QTextBrowser()
@@ -533,8 +560,18 @@ class MainWindow(QMainWindow):
         self.status_label.setText(K["error"])
         QMessageBox.warning(self, K["error"], str(message))
 
+    def _update_pending_count(self):
+        pending = len(self._current_event_ids.intersection(self._pending_classifications))
+        self.pending_label.setText(f"확정 대기 {pending:,}건" if pending else "")
+        self.report_button.setToolTip(
+            "확정 대기 선택은 보고서에 반영되지 않습니다. 표준화 버튼으로 먼저 일괄 적용할 수 있습니다."
+            if pending
+            else "분석 Excel, PDF와 검토필요 색상을 적용한 원본 사본을 저장합니다."
+        )
+
     def update_controls(self):
         busy = self.task is not None or self._grid_refresh_pending
+        self._update_pending_count()
         for widget in self.actions + self.option_widgets + [self.drop]:
             widget.setEnabled(not busy)
         for widget in (
@@ -626,6 +663,7 @@ class MainWindow(QMainWindow):
 
     def loaded_ready(self, loaded):
         self.loaded = loaded
+        self._current_event_ids = set(event_ids(loaded, loaded.mapping))
         self.last_reports = None
         self._refresh_organization_filters(reset=True)
         self.drop.set_compact(True)
@@ -656,6 +694,7 @@ class MainWindow(QMainWindow):
         self._analysis_stale = False
         self._grid_refresh_pending = False
         self._grid_view_state = None
+        self._current_event_ids = set()
         for pane in self.panes.values():
             pane.set_frame(pd.DataFrame())
         for label in self.card_labels.values():
@@ -728,16 +767,71 @@ class MainWindow(QMainWindow):
             lambda progress: run_analysis(loaded, config, options, progress), self.analysis_ready
         )
 
+    def standardize(self):
+        """Only this explicit button commits staged classifications."""
+        if self.task is not None or self._grid_refresh_pending:
+            return
+        count = 0
+        try:
+            loaded, config, options = self.analysis_inputs()
+            ids = set(event_ids(loaded, loaded.mapping))
+            batch = {
+                key: value for key, value in self._pending_classifications.items() if key in ids
+            }
+            count = self.store.apply_classifications(batch)
+            for event_id in batch:
+                self._pending_classifications.pop(event_id, None)
+            if count:
+                config = self.store.load()
+        except Exception as exc:
+            if count:
+                self._analysis_stale = True
+                self.last_reports = None
+            self.show_error(exc)
+            self.update_controls()
+            return
+        if not count:
+            self.run_task(
+                lambda progress: run_analysis(loaded, config, options, progress),
+                self.analysis_ready,
+            )
+            return
+        self.last_reports = None
+        self._grid_reanalyzing = True
+        state = {
+            "page": self.current_page_key(),
+            "panes": {key: self._pane_state(pane) for key, pane in self.panes.items()},
+        }
+
+        def ready(result):
+            self._apply_result(result, preserve_navigation=True)
+            self.show_page(state["page"])
+            for key, pane_state in state["panes"].items():
+                self._restore_pane_state(self.panes[key], pane_state)
+            self.status_label.setText(f"표준화 완료 · 임시 분류 {count:,}건 일괄 적용")
+
+        self.run_task(lambda progress: run_analysis(loaded, config, options, progress), ready)
+
     def analysis_ready(self, result):
         self._apply_result(result)
 
     def _apply_result(self, result, *, preserve_navigation=False):
         self.last_reports = None
         self.result = result
+        self._current_event_ids = set(result.all_records.event_id)
+        self._selected_event_ids = set(result.selected.event_id)
+        self._confirmed_overrides = result.config_snapshot.get("overrides", {})
+        self._classification_categories = ClassificationPathIndex(
+            fault_catalog_categories(
+                result.config_snapshot["rules"],
+                result.config_snapshot.get("classification_catalog", {}).get("equipment_types"),
+            )
+        )
+        self._classification_catalog_stamp = None
         self._analysis_stale = False
         self._refresh_organization_filters(settings=result.config_snapshot, loaded=result.loaded)
         for key, label in self.card_labels.items():
-            value = result.metrics[key]
+            value = result.metrics.get(key, 0)
             label.setText(
                 "-"
                 if value is None
@@ -774,12 +868,15 @@ class MainWindow(QMainWindow):
         for key, frame in (("detail", result.selected), ("review", result.tables["review"])):
             self.panes[key].set_frame(self.classification_frame(frame, review=key == "review"))
             self._grid_columns(self.panes[key], self.panes[key].extra_columns.isChecked())
+        self._update_pending_rows(self._pending_classifications)
         info = [
             f"{K['period']}: {result.metrics['period']}",
             f"{K['basis']}: {K[result.options.equipment_basis]}",
             self._organization_filter_summary(result.options) or "공장: 전체 공장  |  팀: 전체 팀",
             f"{K['raw_rows']}: {result.metrics['source_rows']:,}  |  {K['excluded_rows']}: {result.metrics['excluded_rows']:,}",
             f"{K['name_mapped']}: {result.metrics['mapped_name_rows']:,} / {result.metrics['selected_rows']:,}",
+            f"자동처리 {result.metrics.get('auto_processed_rows', result.metrics['auto_rows']):,}건 = 완전 자동분류 {result.metrics['auto_rows']:,}건 + 부분 자동분류 {result.metrics.get('partial_rows', 0):,}건",
+            "부분분류는 원문에서 확인한 항목을 보존하고 미기재 항목은 미상으로 표시합니다. 없는 정보의 추가 입력을 요구하지 않습니다.",
             f"{K['review_tab']}: {result.metrics['review_rows']:,}  |  {K['auto_resolved_rows']}: {result.metrics['auto_resolved_rows']:,}  |  {K['target_info']}: {result.metrics['missing_target_rows']:,}",
             "",
             *result.notes,
@@ -798,30 +895,42 @@ class MainWindow(QMainWindow):
     def classification_frame(frame: pd.DataFrame, *, review: bool = False) -> pd.DataFrame:
         frame = frame.copy()
         if "classification_mode" in frame:
-            multiple = frame["classification_mode"].eq("multiple")
-            for key in ("major", "middle", "minor"):
+            unresolved = frame["classification_mode"].isin(("multiple", "ambiguous", "pending"))
+            if "classification_candidates" in frame:
+                unresolved |= frame["classification_mode"].ne("single") & frame[
+                    "classification_candidates"
+                ].map(lambda value: bool(parse_candidates(value)))
+            for key in CATEGORY_FIELDS:
                 if key in frame:
-                    frame.loc[multiple, key] = ""
+                    frame.loc[unresolved, key] = ""
+            if "component_types" in frame:
+                frame.loc[unresolved, "component_types"] = "미확정 · 후보 선택 필요"
+            if "type" in frame:
+                frame.loc[unresolved, "type"] = "미확정"
             frame["combination_decision"] = [
-                "복수 · 확정"
-                if mode == "multiple" and status == K["manual_multi"]
-                else "복수 · 자동"
-                if mode == "multiple" and status == K["auto"]
-                else "복수 · 검토"
-                if mode == "multiple"
-                else "단일 · 확정"
+                "최종 미확정"
+                if pending
+                else "사용자확정"
                 if status == K["manual"]
+                else K.get("partial", "부분분류")
+                if status == K.get("partial", "부분분류")
                 else str(status)
                 if status in UNMATCHED
-                else "단일"
+                else "규칙분류"
                 if mode == "single"
                 else str(status)
-                for mode, status in zip(frame["classification_mode"], frame["status"])
+                for mode, status, pending in zip(
+                    frame["classification_mode"], frame["status"], unresolved
+                )
             ]
         leading = [
             "major",
+            "detail_equipment",
+            "part_group",
             "middle",
             "minor",
+            "repair_actions",
+            "classification_missing_fields",
             "raw_equipment_name",
             "raw_mid",
             "raw_small",
@@ -994,18 +1103,19 @@ class MainWindow(QMainWindow):
             return
         try:
             # Record IDs depend on the mapped columns: carry saved corrections over to the new IDs.
-            moved = self.store.rekey_overrides(
-                dict(
-                    zip(
-                        event_ids(self.loaded, self.loaded.mapping), event_ids(self.loaded, mapping)
-                    )
-                )
+            moves = dict(
+                zip(event_ids(self.loaded, self.loaded.mapping), event_ids(self.loaded, mapping))
             )
+            moved = self.store.rekey_overrides(moves)
             self.store.save_mapping(self.loaded.headers, mapping)
         except Exception as exc:
             self.show_error(exc)
             return
         self.loaded.mapping = mapping
+        self._pending_classifications = {
+            moves.get(key, key): value for key, value in self._pending_classifications.items()
+        }
+        self._current_event_ids = set(event_ids(self.loaded, mapping))
         self._refresh_organization_filters()
         self._organization_filter_changed()
         message = "컬럼 매핑을 저장했습니다. 같은 제목 행을 가진 파일에는 다음부터 자동 적용됩니다."
@@ -1032,8 +1142,12 @@ class MainWindow(QMainWindow):
     def _grid_columns(pane, show_extra):
         widths = {
             "major": 88,
-            "middle": 105,
+            "detail_equipment": 135,
+            "part_group": 140,
+            "middle": 145,
             "minor": 150,
+            "repair_actions": 190,
+            "classification_missing_fields": 175,
             "raw_equipment_name": 128,
             "raw_mid": 110,
             "raw_small": 110,
@@ -1069,12 +1183,12 @@ class MainWindow(QMainWindow):
             self.show_error(exc)
             return
         menu = QMenu(pane.table)
-        edit_action = menu.addAction("분류 편집 (단일·복수)")
+        edit_action = menu.addAction("최종 분류 한 건 선택")
+        cancel_pending = menu.addAction("임시 분류 선택 취소")
+        cancel_pending.setEnabled(record["event_id"] in self._pending_classifications)
         clear_class = menu.addAction("분류 보정 해제")
         class_patch = {
-            key: None
-            for key in ("major", "middle", "minor", "classification_components")
-            if key in existing
+            key: None for key in (*CATEGORY_FIELDS, "classification_components") if key in existing
         }
         clear_class.setEnabled(bool(class_patch))
         menu.addSeparator()
@@ -1082,6 +1196,10 @@ class MainWindow(QMainWindow):
         all_patch = {key: None for key in FIELDS if key in existing}
         clear_all.setEnabled(bool(all_patch))
         selected = menu.exec(pane.table.viewport().mapToGlobal(point))
+        if selected is cancel_pending:
+            self._pending_classifications.pop(record["event_id"], None)
+            self._queue_pending_row(record["event_id"])
+            return
         if selected is edit_action:
             column = pane.model.frame.columns.get_loc("component_types")
             pane.open_classification_editor(pane.proxy.index(index.row(), column))
@@ -1095,6 +1213,82 @@ class MainWindow(QMainWindow):
     def current_page_key(self):
         return self.navigation.current_page_key()
 
+    @staticmethod
+    def _classification_only(patch):
+        return bool(patch) and set(patch) <= {
+            "major",
+            "detail_equipment",
+            "middle",
+            "minor",
+            "classification_components",
+        }
+
+    def _refresh_classification_categories(self):
+        """Check external rule changes only when the optional comparison dialog opens."""
+        path = self.store.config_dir / "classification_config.xlsx"
+        info = path.stat()
+        catalog_path = self.store.config_dir / "classification_catalog.json"
+        catalog_info = catalog_path.stat()
+        stamp = (
+            info.st_mtime_ns,
+            info.st_size,
+            info.st_ino,
+            catalog_info.st_mtime_ns,
+            catalog_info.st_size,
+            catalog_info.st_ino,
+        )
+        if stamp != self._classification_catalog_stamp:
+            self._classification_categories = ClassificationPathIndex(
+                fault_catalog_categories(
+                    read_rules(path),
+                    self.store.read("classification_catalog.json").get("equipment_types"),
+                )
+            )
+            self._classification_catalog_stamp = stamp
+
+    def _grid_override(self, event_id):
+        current = dict(self._confirmed_overrides.get(event_id, {}))
+        patch = self._pending_classifications.get(event_id)
+        return (
+            self.store._patch_override({event_id: current}, event_id, patch) if patch else current
+        )
+
+    def _update_pending_rows(self, events):
+        for event_id in events:
+            patch = self._pending_classifications.get(event_id)
+            values = None
+            if patch:
+                values = {field: patch.get(field) or "" for field in CATEGORY_FIELDS}
+                category = " / ".join(values.values())
+                values.update(
+                    classification_mode="staged",
+                    status="확정 대기",
+                    component_types=category if any(values.values()) else "분류 보정 해제 대기",
+                    combination_decision="표준화 전 임시 선택",
+                )
+            for key in ("review", "detail"):
+                self.panes[key].model.set_classification_preview(event_id, values)
+
+    def _queue_pending_row(self, event_id):
+        self._pending_grid_events.add(event_id)
+        if not self._pending_grid_update_queued:
+            self._pending_grid_update_queued = True
+            QTimer.singleShot(0, self._refresh_pending_grid_views)
+
+    def _refresh_pending_grid_views(self):
+        self._pending_grid_update_queued = False
+        events, self._pending_grid_events = self._pending_grid_events, set()
+        if self.result is None or self.task is not None:
+            return
+        self._update_pending_rows(events)
+        count = len(self._current_event_ids.intersection(self._pending_classifications))
+        self.status_label.setText(
+            f"확정 대기 {count:,}건 · [표준화 + 분석 실행]을 눌러 일괄 적용하세요."
+            if count
+            else "임시 분류 선택을 취소했습니다. 기존 확정값을 유지합니다."
+        )
+        self._update_pending_count()
+
     def _save_grid_edit(self, record, patch):
         if self.task is not None or self._grid_refresh_pending:
             return False
@@ -1102,7 +1296,7 @@ class MainWindow(QMainWindow):
             if self.result is None or self._analysis_stale:
                 raise UserError("분석을 먼저 실행한 뒤 수정하세요.")
             event_id = str(record.get("event_id") or "")
-            if not event_id or not self.result.selected["event_id"].eq(event_id).any():
+            if not event_id or event_id not in self._selected_event_ids:
                 raise UserError("현재 분석 결과에 없는 기록입니다. 분석을 다시 실행하세요.")
             if not patch or set(patch) - set(FIELDS):
                 raise UserError("수정할 수 없는 항목입니다.")
@@ -1112,6 +1306,22 @@ class MainWindow(QMainWindow):
             )
             if error:
                 raise UserError(error)
+            if self._classification_only(patch):
+                current = dict(self._confirmed_overrides.get(event_id, {}))
+                merged = self.store._patch_override({event_id: current}, event_id, patch)
+                fields = (
+                    "major",
+                    "detail_equipment",
+                    "middle",
+                    "minor",
+                    "classification_components",
+                    "classification_schema",
+                )
+                if all(merged.get(key) == current.get(key) for key in fields):
+                    self._pending_classifications.pop(event_id, None)
+                else:
+                    self._pending_classifications[event_id] = dict(patch)
+                return True
             self.store.update_override(event_id, patch)
         except Exception as exc:
             self.show_error(exc)
@@ -1120,6 +1330,9 @@ class MainWindow(QMainWindow):
         return True
 
     def _grid_edit_saved(self, record, patch):
+        if self._classification_only(patch):
+            self._queue_pending_row(record["event_id"])
+            return
         if self._grid_refresh_pending:
             return
         self._grid_view_state = {

@@ -69,6 +69,56 @@ def merge_items(user: dict, bundled: dict, known: dict, same) -> tuple[dict, dic
     return result, counts
 
 
+def merge_named_defaults(user: list, bundled: list, previous: list) -> tuple[list, int]:
+    """Three-way merge a named master list without reviving deleted choices."""
+    old = {item["name"]: item for item in user}
+    new = {item["name"]: item for item in bundled}
+    known = {item["name"]: [item] for item in previous}
+    merged, counts = merge_items(old, new, known, lambda a, b: a == b)
+    order = [item["name"] for item in bundled if item["name"] in merged]
+    order += [item["name"] for item in user if item["name"] not in new]
+    return [merged[name] for name in order], counts["kept"]
+
+
+def merge_public_taxonomy(user: dict, bundled: dict, previous: dict) -> tuple[dict, int]:
+    """Update untouched public definitions, preserving edits and custom choices."""
+    result = {**user, **bundled}
+    kept = 0
+    for section in ("domains", "modes", "actions"):
+        old = {name: name for name in user.get(section, [])}
+        new = {name: name for name in bundled.get(section, [])}
+        known = {name: [name] for name in previous.get(section, [])}
+        merged, counts = merge_items(old, new, known, lambda a, b: a == b)
+        result[section] = list(merged)
+        kept += counts["kept"]
+    result["parts"], count = merge_named_defaults(
+        user.get("parts", []), bundled.get("parts", []), previous.get("parts", [])
+    )
+    kept += count
+    # Group members merge individually, so a custom member cannot prevent a
+    # newly provided default equipment type from appearing in the same group.
+    old_groups = {row["name"]: row for row in user.get("equipment_groups", [])}
+    previous_groups = {row["name"]: row for row in previous.get("equipment_groups", [])}
+    groups, count = merge_named_defaults(
+        user.get("equipment_groups", []),
+        bundled.get("equipment_groups", []),
+        previous.get("equipment_groups", []),
+    )
+    kept += count
+    new_groups = {row["name"]: row for row in bundled.get("equipment_groups", [])}
+    for index, group in enumerate(groups):
+        name = group["name"]
+        if name not in old_groups or name not in previous_groups or name not in new_groups:
+            continue
+        old = {item: item for item in old_groups[name].get("items", [])}
+        new = {item: item for item in new_groups[name].get("items", [])}
+        known = {item: [item] for item in previous_groups[name].get("items", [])}
+        merged, _ = merge_items(old, new, known, lambda a, b: a == b)
+        groups[index] = {**group, "items": list(merged)}
+    result["equipment_groups"] = groups
+    return result, kept
+
+
 class DefaultsMerger:
     def __init__(self, bundle_dir: Path, config_dir: Path):
         self.bundle_dir, self.config_dir = Path(bundle_dir), Path(config_dir)
@@ -276,12 +326,42 @@ class DefaultsMerger:
         }
         current = self.config_dir / CATALOG_FILE
         user = json.loads(current.read_text(encoding="utf-8-sig")) if current.exists() else None
+        # Public choices are editable independently of the internal extraction
+        # library. Keep a durable baseline in the catalogue itself: older apps
+        # may rewrite .defaults_state.json but must not erase these edits.
+        previous = state.get("classification_catalog", {})
+        counts = {"updated": 0, "kept": 0}
+        if user is not None:
+            old_public = user.get("installed_public_taxonomy", previous.get("public_taxonomy"))
+            if old_public is not None and "public_taxonomy" in user:
+                installed["public_taxonomy"], kept = merge_public_taxonomy(
+                    user["public_taxonomy"], bundled.get("public_taxonomy", {}), old_public
+                )
+                counts["kept"] += kept
+            old_types = user.get(
+                "installed_equipment_types",
+                previous.get(
+                    "equipment_types", self.history.get("classification_catalog.equipment_types")
+                ),
+            )
+            if old_types is not None and "equipment_types" in user:
+                installed["equipment_types"], kept = merge_named_defaults(
+                    user["equipment_types"], bundled.get("equipment_types", []), old_types
+                )
+                counts["kept"] += kept
+        if "public_taxonomy" in bundled:
+            installed["installed_public_taxonomy"] = bundled["public_taxonomy"]
+        if "equipment_types" in bundled:
+            installed["installed_equipment_types"] = bundled["equipment_types"]
         changed = user != installed
         if changed:
             self.write_json(CATALOG_FILE, installed)
-        return {"updated": int(changed)}, {
+        counts["updated"] = int(changed)
+        return counts, {
             "signature": signature,
             "catalog_id": bundled["catalog_id"],
+            "public_taxonomy": bundled.get("public_taxonomy", {}),
+            "equipment_types": bundled.get("equipment_types", []),
         }
 
     def normalization(self, state: dict):

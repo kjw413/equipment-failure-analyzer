@@ -226,10 +226,24 @@ def test_mes_target_pattern_and_review_policy(store, tmp_path):
     assert targets[2] == "1P M/Y SERAC #1 컨베이어"  # every plant prefix, not only '2P I/C'
     assert targets[3] == K["target_missing"]
     assert default.metrics["missing_target_rows"] == 1
-    assert default.metrics["review_rows"] == 0  # no effect on the code-based grouping
+    # The named sensor and its completed action are known; the absent phenomenon
+    # is kept as missing data instead of requiring the worker to invent it.
+    assert default.metrics["review_rows"] == 0
+    assert default.metrics["partial_rows"] == 1
+    assert len(default.tables["review"]) == 0
+    partial = default.selected.set_index("source_row").loc[3]
+    assert partial["status"] == K["partial"]
+    assert partial["classification_mode"] == "single"
+    assert partial["middle"] == "센서(종류 미상)" and partial["minor"] == "현상 미기재"
+    assert partial["classification_missing_fields"] == "상세설비·모듈, 고장 현상"
+    assert partial["repair_actions"] == "교체"
+    assert "교체" not in set(default.selected["minor"])
+    assert "교체" in set(default.selected["repair_actions"])
     assert K["target_missing"] in default.selected.set_index("source_row").loc[3, "issues"]
     by_target = analyze_file(store, path, AnalysisOptions(equipment_basis="target"))
     assert by_target.metrics["review_rows"] == 1
+    assert by_target.metrics["partial_rows"] == 1
+    assert by_target.tables["review"].iloc[0]["event_id"] == partial["event_id"]
     assert "고장대상" in by_target.tables["review"].iloc[0]["review_reason"]
 
 
@@ -260,8 +274,11 @@ def test_review_guidance_explains_each_issue(issue, reason, action):
 def test_review_guidance_for_classification_status():
     for status in (K["code_missing"], K["rule_unmatched"]):
         reason, _, effect = guidance({"status": status, "issues": "", "minutes": 1.0})
-        assert reason.startswith(status) and status in effect
-    assert "대표 규칙" in guidance({"status": K["review"], "issues": "", "minutes": 1.0})[2]
+        assert reason.startswith(status) and "미확정 상태에서도 출력" in effect
+    assert (
+        "후보는 확정 부품으로 합산하지 않습니다"
+        in guidance({"status": K["review"], "issues": "", "minutes": 1.0})[2]
+    )
 
 
 def missing_time_event(result):
@@ -294,6 +311,7 @@ def test_override_fields_can_be_removed(store, input_file):
 def test_correction_saves_only_changed_fields():
     record = {
         "major": "기계",
+        "detail_equipment": "상세설비 미상",
         "middle": "벨트·풀리",
         "minor": "벨트·풀리 끊어짐·마모",
         "target": K["target_missing"],
@@ -308,7 +326,12 @@ def test_correction_saves_only_changed_fields():
     confirmed = correction_patch(initial, values, {}, confirm=True)
     assert confirmed["minor"] == "벨트·풀리 끊어짐·마모" and confirmed["minutes"] == "30"
     changed = correction_patch(initial, {**initial, "minor": "체인 끊어짐"}, {}, confirm=False)
-    assert changed == {"major": "기계", "middle": "벨트·풀리", "minor": "체인 끊어짐"}
+    assert changed == {
+        "major": "기계",
+        "detail_equipment": "상세설비 미상",
+        "middle": "벨트·풀리",
+        "minor": "체인 끊어짐",
+    }
 
 
 def test_correction_can_remove_saved_values():
@@ -413,8 +436,13 @@ def test_fresh_profile_records_catalog_installation_once(tmp_path, approved_cata
 
     root = tmp_path / "fresh"
     first = ConfigStore(root)
-    assert first.merge_summary == {"classification_catalog": {"updated": 1}}
-    assert set(catalog_categories(first.load()["rules"])) == approved_catalog_paths
+    assert first.merge_summary == {"classification_catalog": {"updated": 1, "kept": 0}}
+    assert set(catalog_categories(first.load()["rules"])) == approved_catalog_paths | {
+        ("전기·제어", "제어기·I/O·통신", "PLC 카드"),
+        ("온도·냉각", "냉동·냉각장치", "석션 제어밸브"),
+        ("온도·냉각", "냉동·냉각장치", "열풍건조기(세부 부품 미상)"),
+        ("온도·냉각", "냉동·냉각장치", "냉각수 공급부(세부 부품 미상)"),
+    }
     assert ConfigStore(root).merge_summary == {}
 
 

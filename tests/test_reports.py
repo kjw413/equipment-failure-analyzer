@@ -56,7 +56,7 @@ def test_equipment_charts_share_rendering_and_describe_configured_limit(
             str(cell.value) for row in workbook[excel.SHEETS["equipment"]] for cell in row
         )
         quality = "\n".join(
-            str(cell.value) for row in workbook[excel.SHEETS["review"]] for cell in row
+            str(cell.value) for row in workbook[excel.SHEETS["criteria"]] for cell in row
         )
         assert "상위 3개 유형 + 기타" in overview
         assert "상위 3개 외 유형 합산" in quality

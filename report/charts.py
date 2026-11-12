@@ -55,7 +55,7 @@ def tidy_label(value: str, width: int = 23) -> str:
         ]
         s = "복수: " + " + ".join(shown) + extra
     elif s.count(" / ") >= 2:
-        s = s.split(" / ")[-1]
+        s = " / ".join(s.split(" / ")[-2:])
     lines = textwrap.wrap(s, width=width, break_long_words=True)
     if len(lines) > 2:
         lines = [lines[0], lines[1][:-1] + "…"]

@@ -11,7 +11,7 @@ from openpyxl.utils.cell import range_boundaries
 
 from core.i18n import DISPLAY, K
 from core.models import AnalysisOptions
-from report.classification import COMPONENT_FIELDS
+from report.classification import COMPONENT_FIELDS, classification_result
 from report.excel_report import SHEETS, D, export_report
 
 EXPECTED_SHEETS = [
@@ -157,7 +157,9 @@ def test_consolidated_report_keeps_manager_tables_and_audit_contract(
         assert all(equipment.cell(row, 3).value == pytest.approx(1) for row in totals)
         assert len(equipment._images) == length + 2
         assert len(values[SHEETS["type"]]._images) == 3
-        assert_equipment_cross_statistics(result, formulas[SHEETS["equipment"]], equipment)
+        assert_equipment_cross_statistics(
+            classification_result(result), formulas[SHEETS["equipment"]], equipment
+        )
 
         # One history owns all formula references, and only the requested TOP is marked.
         detail = values[SHEETS["detail"]]
@@ -172,19 +174,44 @@ def test_consolidated_report_keeps_manager_tables_and_audit_contract(
         assert not detail[f"{D['minutes']}10"].fill.fgColor.rgb.endswith("FFF2CC")
 
         review = values[SHEETS["review"]]
-        assert [cell.value for cell in review[6]] == [cell.value for cell in detail[6]]
+        assert [cell.value for cell in review[6]] == [
+            "원본 행",
+            "작업일자",
+            "라인명",
+            "등록 설비(변환)",
+            "고장대상 설비",
+            "원본 대분류",
+            "원본 중분류",
+            "원본 소분류",
+            "분석 설비",
+            "제품명",
+            "정지시간(분)",
+            "표준 유형",
+            "분류 상태",
+            "고장내용(설비명 변환)",
+            "정규화 내용",
+            "고장 분야",
+            "상세설비·모듈",
+            "부품군",
+            "세부 부품",
+            "고장 현상",
+            "조치 내역",
+            "후보 규칙",
+        ]
         queue_length = len(result.tables["review"])
-        queue_ids = {review[f"{D['record_id']}{row}"].value for row in range(7, 7 + queue_length)}
-        assert queue_ids == set(result.tables["review"].record_id)
+        queue_rows = {review.cell(row, 1).value for row in range(7, 7 + queue_length)}
+        assert queue_rows == set(result.tables["review"].source_row)
         assert not review.column_dimensions["A"].hidden
         assert range_boundaries(review.auto_filter.ref)[3] == 6 + queue_length
+        criteria = values[SHEETS["criteria"]]
+        assert review.max_column == 22 and review.max_row == max(7, 6 + queue_length)
         quality_row = next(
             row
-            for row in range(7 + queue_length, review.max_row + 1)
-            if review.cell(row, 1).value == K["auto"]
+            for row in range(7, criteria.max_row + 1)
+            if criteria.cell(row, 1).value == K["auto"]
         )
-        assert review.cell(quality_row, 2).value == result.metrics["auto_rows"]
-        assert formulas[SHEETS["review"]].cell(quality_row, 2).data_type == "f"
+        assert criteria.cell(quality_row, 2).value == result.metrics["auto_rows"]
+        assert formulas[SHEETS["criteria"]].cell(quality_row, 2).data_type == "f"
 
         # Monthly memberships remain a static snapshot with their own filter.
         component = formulas[SHEETS["component"]]

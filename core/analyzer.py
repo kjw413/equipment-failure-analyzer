@@ -18,7 +18,9 @@ from core.aggregation import (
 from core.aggregation import (
     trend as trend,
 )
+from core.classification_policy import unresolved_classifications
 from core.component_analysis import component_tables
+from core.failure_modes import UNKNOWN_EQUIPMENT, UNKNOWN_PART
 from core.i18n import UNMATCHED, K
 from core.models import AnalysisOptions, AnalysisResult, LoadedData
 from core.preprocessing import review_target
@@ -85,6 +87,8 @@ def analyze(
     review_mask = d["status"].isin([K["review"], *UNMATCHED]) | d["issues"].str.contains(
         "|".join(flagged), regex=True, na=False
     )
+    unresolved = unresolved_classifications(d)
+    review_mask |= d.index.isin(unresolved.index)
     review_columns = [
         "source_row",
         "raw_description",
@@ -126,16 +130,20 @@ def analyze(
         "missing_target_rows": int(d["target"].eq(K["target_missing"]).sum()),
         "product_count": int(known_products["product"].nunique()),
         "auto_rows": int(d["status"].eq(K["auto"]).sum()),
+        "partial_rows": int(d["status"].eq(K["partial"]).sum()),
+        "auto_processed_rows": int(d["status"].isin([K["auto"], K["partial"]]).sum()),
         "manual_rows": int(d["status"].isin([K["manual"], K["manual_multi"]]).sum()),
         "manual_multi_rows": int(d["status"].eq(K["manual_multi"]).sum()),
         "combination_rows": int(component_counts.gt(1).sum()),
         "unclassified_rows": int(d["status"].isin(UNMATCHED).sum()),
         "code_missing_rows": int(d["status"].eq(K["code_missing"]).sum()),
         "rule_unmatched_rows": int(d["status"].eq(K["rule_unmatched"]).sum()),
-        "ambiguous_rows": issue_rows("multi_rule")
-        + issue_rows("multiple_faults")
-        + issue_rows("alternative_types"),
+        "ambiguous_rows": int(d["status"].eq(K["review"]).sum()),
         "classification_review_rows": int(d["status"].eq(K["review"]).sum()),
+        "missing_detail_equipment_rows": int(
+            d.get("detail_equipment", pd.Series("", index=d.index)).eq(UNKNOWN_EQUIPMENT).sum()
+        ),
+        "missing_part_rows": int(d["middle"].eq(UNKNOWN_PART).sum()),
         "alternative_type_rows": issue_rows("alternative_types"),
         "multiple_fault_rows": issue_rows("multiple_faults"),
         "auto_resolved_rows": int(
@@ -145,6 +153,7 @@ def analyze(
             ).sum()
         ),
         "review_rows": int(review_mask.sum()),
+        "unresolved_classification_rows": len(unresolved),
         "date_missing_rows": int(d["date"].isna().sum()),
         "duplicate_candidate_rows": int(d["duplicate"].sum()),
         "period": period_of(d),
@@ -159,10 +168,10 @@ def analyze(
         K["fuzzy_note"],
     ]
     notes.append(
-        "자동분류는 부품·증상 조건에 일치한 규칙을 사용합니다. 교체·고장·원인 표현과 MES 단서로 후보를 해소하며, 여러 부품을 하나의 고장·교체 표현으로 나열한 기록은 복수 유형 조합으로 분류하고, 해소되지 않는 후보와 독립 복수 고장은 사용자 확인이 필요합니다."
+        "분류는 고장 분야 / 상세설비·모듈 / 세부 부품 / 고장 현상입니다. 네 항목은 독립 선택하며 부품군은 부품 선택을 돕습니다. 교체 등 7개 조치는 별도 저장합니다. 명시 고장·완료 조치 근거가 있는 추천 1순위는 이력의 대표 분류로 자동 선택하고 나머지 후보를 보존합니다. 없는 항목은 미기재로 보존하며 완전분류·부분분류·검토필요를 구분합니다. 의심·대안·근거 부족과 동일 명사에 대한 상충 규칙은 검토합니다. 추천순위는 통계적 확률이 아니며 대표 선택은 유일한 고장이나 원인 확정이 아닙니다."
     )
     notes.append(
-        "조합별 건수·정지시간은 기록당 한 번 집계합니다. 부품별 포함 건수는 중복을 허용하며 정지시간을 부품별로 배분하지 않습니다. 잠정검토 포함 건수를 별도로 표시합니다."
+        "고장이력과 상세 분류는 한 기록당 한 행입니다. 검토 중인 후보는 확정 부품으로 합산하지 않으며, 정지시간은 이력당 한 번만 집계합니다."
     )
     if loaded.profile == "mes_downtime_v1":
         notes.extend([K["reported_note"], K["rounding_note"]])

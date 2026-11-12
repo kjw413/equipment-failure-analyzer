@@ -7,7 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from conftest import analyze_file
+from conftest import analyze_file, finalize_classifications
 from openpyxl import load_workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Border, Font, PatternFill, Side
@@ -216,7 +216,7 @@ def test_third_commit_failure_rolls_back_entire_bundle(
 
     monkeypatch.setattr(bundle.os, "replace", fail_review)
     with pytest.raises(UserError):
-        export_bundle(analyze_file(store, input_file), paths.excel, overwrite=existing)
+        export_bundle(finalize_classifications(store, input_file), paths.excel, overwrite=existing)
     for index, path in enumerate(targets):
         assert path.read_bytes() == f"old {index}".encode() if existing else not path.exists()
     assert not list(tmp_path.glob(".efa_export_*"))

@@ -5,42 +5,56 @@ from hashlib import sha256
 from conftest import analyze_file
 from openpyxl import load_workbook
 
-from core.failure_modes import part_name
+from core.failure_modes import UNKNOWN_PART
 from core.fault_components import parse_components
 from core.i18n import K
+from core.public_taxonomy import default_taxonomy
 from report.excel_report import SHEETS, D, export_report
 
 
-def test_current_catalog_types_and_multi_part_members_survive_report_export(
+def test_current_catalog_types_and_ranked_candidates_survive_report_export(
     store, catalog_input, approved_catalog_paths, tmp_path
 ):
     original_hash = sha256(catalog_input.read_bytes()).hexdigest()
     result = analyze_file(store, catalog_input)
     rows = result.selected.set_index("source_row")
+    expected_missing = {
+        5: "세부 부품",  # A pump body establishes the module, not its inner failed part.
+        6: "상세설비·모듈",
+        8: "상세설비·모듈",
+    }
     for source_row, path in {
-        5: ("유체·배관", "로터리펌프", "파손"),
-        6: ("기계", "타이밍벨트", "파손"),
-        8: ("공압·진공", "로드리스실린더", "파손"),
+        5: ("유체·배관", UNKNOWN_PART, "손상·파손"),
+        6: ("기계", "타이밍벨트", "손상·파손"),
+        8: ("공압·진공", "로드리스실린더", "손상·파손"),
     }.items():
         assert tuple(rows.loc[source_row, ["major", "middle", "minor"]]) == path
-        assert rows.loc[source_row, "status"] == K["auto"]
+        assert rows.loc[source_row, "status"] == K["partial"]
+        assert rows.loc[source_row, "classification_missing_fields"] == expected_missing[source_row]
+        assert rows.loc[source_row, "component_count"] == 1
     multiple = rows.loc[4]
-    assert multiple.classification_mode == "multiple" and multiple.status == K["review"]
+    assert multiple.classification_mode == "ambiguous" and multiple.status == K["review"]
+    assert multiple.component_details == "[]" and multiple.component_count == 0
     source_parts = {
         ("유체·배관", "펌프", "도징펌프"),
         ("전기·제어", "센서·검출", "근접센서"),
     }
     expected_members = {
-        (major, part_name(part), "파손" if part == "도징펌프" else "고장·이상")
-        for major, _, part in source_parts
+        ("유체·배관", UNKNOWN_PART, "손상·파손"),
+        ("전기·제어", "근접센서", "고장·이상"),
     }
     assert {
         tuple(member[key] for key in ("major", "middle", "minor"))
-        for member in parse_components(multiple.component_details)
+        for member in parse_components(multiple.classification_candidates)
     } == expected_members
     assert source_parts <= approved_catalog_paths
     assert result.metrics["selected_rows"] == 4 and result.metrics["total_minutes"] == 95
-    assert result.tables["component"]["count"].sum() == 5
+    assert result.metrics["auto_rows"] == 0
+    assert result.metrics["partial_rows"] == result.metrics["auto_processed_rows"] == 3
+    assert result.tables["component"]["count"].sum() == 2
+    assert rows.loc[5, "detail_equipment"] == "펌프" and rows.loc[5, "part_count"] == 0
+    assert result.tables["fault_detail"].record_id.is_unique
+    assert len(result.tables["fault_detail"]) == 4
 
     workbook = load_workbook(export_report(result, tmp_path / "catalog.xlsx"), data_only=True)
     try:
@@ -50,15 +64,18 @@ def test_current_catalog_types_and_multi_part_members_survive_report_export(
         for row in range(7, detail.max_row + 1):
             for member in parse_components(detail[f"{D['component_details']}{row}"].value):
                 assert (
-                    member["major"],
-                    member["part_group"],
-                    member["part_type"],
-                ) in approved_catalog_paths
+                    member["middle"] == UNKNOWN_PART or member["middle"] in default_taxonomy().names
+                )
+                assert member["part_group"] == default_taxonomy().group(member["middle"])
         component_labels = {
-            f"{major} / {part_name(part)}" for major, _, part in approved_catalog_paths
+            " / ".join(member[key] for key in ("major", "detail_equipment", "middle"))
+            for value in result.selected.component_details
+            for member in parse_components(value)
         }
         component = workbook[SHEETS["component"]]
-        assert {component.cell(row, 1).value for row in range(7, 12)} <= component_labels
+        assert {
+            component.cell(row, 1).value for row in range(7, 7 + len(result.tables["component"]))
+        } <= component_labels
         assert all(cell.data_type != "e" for sheet in workbook for row in sheet for cell in row)
     finally:
         workbook.close()

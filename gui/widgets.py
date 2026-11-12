@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+from io import StringIO
 from numbers import Real
 
 import pandas as pd
@@ -9,11 +11,15 @@ from PySide6.QtCore import (
     QModelIndex,
     QSortFilterProxyModel,
     Qt,
+    QTimer,
     Signal,
 )
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
+    QAbstractButton,
     QAbstractItemView,
+    QApplication,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -30,7 +36,9 @@ from core.fault_components import component_evidence_text, mode_label
 from core.i18n import DISPLAY, K
 from core.models import UserError
 from core.parsing import is_missing
+from core.public_taxonomy import part_group
 from core.sorting import default_metric, descending
+from gui.category_index import ClassificationPathIndex, category_index
 from gui.classification_picker import FIELDS
 from gui.inline_editor import (
     CHOICES_ROLE,
@@ -107,10 +115,41 @@ class FrameModel(QAbstractTableModel):
     def __init__(self, frame: pd.DataFrame, parent=None):
         super().__init__(parent)
         self.frame = frame.reset_index(drop=True).copy()
+        if "middle" in self.frame:
+            if "part_group" not in self.frame:
+                self.frame.insert(self.frame.columns.get_loc("middle"), "part_group", "")
+            self.frame["part_group"] = self.frame["middle"].map(
+                lambda value: part_group(shown(value))
+            )
         self.editing_enabled = False
         self.edit_request = None
         self.draft_provider = lambda record: None
+        self.classification_deferred = False
         self.choices_provider = lambda record, column: []
+        self._event_rows = {}
+        if "event_id" in self.frame:
+            for row, event_id in self.frame.event_id.items():
+                self._event_rows.setdefault(event_id, []).append(row)
+        self._classification_originals = {}
+
+    def set_classification_preview(self, event_id, values):
+        """Repaint only this event's rows; retain the model, editors and view position."""
+        if values is not None and "middle" in values and "part_group" in self.frame:
+            values = {**values, "part_group": part_group(values["middle"])}
+        for row in self._event_rows.get(event_id, []):
+            if values is None:
+                changes = self._classification_originals.pop(row, {})
+            else:
+                changes = {key: value for key, value in values.items() if key in self.frame}
+                self._classification_originals.setdefault(
+                    row, {key: self.frame.at[row, key] for key in changes}
+                )
+            if not changes:
+                continue
+            columns = [self.frame.columns.get_loc(key) for key in changes]
+            for key, value in changes.items():
+                self.frame.at[row, key] = value
+            self.dataChanged.emit(self.index(row, min(columns)), self.index(row, max(columns)))
 
     def rowCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else len(self.frame)
@@ -124,6 +163,15 @@ class FrameModel(QAbstractTableModel):
         value = self.frame.iat[index.row(), index.column()]
         missing = is_missing(value)
         column = self.frame.columns[index.column()]
+        if column == "part_group" and role in (
+            Qt.ItemDataRole.DisplayRole,
+            Qt.ItemDataRole.ToolTipRole,
+            Qt.ItemDataRole.EditRole,
+            Qt.ItemDataRole.UserRole,
+        ):
+            record = self.frame.iloc[index.row()].to_dict()
+            draft = self.draft_provider(record)
+            return part_group(shown((draft or record).get("middle")))
         record = None
         if (
             role
@@ -140,7 +188,12 @@ class FrameModel(QAbstractTableModel):
         if role == RECORD_ROLE:
             return record
         if role == MULTIPLE_ROLE:
-            return record.get("classification_mode") == "multiple"
+            if self.classification_deferred:
+                return False
+            return record.get("classification_mode") in ("multiple", "ambiguous", "pending") or (
+                record.get("classification_mode") != "single"
+                and bool(shown(record.get("classification_candidates")))
+            )
         if role == CHOICES_ROLE:
             return self.choices_provider(record, column)
         if role == Qt.ItemDataRole.EditRole:
@@ -154,9 +207,16 @@ class FrameModel(QAbstractTableModel):
             and column in EDITABLE_COLUMNS
         ):
             draft = self.draft_provider(record)
-            return QBrush(QColor("#fff0bd" if draft and column in FIELDS else "#edf5ff"))
+            staged = record.get("classification_mode") == "staged"
+            return QBrush(
+                QColor("#fff0bd" if (draft or staged) and column in FIELDS else "#edf5ff")
+            )
         if column in FIELDS and role == Qt.ItemDataRole.DisplayRole and self.edit_request:
-            if record.get("classification_mode") == "multiple":
+            if not self.classification_deferred and record.get("classification_mode") in (
+                "multiple",
+                "ambiguous",
+                "pending",
+            ):
                 return "-"
             draft = self.draft_provider(record)
             if draft is not None:
@@ -165,11 +225,17 @@ class FrameModel(QAbstractTableModel):
             instruction = "더블클릭 또는 F2로 수정 · Esc로 취소"
             if column in FIELDS:
                 instruction += (
-                    "\n대 → 중 → 소분류를 모두 선택하면 저장됩니다. 노란 셀은 선택 중입니다."
+                    "\n분야·상세설비·세부 부품·고장 현상은 독립 선택합니다. 네 항목을 모두 선택하면 임시 보관됩니다. 표준화 버튼으로 일괄 적용하세요."
+                    if self.classification_deferred
+                    else "\n분야·상세설비·세부 부품·고장 현상은 독립 선택합니다. 네 항목을 모두 선택하면 저장됩니다. 노란 셀은 선택 중입니다."
                 )
                 instruction += "\n선택 중 Esc를 누르면 이 행의 분류 선택을 취소합니다. 재분석 시 미완성 선택은 초기화됩니다."
             elif column in ("type", "component_types"):
-                instruction += "\n목록에서 단일/복수 유형을 선택한 뒤 적용하세요."
+                instruction += "\n근거별 추천 후보 한 건을 선택하거나 직접 분류한 뒤 적용하세요."
+            elif column == "repair_actions":
+                instruction += (
+                    "\n표준 조치를 쉼표로 구분해 입력합니다. 비우면 조치 없음으로 저장합니다."
+                )
             else:
                 instruction += "\nEnter/다른 셀 클릭: 저장 · 비우기: 해당 보정 해제"
             return ("" if missing else str(value) + "\n\n") + instruction
@@ -178,7 +244,13 @@ class FrameModel(QAbstractTableModel):
                 return ""
             column = self.frame.columns[index.column()]
             if column == "classification_mode":
-                return mode_label(value)
+                if value == "staged":
+                    return "확정 대기"
+                return (
+                    "최종 미확정"
+                    if value in ("multiple", "ambiguous", "pending")
+                    else mode_label(value)
+                )
             if column == "component_details":
                 return component_evidence_text(value)
             if isinstance(value, pd.Timestamp):
@@ -222,7 +294,12 @@ class FrameModel(QAbstractTableModel):
             return None
         if orientation == Qt.Orientation.Horizontal:
             key = self.frame.columns[section]
-            label = DISPLAY.get(key, str(key))
+            label = {
+                "component_types": "최종 분류",
+                "combination_decision": "분류 판정",
+                "classification_mode": "분류 상태",
+                "classification_candidates": "추천 후보·근거",
+            }.get(key, DISPLAY.get(key, str(key)))
             return label + " · 수정" if self.edit_request and key in EDITABLE_COLUMNS else label
         return str(section + 1)
 
@@ -291,11 +368,15 @@ class TablePane(QWidget):
         self.sort_policy = sort_policy
         self.default_key = None
         self._categories = []
+        self._category_snapshot = None
+        self._category_index = None
         self._edit_handler = None
         self._override_provider = lambda event_id: {}
         self._editing_enabled = True
         self._classification_drafts = {}
         self.classification_editor = None
+        self.prepare_classification_picker = lambda: None
+        self._classification_deferred = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         top = QHBoxLayout()
@@ -329,6 +410,7 @@ class TablePane(QWidget):
         self.edit_delegate = CellEditDelegate(self.table)
         self.table.setItemDelegate(self.edit_delegate)
         self.edit_delegate.classification_requested.connect(self.open_classification_editor)
+        self.edit_delegate.classification_advanced.connect(self._advance_classification)
         self.edit_delegate.draft_cancel_requested.connect(self.cancel_classification_draft)
         # Do not enable sorting on column 0 before installing a numeric default.
         self.search.textChanged.connect(self.filter)
@@ -350,7 +432,7 @@ class TablePane(QWidget):
         self.cancel_editing()
         if self._classification_drafts:
             self.edit_status.setText(
-                "완료하지 않은 분류 선택은 저장되지 않았습니다. 대·중·소분류를 모두 선택하면 저장됩니다."
+                "완료하지 않은 분류 선택은 저장되지 않았습니다. 분야·상세설비·세부 부품·고장 현상을 모두 선택하면 저장됩니다."
             )
             self.edit_status.show()
         self._classification_drafts.clear()
@@ -414,7 +496,9 @@ class TablePane(QWidget):
         self.reset_sort()
         self.filter(self.search.text())
 
-    def configure_editing(self, categories, edit_handler, override_provider=None):
+    def configure_editing(
+        self, categories, edit_handler, override_provider=None, *, defer_classification=False
+    ):
         """Enable validated corrections only on record-level panes.
 
         ``categories`` may be a list or a supplier so newly edited rules are visible
@@ -423,16 +507,57 @@ class TablePane(QWidget):
         """
         self.cancel_editing()
         self._categories = categories
+        self._category_snapshot = None
+        self._category_index = None
         self._edit_handler = edit_handler
         self._override_provider = override_provider or (lambda event_id: {})
+        self._classification_deferred = defer_classification
         self._classification_drafts.clear()
         self._configure_model()
+
+    def enable_corner_copy(self):
+        """Copy the whole current grid view, independently of its single-row selection."""
+        corner = self.table.findChild(QAbstractButton)
+        if corner is not None:
+            corner.setToolTip("표 전체 복사 · 현재 표시된 열과 검색 결과 전체")
+            corner.setAccessibleName("표 전체 복사")
+            corner.clicked.connect(self.copy_all)
+
+    def copy_all(self):
+        header = self.table.horizontalHeader()
+        columns = [
+            header.logicalIndex(visual)
+            for visual in range(header.count())
+            if not self.table.isColumnHidden(header.logicalIndex(visual))
+        ]
+        count = self.proxy.rowCount()
+        if not count or not columns:
+            self.edit_status.setText("복사할 이력이 없습니다.")
+            self.edit_status.show()
+            return
+        buffer = StringIO()
+        writer = csv.writer(buffer, delimiter="\t", lineterminator="\n")
+        writer.writerow(
+            [
+                str(self.proxy.headerData(column, Qt.Orientation.Horizontal) or "").removesuffix(
+                    " · 수정"
+                )
+                for column in columns
+            ]
+        )
+        for row in range(count):
+            writer.writerow([self.proxy.index(row, column).data() or "" for column in columns])
+        QApplication.clipboard().setText(buffer.getvalue())
+        self.edit_status.setText(f"{count:,}행 × {len(columns):,}열을 복사했습니다.")
+        self.edit_status.show()
 
     def _configure_model(self):
         if not hasattr(self, "model"):
             return
         self.model.edit_request = self._edit_cell if self._edit_handler else None
         self.model.editing_enabled = bool(self._editing_enabled and self._edit_handler)
+        self.model.classification_deferred = self._classification_deferred
+        self.proxy.setDynamicSortFilter(not self._classification_deferred)
         self.model.draft_provider = lambda record: self._classification_drafts.get(
             self._record_key(record)
         )
@@ -466,31 +591,36 @@ class TablePane(QWidget):
     def _record_key(record):
         return tuple(shown(record.get(key)) for key in ("event_id", "record_id"))
 
-    def _categories_for(self, record):
-        paths = self._active_categories()
-        current = tuple(shown(record.get(key)) for key in FIELDS)
-        if (
-            record.get("classification_mode") != "multiple"
-            and all(current)
-            and current not in paths
-        ):
-            paths.append(current)
-        return paths
-
     def _active_categories(self):
         categories = self._categories() if callable(self._categories) else self._categories
-        return list(categories)
+        if isinstance(categories, ClassificationPathIndex):
+            return categories
+        # General suppliers may return or mutate lists. Snapshot them so changes
+        # are noticed without sharing mutable menu choices between records.
+        snapshot = tuple(categories)
+        if self._category_index is None or snapshot != self._category_snapshot:
+            self._category_snapshot = snapshot
+            self._category_index = category_index(snapshot)
+        return self._category_index
 
     def _category_choices(self, record, column):
         try:
-            paths = self._categories_for(record)
+            paths = self._active_categories()
         except Exception as exc:
             self.edit_failed.emit(str(exc))
             return []
         level = FIELDS.index(column)
         draft = self._classification_drafts.get(self._record_key(record), record)
-        prefix = tuple(shown(draft.get(key)) for key in FIELDS[:level])
-        return sorted({path[level] for path in paths if path[:level] == prefix}, key=str.casefold)
+        choices = set(paths.menu_choices(column, draft))
+        current = tuple(shown(record.get(key)) for key in FIELDS)
+        if (
+            record.get("classification_mode") != "multiple"
+            and all(current)
+            and current not in paths
+            and paths.menu_context_matches(column, current, draft)
+        ):
+            choices.add(current[level])
+        return sorted(choices, key=lambda text: (text.casefold(), text))
 
     def _existing(self, record):
         return dict(self._override_provider(shown(record.get("event_id"))) or {})
@@ -524,7 +654,11 @@ class TablePane(QWidget):
             return False
 
     def _edit_category(self, record, existing, column, value):
-        if record.get("classification_mode") == "multiple":
+        if not self._classification_deferred and record.get("classification_mode") in (
+            "multiple",
+            "ambiguous",
+            "pending",
+        ):
             return False
         value = shown(value)
         if not value:
@@ -533,33 +667,62 @@ class TablePane(QWidget):
         current = self._classification_drafts.get(
             key, {field: shown(record.get(field)) for field in FIELDS}
         )
-        retry_completed = (
-            column == "minor" and key in self._classification_drafts and all(current.values())
-        )
+        retry_completed = key in self._classification_drafts and all(current.values())
         if current.get(column) == value and not retry_completed:
             return True
         if value not in self._category_choices(record, column):
             raise UserError("현재 분류 목록에서 값을 선택하세요.")
-        draft = dict(current)
-        level = FIELDS.index(column)
-        draft[column] = value
-        for child in FIELDS[level + 1 :]:
-            draft[child] = ""
+        draft = self._active_categories().changed_selection(current, column, value)
         self._classification_drafts[key] = draft
         self.edit_status.setText(
-            f"분류 선택 중 {len(self._classification_drafts)}행 · 노란 셀의 대 → 중 → 소분류를 모두 선택하세요. Esc로 이 행 선택을 취소할 수 있습니다."
+            f"분류 선택 중 {len(self._classification_drafts)}행 · 분야·설비·부품·고장 현상은 독립 선택입니다. 네 항목을 확인하세요. Esc로 이 행 선택을 취소할 수 있습니다."
         )
         self.edit_status.show()
         if not all(draft.values()):
             return True
-        if tuple(draft[field] for field in FIELDS) not in self._categories_for(record):
-            raise UserError("대·중·소분류의 상하위 관계를 확인하세요.")
+        if tuple(draft[field] for field in FIELDS) not in self._active_categories():
+            raise UserError("분야·상세설비·세부 부품·고장 현상의 선택값을 확인하세요.")
         patch = classification_patch(record, existing, "single", draft, [])
         saved = self._submit_patch(record, patch)
         if saved:
             self._classification_drafts.pop(key, None)
-            self.edit_status.setText("분류를 저장했습니다. 분석 결과를 갱신합니다.")
+            self.edit_status.setText(
+                "분류를 임시 보관했습니다. 표준화 버튼으로 일괄 적용하세요."
+                if self._classification_deferred
+                else "분류를 저장했습니다. 분석 결과를 갱신합니다."
+            )
         return saved
+
+    def _advance_classification(self, index):
+        if self._classification_deferred:
+            QTimer.singleShot(0, lambda: self._edit_next_classification(index))
+
+    def _edit_next_classification(self, index):
+        if not index.isValid() or not self._editing_enabled:
+            return
+        field = self.model.frame.columns[index.column()]
+        level = FIELDS.index(field)
+        record = index.data(RECORD_ROLE) or {}
+        draft = self._classification_drafts.get(self._record_key(record), record)
+        missing = next((key for key in FIELDS if not shown(draft.get(key))), None)
+        row = index.row() + (level == len(FIELDS) - 1 and missing is None)
+        if row >= self.proxy.rowCount():
+            return
+        if field == "minor" and missing:
+            field = missing
+        elif field == "detail_equipment" and not shown(draft.get("major")):
+            field = "major"
+        elif field == "major" and shown(draft.get("detail_equipment")):
+            field = "middle"
+        else:
+            field = FIELDS[(level + 1) % len(FIELDS)]
+        target = self.proxy.index(row, self.model.frame.columns.get_loc(field))
+        self.table.setCurrentIndex(target)
+        self.table.scrollTo(target)
+        self.table.edit(target)
+        editor = self.edit_delegate.active_editor
+        if isinstance(editor, QComboBox):
+            editor.showPopup()
 
     def open_classification_editor(self, index):
         if not self._editing_enabled or not self._edit_handler or not index.isValid():
@@ -568,6 +731,7 @@ class TablePane(QWidget):
         if not record or not any(self._record_key(record)):
             return None
         try:
+            self.prepare_classification_picker()
             existing = self._existing(record)
             categories = self._active_categories()
         except Exception as exc:
@@ -576,11 +740,16 @@ class TablePane(QWidget):
         self.cancel_editing()
         self.cancel_classification_draft(record)
         editor = ClassificationCellEditor(
-            record, existing, categories, self._submit_patch, self.table
+            record,
+            existing,
+            categories,
+            self._submit_patch,
+            self.table,
+            deferred=self._classification_deferred,
         )
         self.classification_editor = editor
         editor.destroyed.connect(lambda: self._editor_destroyed(editor))
-        editor.show_at(self.table.viewport().mapToGlobal(self.table.visualRect(index).bottomLeft()))
+        editor.show_centered()
         self.table.viewport().update()
         return editor
 

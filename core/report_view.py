@@ -65,12 +65,16 @@ class ReportNames:
             item = dict(member)
             for key in (
                 "major",
+                "detail_equipment",
+                "detail_equipment_source",
+                "detail_equipment_evidence",
                 "middle",
                 "minor",
                 "part_group",
                 "part_type",
                 "symptom_evidence",
                 "evidence",
+                "reason",
             ):
                 if isinstance(item.get(key), str):
                     item[key] = self.text(item[key])
@@ -95,7 +99,7 @@ class ReportNames:
                 *preserve,
             ):
                 continue
-            if column == "component_details":
+            if column in ("component_details", "classification_candidates"):
                 result[column] = result[column].map(self.components)
                 continue
             if pd.api.types.is_object_dtype(result[column]) or isinstance(

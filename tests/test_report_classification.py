@@ -53,7 +53,8 @@ def workbook_text(workbook):
 
 
 def test_decision_columns_preserve_existing_formula_column_positions():
-    assert len(DETAIL_COLS) == 54
+    assert len(DETAIL_COLS) == 61
+    assert len(DETAIL_COLS) == len(set(DETAIL_COLS))
     assert DETAIL_COLS[:12] == [
         "record_id",
         "source_row",
@@ -68,19 +69,30 @@ def test_decision_columns_preserve_existing_formula_column_positions():
         "status",
         "raw_description",
     ]
-    assert DETAIL_COLS[36:41] == [
+    assert DETAIL_COLS[12:18] == [
+        "major",
+        "detail_equipment",
+        "part_group",
+        "middle",
+        "minor",
+        "repair_actions",
+    ]
+    assert DETAIL_COLS[39:44] == [
         "duplicate",
         "equipment_code",
         "raw_equipment_name",
         "report_equipment",
         "name_mapped",
     ]
-    assert DETAIL_COLS[41:43] == list(DECISION_FIELDS)
-    assert DETAIL_COLS[43:49] == [
-        field for field in COMPONENT_FIELDS if field != "classification_schema"
+    assert DETAIL_COLS[44:46] == list(DECISION_FIELDS)
+    assert DETAIL_COLS[46:55] == [
+        field
+        for field in COMPONENT_FIELDS
+        if field not in ("classification_schema", "part_group", "repair_actions")
     ]
-    assert DETAIL_COLS[49:52] == ["line_code", "raw_line_name", "equipment_group"]
-    assert DETAIL_COLS[52:] == ["factory", "team"]
+    assert DETAIL_COLS[55:58] == ["line_code", "raw_line_name", "equipment_group"]
+    assert DETAIL_COLS[58:60] == ["factory", "team"]
+    assert DETAIL_COLS[60] == "classification_candidates"
     assert "classification_schema" not in DETAIL_COLS
     assert D["record_id"] == "A" and D["minutes"] == "I" and D["type"] == "J"
     assert not set(LEGACY_SCORE_FIELDS).intersection(DETAIL_COLS)
@@ -91,7 +103,7 @@ def test_excel_detail_and_review_expose_rule_decisions(decision_result, tmp_path
         export_report(decision_result, tmp_path / "rules.xlsx"), data_only=True
     )
     try:
-        for key in ("detail", "review"):
+        for key in ("detail",):
             sheet = workbook[SHEETS[key]]
             headers = {cell.value: cell.column for cell in sheet[6]}
             for field in DECISION_FIELDS:
@@ -99,12 +111,15 @@ def test_excel_detail_and_review_expose_rule_decisions(decision_result, tmp_path
                 assert any(sheet.cell(row, column).value for row in range(7, sheet.max_row + 1))
             assert not any(DISPLAY.get(field, field) in headers for field in LEGACY_SCORE_FIELDS)
         quality_counts = {
-            row[0].value: row[1].value for row in workbook[SHEETS["review"]] if len(row) >= 2
+            row[0].value: row[1].value for row in workbook[SHEETS["criteria"]] if len(row) >= 2
         }
         assert quality_counts[K["review"]] == 1
         assert workbook[SHEETS["summary"]]["E7"].value == decision_result.metrics["total_minutes"]
         text = workbook_text(workbook)
         assert "판정 사유와 후보별 근거를 기록합니다" in text
+        assert "1순위 대표 자동선택" in text
+        assert "정확도나 확률이 아닙니다" in text
+        assert "다른 실제 고장이 없다는 뜻이 아닙니다" in text
         assert "최소점수" not in text and "점수 격차" not in text
     finally:
         workbook.close()
@@ -122,6 +137,9 @@ def test_pdf_exposes_rule_reason_and_candidates(decision_result, tmp_path):
         "후보 규칙 2",
         "수동확정",
         "후보별 근거",
+        "1순위 대표 자동선택",
+        "정확도나 확률이 아닙니다",
+        "다른 실제 고장이 없다는 뜻이 아닙니다",
     ):
         assert "".join(phrase.split()) in compact
     assert "근거점수" not in compact and "격차" not in compact
@@ -134,7 +152,7 @@ def test_older_results_ignore_scores_without_mutating_input(decision_result, tmp
         for field in LEGACY_SCORE_FIELDS:
             frame[field] = 88.5 if field in LEGACY_SCORE_FIELDS[:3] else "OLD_SCORE_88.5점"
         if "status" in frame:
-            frame.loc[frame["status"].eq(K["auto"]), "status"] = "점수분류"
+            frame.loc[frame["status"].isin([K["auto"], K["partial"]]), "status"] = "점수분류"
         if "evidence" in frame:
             frame["evidence"] = "MOTOR | 모터, 이상 | 근거 점수 88.5/100"
         if "component_details" in frame:
@@ -187,7 +205,9 @@ def test_older_results_ignore_scores_without_mutating_input(decision_result, tmp
             detail[f"{D['classification_reason']}{row}"].value == LEGACY_REASON
             for row in legacy_rows
         )
-        counts = {row[0].value: row[1].value for row in workbook[SHEETS["review"]] if len(row) >= 2}
+        counts = {
+            row[0].value: row[1].value for row in workbook[SHEETS["criteria"]] if len(row) >= 2
+        }
         assert counts[K["auto"]] == 0
         assert counts["이전 분석결과(재분석 필요)"] == len(legacy_rows)
     finally:

@@ -6,8 +6,10 @@ build/
 *.pyc
 *.log
 *.bak
+*.zip
 wheels/*.whl
 *.exe
+EquipmentFailureAnalyzer_v*.zip
 sample/
 .pytest_tmp*/
 output/*

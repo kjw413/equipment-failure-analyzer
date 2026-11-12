@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -43,11 +42,17 @@ from core.equipment_names import (
     resolve_group,
     validate_names,
 )
-from core.fault_components import component_evidence_text, mode_label, parse_components
 from core.i18n import FIELD_LABELS, K
 from core.models import UserError
 from core.rules import RULE_COLUMNS, read_rules, write_rules
-from gui.classification_picker import ClassificationPicker, ComponentPicker
+from gui.category_index import ClassificationPathIndex
+from gui.classification_picker import (
+    FIELDS,
+    CandidateListPicker,
+    ClassificationPicker,
+    RepairActionsPicker,
+    record_candidates,
+)
 
 
 class EquipmentNamesDialog(QDialog):
@@ -538,7 +543,11 @@ class RuleEditor(QDialog):
         self.setWindowTitle(K["rules"])
         self.resize(1250, 630)
         layout = QVBoxLayout(self)
-        note = QLabel(K["rule_help"])
+        note = QLabel(
+            K["rule_help"]
+            + "\n이 표는 분야·부품군·세부 부품을 찾는 규칙입니다. 분야·상세설비·세부 부품·고장 현상은 독립 선택하며 조치는 별도로 기록합니다. "
+            "상세설비 이름·별칭은 classification_catalog.json의 equipment_types에서 관리합니다."
+        )
         note.setWordWrap(True)
         layout.addWidget(note)
         rules = read_rules(self.path)
@@ -594,11 +603,27 @@ class RuleEditor(QDialog):
 class CorrectionDialog(QDialog):
     """Saves only what the user changed; [수동 보정 해제] removes every saved field of the record."""
 
-    def __init__(self, record: dict, existing: dict | None = None, parent=None, *, rules=None):
+    def __init__(
+        self,
+        record: dict,
+        existing: dict | None = None,
+        parent=None,
+        *,
+        rules=None,
+        equipment_types=None,
+    ):
         super().__init__(parent)
         self.existing = {k: v for k, v in (existing or {}).items() if k != "saved_at"}
         self.initial = initial_values(record, self.existing)
-        self.categories = fault_catalog_categories(rules or [])
+        if record.get("classification_mode") in (
+            "multiple",
+            "pending",
+            "ambiguous",
+        ) or self.existing.get(COMPONENT_FIELD):
+            self.initial.update(dict.fromkeys(FIELDS, ""))
+        self.categories = ClassificationPathIndex(
+            fault_catalog_categories(rules or [], equipment_types)
+        )
         self.patch = {}
         self.cleared = False
         self.setWindowTitle(K["correct"])
@@ -621,10 +646,14 @@ class CorrectionDialog(QDialog):
         saved = ", ".join(f"{K.get(k, k)}={v}" for k, v in self.existing.items()) or "없음"
         diagnostics = [
             (K["classification_reason"], record.get("classification_reason")),
+            ("원문 미기재 항목", record.get("classification_missing_fields")),
             (K["candidate_evidence"], record.get("candidate_evidence")),
-            ("유형 조합", record.get("component_types")),
-            ("조합 판정", mode_label(record.get("classification_mode"))),
-            ("구성원별 유형·근거", component_evidence_text(record.get("component_details"))),
+            (
+                "최종 분류",
+                record.get("component_types")
+                if record.get("classification_mode") == "single"
+                else "미확정",
+            ),
             ("검토 사유", record.get("review_reason")),
             ("수정 방법", record.get("review_action")),
             ("현재 집계 영향", record.get("aggregation_effect")),
@@ -642,43 +671,35 @@ class CorrectionDialog(QDialog):
         source.setPlainText(str(record.get("raw_description", "")))
         source.setMaximumHeight(120)
         layout.addWidget(source)
+        self.candidate_picker = CandidateListPicker(record_candidates(record, self.existing))
+        self.candidate_list = self.candidate_picker.table
+        self.candidate_picker.selected.connect(self.choose_candidate)
+        layout.addWidget(self.candidate_picker)
+        self.candidate_error = QLabel()
+        self.candidate_error.setWordWrap(True)
+        self.candidate_error.setStyleSheet("color: #a52a2a;")
+        layout.addWidget(self.candidate_error)
         form = QFormLayout()
         self.edits = {}
-        self.confirm = QCheckBox("위 대·중·소분류를 사용자확정으로 저장")
+        self.confirm = QCheckBox("위 분야·상세설비·세부 부품·고장 현상을 사용자확정으로 저장")
         self.confirm.setToolTip(
             "체크하지 않고 분류를 그대로 두면 분류는 저장하지 않습니다. 시간·일자만 고칠 때는 비워 두세요."
         )
         self.classification_picker = ClassificationPicker(self.categories, self.initial)
         self.classification_picker.changed.connect(lambda: self.confirm.setChecked(True))
-        form.addRow("단일 유형\n대 → 중 → 소", self.classification_picker)
+        form.addRow(
+            "최종 분류 한 건\n설비 → 부품 → 현상 → 분야 확인\n각 항목 독립 선택",
+            self.classification_picker,
+        )
         form.addRow("", self.confirm)
-        self.multiple_confirm = QCheckBox("아래 복수 유형 조합을 사용자확정으로 저장")
-        self.multiple_confirm.setToolTip(
-            "서로 다른 유형 2개 이상을 목록에서 선택하고 직접 체크한 뒤 저장하세요. "
-            "시간만 고칠 때는 체크하지 않습니다."
-        )
-        self.component_picker = ComponentPicker(
-            self.categories, parse_components(self.initial.get(COMPONENT_FIELD))
-        )
-        self.component_help = QLabel(
-            "각 행에서 분야 → 부품 종류 → 증상을 차례로 선택하세요. "
-            "동시에 발생한 유형만 선택하며, 모호한 대안을 모두 확정하지 마세요. "
-            "복수 확정 체크 후 저장해야 분류에 반영됩니다. "
-            "저장된 조합의 행을 모두 삭제하고 저장하면 복수 유형 보정만 해제됩니다."
-        )
-        self.component_help.setWordWrap(True)
-        self.component_help.setObjectName("muted")
-        form.addRow("", self.multiple_confirm)
-        form.addRow("복수 유형 구성원\n대 → 중 → 소", self.component_picker)
-        form.addRow("", self.component_help)
+        self.actions_picker = RepairActionsPicker(self.initial.get("repair_actions", ""))
+        form.addRow("조치 내역 (복수 선택)", self.actions_picker)
         if not self.categories:
             warning = QLabel(
                 "활성 분류 규칙이 없습니다. 기존값은 유지되며, 새 유형을 선택하려면 분류 규칙을 확인하세요."
             )
             warning.setWordWrap(True)
             form.addRow("", warning)
-        self.confirm.toggled.connect(self.single_confirmation_changed)
-        self.multiple_confirm.toggled.connect(self.multiple_confirmation_changed)
         for key in ("target", "product"):
             edit = QLineEdit(self.initial[key])
             self.edits[key] = edit
@@ -708,29 +729,25 @@ class CorrectionDialog(QDialog):
         buttons.rejected.connect(self.reject)
         outer.addWidget(buttons)
 
-    def single_confirmation_changed(self, checked):
-        if checked:
-            self.multiple_confirm.setChecked(False)
-
-    def multiple_confirmation_changed(self, checked):
-        if checked:
+    def choose_candidate(self, candidate):
+        try:
+            self.classification_picker.select_candidate(candidate)
+            self.confirm.setChecked(True)
+            self.candidate_error.setText(
+                "실제 고장 현상을 선택한 뒤 저장하세요."
+                if not self.classification_picker.value()["minor"]
+                else "선택한 최종 분류를 확인한 뒤 저장하세요."
+            )
+        except UserError as exc:
+            self.classification_picker.set_value(dict.fromkeys(FIELDS, ""))
             self.confirm.setChecked(False)
-        self.classification_picker.setEnabled(not checked)
-
-    def component_values(self) -> str:
-        components = self.component_picker.values()
-        return json.dumps(components, ensure_ascii=False) if components else ""
+            self.candidate_error.setText(str(exc))
 
     def values(self):
         values = {key: edit.text().strip() for key, edit in self.edits.items()}
         values.update(self.classification_picker.value())
-        if self.multiple_confirm.isChecked():
-            values[COMPONENT_FIELD] = self.component_values()
-        elif not self.component_picker.pickers:
-            values[COMPONENT_FIELD] = ""
-        else:
-            # Unconfirmed edits must not alter saved classification while correcting time.
-            values[COMPONENT_FIELD] = self.initial.get(COMPONENT_FIELD, "")
+        values["repair_actions"] = self.actions_picker.value()
+        values[COMPONENT_FIELD] = self.initial.get(COMPONENT_FIELD, "")
         return values
 
     def clear_all(self):
@@ -746,10 +763,20 @@ class CorrectionDialog(QDialog):
     def validate_and_accept(self):
         try:
             values = self.values()
+            if self.confirm.isChecked():
+                self.classification_picker.validate_path()
         except UserError as exc:
             QMessageBox.warning(self, K["notice"], str(exc))
             return
-        error = validate(values, confirm_components=self.multiple_confirm.isChecked())
+        classification_changed = any(values.get(key) != self.initial.get(key) for key in FIELDS)
+        checked_values = (
+            dict(values)
+            if self.confirm.isChecked() or classification_changed
+            else {key: value for key, value in values.items() if key not in FIELDS}
+        )
+        if checked_values.get("repair_actions", "") == self.initial.get("repair_actions", ""):
+            checked_values.pop("repair_actions", None)
+        error = validate(checked_values)
         if error:
             QMessageBox.warning(self, K["notice"], error)
             return
@@ -758,7 +785,6 @@ class CorrectionDialog(QDialog):
             values,
             self.existing,
             self.confirm.isChecked(),
-            confirm_components=self.multiple_confirm.isChecked(),
         )
         if not self.patch:
             QMessageBox.information(self, K["notice"], "변경된 내용이 없습니다.")

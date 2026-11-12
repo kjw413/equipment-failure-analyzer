@@ -33,7 +33,10 @@ def test_manual_confirmation_keeps_precedence_and_time_edit_does_not_confirm(sto
     timed = analyze_file(store, input_file).selected.iloc[0]
     assert timed.status == original.status
     assert timed.candidate_evidence == original.candidate_evidence
-    store.update_override(original.event_id, {"major": "A", "middle": "B", "minor": "C"})
+    store.update_override(
+        original.event_id,
+        {"major": "A", "detail_equipment": "상세설비 미상", "middle": "B", "minor": "C"},
+    )
     confirmed = analyze_file(ConfigStore(store.root), input_file).selected.iloc[0]
     assert confirmed.status == K["manual"] and confirmed.candidate_evidence == ""
     assert "사용자확정" in confirmed.classification_reason

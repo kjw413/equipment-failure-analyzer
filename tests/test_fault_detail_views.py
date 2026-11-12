@@ -7,7 +7,7 @@ import pytest
 from conftest import analyze_file
 from openpyxl import load_workbook
 
-from core.i18n import DISPLAY
+from core.i18n import DISPLAY, K
 from report.excel_report import SHEETS, export_report
 from report.pdf_report import export_pdf
 
@@ -23,12 +23,16 @@ def split_result(store, input_file):
     return analyze_file(store, input_file)
 
 
-def test_excel_has_one_detail_row_per_component_and_no_repeated_time(split_result, tmp_path):
+def test_excel_has_one_detail_row_per_fault_including_pending_classifications(
+    split_result, tmp_path
+):
     source = split_result.selected.loc[split_result.selected.source_row.eq(4)].iloc[0]
     rows = split_result.tables["fault_detail"]
     members = rows.loc[rows.record_id.eq(source.record_id)]
-    assert set(zip(members.middle, members.minor)) == {("실린더", "손상"), ("베어링", "손상")}
-    assert len(members) == 2 and members.event_id.nunique() == 1
+    assert len(members) == 1 and members.event_id.nunique() == 1
+    assert members.iloc[0].status == K["review"]
+    assert not any(members.iloc[0][key] for key in ("major", "middle", "minor"))
+    assert len(rows) == len(split_result.selected) and rows.record_id.is_unique
     assert not any("minutes" in key for key in rows)
     assert split_result.metrics["selected_rows"] == 4
     assert split_result.metrics["total_minutes"] == 95
@@ -47,19 +51,19 @@ def test_excel_has_one_detail_row_per_component_and_no_repeated_time(split_resul
             for row in range(7, sheet.max_row + 1)
             if sheet.cell(row, record_column).value == source.record_id
         }
-        assert observed == {("실린더", "손상"), ("베어링", "손상")}
+        assert observed == {(None, None)}
     finally:
         workbook.close()
 
 
-def test_pdf_explains_axes_and_shows_both_classification_rows(split_result, tmp_path):
+def test_pdf_explains_single_classification_and_preserves_pending_evidence(split_result, tmp_path):
     pypdf = pytest.importorskip("pypdf")
     reader = pypdf.PdfReader(export_pdf(split_result, tmp_path / "split.pdf"))
     compact = "".join("".join(page.extract_text() or "" for page in reader.pages).split())
     for expected in (
-        "부품·증상별분류",
-        "중분류는부품종류",
-        "소분류는증상",
+        "상세설비·세부부품분류",
+        "한고장이력은한행",
+        "고장분야/상세설비·모듈/세부부품/고장현상",
         "실린더",
         "베어링",
         "손상",

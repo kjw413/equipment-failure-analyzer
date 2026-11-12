@@ -56,9 +56,19 @@ def expand_endings(value: str, endings: dict[str, str] | None) -> str:
     if not value or not endings:
         return value
     keys = "|".join(map(re.escape, sorted(endings, key=len, reverse=True)))
+
+    def expand(match):
+        ending = match.group(1)
+        # A truncated operating statement can mean 정지, not 정비. Preserve
+        # the original syllable instead of creating evidence of a repair.
+        prefix = value[: match.start()].rstrip()
+        if ending == "정" and re.search(r"(?:설비|가동|운전|라인|생산|기계)$", prefix):
+            return match.group(0)
+        return endings[ending]
+
     result = re.sub(
         rf"(?:^|(?<=[\s/;|*(\[]))({keys}){CLAUSE_END}",
-        lambda m: endings[m.group(1)],
+        expand,
         value,
         flags=re.M,
     )

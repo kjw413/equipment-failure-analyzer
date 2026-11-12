@@ -24,16 +24,18 @@ NORMALIZATION_PATH = ROOT / "config" / "normalization.json"
 
 FAIL = (
     "고장|이상|불량|오류|에러|error|트러블|오작동|작동불|작동안|미작동|미가동|미구동|구동불|멈춤|멈춰|"
-    "정지|(?<![업셧])다운|불능|안됨|안되|비정상|알람|alarm|fault|trip|트립|문제"
+    "정지|(?<![업셧])다운|불능|안됨|안되|비정상|알람|alarm|fault|trip|트립|문제|나감|망가|소손"
 )
 BREAK = "파손|부러|깨짐|깨져|절단|끊어|끊김|찢어|터짐|터져|크랙|crack|금감|휨|휘어|변형|뒤틀|찌그러"
 WEAR = "마모|닳|녹|부식|손상|스크레치|스크래치|헐거|유격"
 LOOSE = "풀림|풀려|풀어|풀리면|풀리며|풀리고|이탈|빠짐|빠져|탈락|떨어|분리|흔들|뒤집"
-ELEC = "단선|소손|쇼트|short|합선|누전|과부하|과전류|접촉불량|접촉|타버|나감|발열"
+ELEC = "단선|소손|단락|쇼트|short|합선|누전|과부하|과전류|접촉불량|접촉|타버|나감|발열"
 LEAK = "누설|누수|누출|리크|leak|누유"
-JAM = "걸림|걸리|끼임|끼어|끼여|막힘|막혀|적체|정체|충돌|간섭"
+JAM = "걸림|걸리|끼임|끼어|끼여|막힘|막혀|고착|적체|정체|충돌|간섭"
+POSITION_FAILURE = "(?:원점|타이밍|위치|정렬|텐션)(?:이|가)?(?:틀어짐|틀어|틀려|이상|불량)"
+TEMPERATURE_FAILURE = "온도(?:저하|상승|이상|불량|불안정|안올|안내)|과열"
 ACT = (
-    "교체|교환|수리|정비|조정|재조정|조절|점검|청소|보수|가공|용접|체결|고정|재조임|세팅|리셋|reset|재부팅|"
+    "교체|교환|수리(?!크)|정비|조정|재조정|조절|점검|청소|보수|가공|용접|체결|고정|재조임|세팅|리셋|reset|재부팅|"
     "보강|수정|교정|calibration|영점|분해|조립|급유|도포|a급|신규|온오프|전원종료|전원차단"
 )
 
@@ -46,7 +48,7 @@ def symptom_pattern(major: str, middle: str) -> str:
     if major == "전기·제어":
         groups += [ELEC, LOOSE]
         if middle == "센서·검출":
-            groups += ["미감지|오감지|이중감지|감지불|감도|오염|반응없"]
+            groups += ["미감지|오감지|이중감지|감지불|감도|오염|반응없|헌팅|hunting"]
         elif middle in {"계측·계량기", "검사·계수장치"}:
             groups += ["검출불|계수불|계량불|무게편차|측정불|통신불|통신오류"]
         elif middle == "모터":
@@ -54,11 +56,11 @@ def symptom_pattern(major: str, middle: str) -> str:
         elif middle in {"제어기·I/O·통신", "구동제어기", "조작·표시장치"}:
             groups += ["통신오류|통신불|접속불|반응없|먹통"]
         elif middle == "히터·온도제어":
-            groups += [WEAR, "온도저하|온도이상|온도불안정|과열"]
+            groups += [WEAR, TEMPERATURE_FAILURE]
         elif middle == "날인·인쇄장치":
-            groups += ["번짐|인쇄불|날인불|과다|부족|막힘"]
+            groups += ["번짐|인쇄불|날인불|과다|부족|막힘", TEMPERATURE_FAILURE]
         elif middle == "로봇":
-            groups += [JAM, "원점|정렬|티칭"]
+            groups += [JAM, POSITION_FAILURE, "원점|정렬|티칭"]
     elif major == "기계":
         groups += [WEAR, LOOSE, JAM]
         if middle in {"베어링·부싱", "감속기", "축·커플링·키", "기어·스프라켓"}:
@@ -66,9 +68,17 @@ def symptom_pattern(major: str, middle: str) -> str:
         if middle in {"벨트·풀리", "체인·링크"}:
             groups += ["늘어|미끄|텐션"]
         if middle in {"씰링기구", "커팅기구", "성형기구"}:
-            groups += ["온도저하|실링불|씰링불|성형불|컷팅불|커팅불|틀어|틀려"]
+            groups += [
+                "단선|실링불|씰링불|성형불|컷팅불|커팅불|틀어|틀려",
+                TEMPERATURE_FAILURE,
+                POSITION_FAILURE,
+            ]
+        if middle == "성형기구":
+            groups += [LEAK]
         if middle in {"가이드·레일", "스틱공급기구", "인계·정렬기구"}:
-            groups += ["틀어|틀려|원점|타이밍"]
+            groups += [POSITION_FAILURE, "틀어|틀려|원점|타이밍"]
+        if middle == "컨베어":
+            groups += [POSITION_FAILURE]
         if middle == "충진·분사기구":
             groups += [LEAK, "분사불|충진불|과투입|미투입"]
     elif major == "공압·진공":
@@ -98,8 +108,32 @@ def symptom_pattern(major: str, middle: str) -> str:
 
 
 def alternation(*groups: str) -> str:
-    """Longest alternatives first so a regex prefers the complete symptom word."""
-    tokens = {token for group in groups for token in group.split("|") if token}
+    """Prefer full expressions without splitting alternatives inside regex groups."""
+    tokens = set()
+    for group in groups:
+        depth = brackets = start = 0
+        escaped = False
+        for index, char in enumerate(group):
+            if escaped:
+                escaped = False
+                continue
+            if char == "\\":
+                escaped = True
+                continue
+            if char == "[":
+                brackets += 1
+            elif char == "]":
+                brackets = max(0, brackets - 1)
+            elif not brackets:
+                if char == "(":
+                    depth += 1
+                elif char == ")":
+                    depth -= 1
+                elif char == "|" and depth == 0:
+                    tokens.add(group[start:index])
+                    start = index + 1
+        tokens.add(group[start:])
+    tokens.discard("")
     return "|".join(sorted(tokens, key=lambda token: (-len(token), token)))
 
 
@@ -163,6 +197,10 @@ def _alias_pattern(alias: str, category: dict) -> str:
         pattern += r"(?!커넥터|커넥트|컨넥터|connector)"
     if alias == "씰":
         pattern += r"(?!러|링|워터)"
+    if alias in {"seal", "packing"}:
+        # The gasket/packing part is distinct from a sealer or packing machine.
+        pattern = r"(?<![a-z])" + pattern
+        pattern += r"(?:(?![a-z])|(?=error|fault|trip|alarm|leak|wear|broken))"
     if minor == "V벨트":
         pattern = r"(?<![a-z])" + pattern
     if alias in {"pc", "key", "plc", "ssr", "tpr"}:
@@ -170,6 +208,8 @@ def _alias_pattern(alias: str, category: dict) -> str:
         # 'plcerror'. Permit a recognized English symptom while excluding APC/PCB.
         pattern = r"(?<![a-z])" + pattern
         pattern += r"(?:(?![a-z])|(?=error|fault|trip|alarm|reset|calibration))"
+    if alias == "tc":
+        pattern = r"(?<![a-z])tc(?![a-z]|선|센서)"
     return pattern
 
 
@@ -216,6 +256,8 @@ def build_rules(catalog: dict | None = None, normalization: dict | None = None) 
             "context": context_pattern(category, normalization),
             "symptom": alternation(PROCESS_SYMPTOMS[category["minor"]])
             if process
+            else alternation(FAIL, ACT)
+            if category.get("match_policy") == "wholebody"
             else symptom_pattern(category["major"], category["middle"]),
             "exclude": "",
             "role": "nopart" if process else "component",

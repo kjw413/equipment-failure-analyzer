@@ -181,6 +181,14 @@ class FinalReport:
         )
         self.story.append(self.p("02  분석 범위 및 자료", "h2"))
         rows = [
+            [
+                "자동분류 범위",
+                f"완전 자동분류 {m.get('auto_rows', 0):,}건 / 부분 자동분류 {m.get('partial_rows', 0):,}건 / 자동처리 합계 {m.get('auto_processed_rows', m.get('auto_rows', 0)):,}건. 부분분류는 확인된 항목을 보존하고 원문 미기재 항목을 표시합니다.",
+            ],
+            [
+                "미확정 분류",
+                f"{m.get('unresolved_classification_rows', 0):,}건 / 검토 중에도 출력 가능. Excel 09_검토품질에 정답을 기록할 수 있습니다.",
+            ],
             ["원천 파일", self.names.text(r.loaded.path.name)],
             ["원천 시트", self.names.text(r.loaded.sheet)],
             ["설비 집계 기준", K[r.options.equipment_basis]],
@@ -221,7 +229,7 @@ class FinalReport:
         self.page("03-1  부품별 발생 참고")
         for principle in component_principles():
             self.story.append(self.p(principle, "muted"))
-        self.story.append(self.p(f"유형 포함 고장기록 TOP {self.top_n}", "h2"))
+        self.story.append(self.p(f"최종 단일 부품 고장기록 TOP {self.top_n}", "h2"))
         rows = []
         for row in table.head(self.top_n).to_dict("records"):
             rows.append(
@@ -235,7 +243,7 @@ class FinalReport:
             )
         self.story.append(
             self.layout.table(
-                ["부품·고장유형", "포함 기록", "사용자확정", "잠정 검토", "전체 고장 대비"],
+                ["최종 부품", "기록 수", "사용자확정", "검토 후보 제외", "전체 고장 대비"],
                 rows,
                 [243, 58, 67, 65, self.width - 433],
                 (1, 2, 3, 4),
@@ -243,7 +251,7 @@ class FinalReport:
         )
         self.story.append(
             self.p(
-                "부품별 정지시간은 배분하지 않습니다. 부품 건수·월별 발생은 Excel 16·17 시트, 부품·증상별 전체 분류는 18 시트에서 확인합니다.",
+                "미확정 후보·부품 미기재·제품·자재 대상은 실제 부품 건수에 포함하지 않습니다. 부품 건수·월별 추이는 Excel 06_부품별분석, 한 이력당 하나의 분류와 별도 조치는 08_부품증상상세에서 확인합니다.",
                 "small",
             )
         )
@@ -252,36 +260,49 @@ class FinalReport:
         table = self.result.tables.get("fault_detail")
         if table is None or table.empty:
             return
-        self.page("03-2  부품·증상별 분류")
+        self.page("03-2  상세설비·세부 부품 분류")
         self.story.append(
             self.p(
-                "한 고장이력을 분야 / 부품 종류 / 증상으로 나눈 분류입니다. "
-                "같은 기록 ID의 행들은 하나의 사건이며 정지시간을 중복 배분하지 않습니다.",
+                "한 고장이력은 한 행과 최종 분류 하나를 갖습니다. 고장 분야 / 상세설비·모듈 / 부품군·세부 부품 / 고장 현상을 표시하며 조치는 별도 열에 보존합니다. "
+                "검토필요·미일치·분류 없는 기록도 한 행으로 보존하며, 미확정 후보는 최종 분류에 넣지 않습니다.",
                 "muted",
             )
         )
         self.story.append(
             self.p(
-                "교체·점검·조정은 증상과 별도로 기록합니다. 조치만 있는 기록은 '증상 미기재'로 표시합니다.",
+                "고장 분야·설비·부품·현상은 독립 축입니다. 부품군은 종류 탐색용입니다. 교체·수리·조정 등 조치만으로 고장 현상이나 원인을 추정하지 않습니다.",
                 "muted",
             )
         )
         rows = [
             [
-                row.get("record_id", ""),
-                row.get("equipment", ""),
+                "\n".join(
+                    value for value in (row.get("equipment", ""), row.get("record_id", "")) if value
+                ),
                 row.get("major", ""),
-                row.get("middle", ""),
+                row.get("detail_equipment", ""),
+                "\n".join(
+                    value for value in (row.get("part_group", ""), row.get("middle", "")) if value
+                ),
                 row.get("minor", ""),
-                row.get("actions", ""),
+                row.get("repair_actions", ""),
+                row.get("status", ""),
             ]
             for row in table.to_dict("records")
         ]
         self.story.append(
             self.layout.table(
-                ["기록 ID", "설비", "분야", "부품 종류", "증상", "조치"],
+                [
+                    "라인·설비 / 기록 ID",
+                    "고장 분야",
+                    "상세설비·모듈",
+                    "부품군 / 세부 부품",
+                    "고장 현상",
+                    "조치",
+                    "상태",
+                ],
                 rows,
-                [55, 97, 67, 110, 85, self.width - 414],
+                [94, 54, 75, 106, 65, 61, self.width - 455],
             )
         )
 
@@ -578,6 +599,17 @@ class FinalReport:
                 else "참고 정보. 현재 설비 집계 기준에는 영향 없음"
             )
             rows = [
+                ["완전 자동분류", m.get("auto_rows", 0), "네 분류축 모두 확인"],
+                [
+                    "부분 자동분류",
+                    m.get("partial_rows", 0),
+                    "단일 대상의 확인된 항목 보존, 원문 미기재 항목은 추정하지 않음",
+                ],
+                [
+                    "자동처리 합계",
+                    m.get("auto_processed_rows", m.get("auto_rows", 0)),
+                    "완전 자동분류 + 부분 자동분류",
+                ],
                 [
                     "검토 대상(중복 제외)",
                     m["review_rows"],
@@ -592,7 +624,7 @@ class FinalReport:
                 [
                     "분류 검토필요",
                     classification_review_count(r),
-                    "복수 후보·복수고장 등 규칙 판정 사유와 원기록 확인",
+                    "순위 후보·판정 사유와 원기록을 확인하여 최종 분류 하나 선택",
                 ],
                 [
                     K["multiple_fault_rows"],
@@ -695,7 +727,7 @@ class FinalReport:
         )
         self.story.append(
             self.p(
-                "전체 검토 기록과 생략 없는 규칙 근거는 Excel의 검토필요·고장상세 시트에서 확인합니다.",
+                "전체 검토 기록과 생략 없는 후보·규칙 근거는 Excel 09_검토품질·07_고장이력에서 확인합니다.",
                 "small",
             )
         )

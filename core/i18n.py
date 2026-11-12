@@ -297,10 +297,23 @@ K.update(COMPONENT_LABELS)
 DISPLAY.update(COMPONENT_LABELS)
 
 FAULT_AXIS_LABELS = {
-    "major": "대분류(분야)",
-    "middle": "중분류(부품 종류)",
-    "minor": "소분류(증상)",
+    "detail_equipment": "상세설비·모듈",
+    "detail_equipment_source": "상세설비 판정 근거",
+    "detail_equipment_evidence": "상세설비 원문 근거",
+    "middle": "세부 부품",
+    "minor": "고장 현상",
+    "major": "고장 분야",
+    "part_group": "부품군",
+    "repair_actions": "조치 내역",
+    "classification_missing_fields": "미기재 분류 항목",
+    "partial": "부분분류",
+    "partial_rows": "부분분류",
+    "auto_processed_rows": "자동 처리 합계",
     "uncertain_fault": "고장 추정",
+    "multiple_symptoms": "동일 부품의 복수 증상 후보",
+    "symptom_missing": "고장 증상 확인 필요",
+    "domain_missing": "고장 분야 확인 필요",
+    "classification_candidates": "추천순 분류 후보(JSON)",
 }
 K.update(FAULT_AXIS_LABELS)
 DISPLAY.update(FAULT_AXIS_LABELS)
