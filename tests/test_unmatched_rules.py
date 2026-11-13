@@ -124,7 +124,6 @@ def test_a_named_part_keeps_precedence_over_part_less_rules(classify, text, mino
     "text",
     [
         # Site terms held until production-team criteria exist.
-        "엑스트로바 걸리며 센타 틀어짐",
         "스틱 원점타 이밍트러짐",
         "스틱 트러블 발생 타이밍 조정",
         "주입구압력낮음 오류 / 재가동 후 오류 재발생 / 제상 후 생산 시작",

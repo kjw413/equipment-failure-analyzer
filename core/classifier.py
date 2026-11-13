@@ -64,7 +64,7 @@ DEFAULT_ENGINE = {
     # A part that was only adjusted is weaker evidence than a stated failure.
     "action_pattern": "조정|재조정|조절|점검|청소|보수|용접|체결|고정|재조임|세팅|리셋|reset|재부팅|셧다운|온오프|재투입|"
     "보강|수정|교정|calibration|영점|분해|조립|급유|도포|확인|제거|재가동|가동|조치|작업|"
-    "위치|각도|타이밍|원점|센터|높이|간격|텐션|감도|길이|전원종료|전원차단",
+    "위치|각도|타이밍|원점|센터|높이|간격|텐션|감도|길이|전원종료|전원차단|윤활(?!유)",
     # Worker-selected MES part code (비가동 코드(소)) -> compatible standard majors.
     "part_code_majors": {},
     # Optional legacy first-stated-failure preference; off by default.
@@ -135,6 +135,14 @@ def clauses(text: str) -> list[str]:
     """Split a record into clauses and drop spaces, so '센서 교체' == '센서교체'."""
     # Preserve the standalone English connector before whitespace is removed.
     source = re.sub(r"\bor\b", "또는", text or "", flags=re.I)
+    # A compact parenthesized model qualifies its preceding noun. It is not
+    # a new subject: '씽크탑(V50) 고장' must retain the control head's fault.
+    # Dimensions, descriptions and part lists keep their clause boundaries.
+    source = re.sub(
+        r"(?<=[가-힣A-Za-z0-9])\(((?=[A-Za-z0-9-]*\d)[A-Za-z][A-Za-z0-9-]{0,15})\)",
+        r"\1",
+        source,
+    )
     return [
         part
         for clause in CLAUSE_SPLIT.split(source)
@@ -238,6 +246,8 @@ class RuleClassifier:
             if any(a <= s.start() and s.end() <= b for a, b in nouns):
                 continue
             kind = self.kind(s.group())
+            if kind == "F" and s.group() == "이상" and re.match(r"유무|여부", text[s.end() :]):
+                continue
             if kind in {"R", "A"}:
                 from core.failure_modes import incomplete_action_context
 

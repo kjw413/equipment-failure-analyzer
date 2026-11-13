@@ -42,8 +42,13 @@ def test_approved_paths_and_source_rows_are_complete(catalog):
     ]
     decided = [item for item in categories if item["source"].get("type") == "user_decision"]
     observed = [item for item in categories if item["source"].get("type") == "three_year_observed"]
+    feedback = [item for item in categories if item["source"].get("type") == "user_feedback"]
     assert (
-        len(sourced) == 237 and len(decided) == 3 and len(observed) == 4 and len(categories) == 244
+        len(sourced) == 237
+        and len(decided) == 3
+        and len(observed) == 4
+        and len(feedback) == 2
+        and len(categories) == 246
     )
     assert {row["minor"] for row in observed} == {
         "PLC 카드",
@@ -58,7 +63,7 @@ def test_approved_paths_and_source_rows_are_complete(catalog):
     assert all(item["kind"] == "process" for item in decided)
     assert len({item["major"] for item in categories}) == 6
     paths = {(item["major"], item["middle"], item["minor"]) for item in categories}
-    assert len(paths) == 244
+    assert len(paths) == 246
     assert {item["source_row"] for item in sourced} == set(range(6, 243))
     assert re.fullmatch("[a-f0-9]{64}", catalog["source"]["sha256"])
     assert (
@@ -74,9 +79,9 @@ def test_every_selection_has_one_enabled_rule_and_part_less_rules_are_nopart(
     catalog, normalization
 ):
     rules = build_rules(catalog, normalization)
-    assert len(rules) == 245
+    assert len(rules) == 247
     assert all(rule["enabled"] for rule in rules)
-    assert sum(rule["role"] == "component" for rule in rules) == 241
+    assert sum(rule["role"] == "component" for rule in rules) == 243
     process = {
         (item["major"], item["middle"], item["minor"])
         for item in catalog["categories"]
@@ -86,7 +91,7 @@ def test_every_selection_has_one_enabled_rule_and_part_less_rules_are_nopart(
         (rule["major"], rule["middle"], rule["minor"]) for rule in rules if rule["role"] == "nopart"
     }
     assert nopart == process | {("전기·제어", "제어기·I/O·통신", "제어기(종류 미상)")}
-    assert len({rule["id"] for rule in rules}) == 245
+    assert len({rule["id"] for rule in rules}) == 247
     assert all(rule["id"].startswith("CAT_") for rule in rules)
     expected = {(item["major"], item["middle"], item["minor"]) for item in catalog["categories"]}
     assert set(catalog_categories(rules)) == expected

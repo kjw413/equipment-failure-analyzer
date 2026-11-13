@@ -38,7 +38,7 @@ ROLES = ("component", "fallback", "override", "nopart")
 # Schema 4 adds the nopart role, which earlier programs would reject as an unknown role.
 # Schema 5 prevents earlier programs from exposing part IDs as output symptoms.
 RULES_SCHEMA = 7
-MIN_APP_VERSION = "1.15.0"
+MIN_APP_VERSION = "1.16.0"
 RULES_SHEET, LEGACY_SHEET, META_SHEET = "rules_v2", "rules", "meta"
 LEGACY_GUARD = (
     f"이 분류 규칙은 v{MIN_APP_VERSION} 이상 전용입니다. "

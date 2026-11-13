@@ -29,6 +29,7 @@ from gui.classification_picker import (
     RepairActionsPicker,
     record_candidates,
 )
+from gui.source_text_review import ClassificationTextComparison
 
 EDITABLE_COLUMNS = {
     "date": "work_date",
@@ -140,12 +141,8 @@ class ClassificationCellEditor(QDialog):
         heading = QLabel("최종 분류 한 건 선택")
         heading.setStyleSheet("font-weight: 700; font-size: 15px;")
         outer.addWidget(heading)
-        source = QLabel(shown(record.get("raw_description")) or "고장 내용 없음")
-        source.setWordWrap(True)
-        source.setMaximumHeight(80)
-        source.setToolTip(shown(record.get("raw_description")))
-        source.setObjectName("muted")
-        outer.addWidget(source)
+        self.text_comparison = ClassificationTextComparison(record)
+        outer.addWidget(self.text_comparison)
         initial = initial_values(record, self.existing)
         self.initial_classification = {key: initial.get(key, "") for key in FIELDS}
         if record.get("classification_mode") in (
@@ -213,7 +210,7 @@ class ClassificationCellEditor(QDialog):
         buttons.addWidget(self.cancel_button)
         buttons.addWidget(self.apply_button)
         outer.addLayout(buttons)
-        self.resize(1000, 590)
+        self.resize(1000, 670)
 
     def choose_candidate(self, candidate):
         try:

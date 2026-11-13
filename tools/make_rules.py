@@ -16,6 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from core.equipment_taxonomy import SUCTION_COMPONENT_SUFFIX
 from core.parsing import prepare_text
 from core.rules import validate_rules, write_rules
 
@@ -36,7 +37,7 @@ POSITION_FAILURE = "(?:원점|타이밍|위치|정렬|텐션)(?:이|가)?(?:틀�
 TEMPERATURE_FAILURE = "온도(?:저하|상승|이상|불량|불안정|안올|안내)|과열"
 ACT = (
     "교체|교환|수리(?!크)|정비|조정|재조정|조절|점검|청소|보수|가공|용접|체결|고정|재조임|세팅|리셋|reset|재부팅|"
-    "보강|수정|교정|calibration|영점|분해|조립|급유|도포|a급|신규|온오프|전원종료|전원차단"
+    "보강|수정|교정|calibration|영점|분해|조립|급유|도포|윤활(?!유)|a급|신규|온오프|전원종료|전원차단"
 )
 
 
@@ -181,6 +182,17 @@ def _recent_word_guards(words: tuple[str, ...], window: int = 7) -> str:
 def _alias_pattern(alias: str, category: dict) -> str:
     minor = category["minor"]
     pattern = re.escape(alias)
+    if alias == "보드":
+        # A bare board is unspecified; PLC/PCI and named boards own their
+        # qualifiers and must not become a packaging-machine mainboard alias.
+        pattern = (
+            r"(?<![a-z])(?<!메인)(?<!입출력)(?<!통신)(?<!서보)(?<!인버터)(?<!메모리)"
+            r"(?<!유)(?<!서)보드(?!라이버|게임|마커|마카)"
+        )
+    if alias == "석션" and category.get("match_policy") == "wholebody":
+        pattern = r"석션(?!" + SUCTION_COMPONENT_SUFFIX + ")"
+    if alias == "병":
+        pattern = r"병(?=(?:이|가)?(?:걸림|걸리|끼임|끼어|끼여|막힘|막혀|고착|적체|정체|충돌|간섭))"
     if alias == "축":
         return r"(?<!압)축(?!소|적)"
     if alias == "키":
@@ -256,9 +268,12 @@ def build_rules(catalog: dict | None = None, normalization: dict | None = None) 
             "context": context_pattern(category, normalization),
             "symptom": alternation(PROCESS_SYMPTOMS[category["minor"]])
             if process
-            else alternation(FAIL, ACT)
+            else alternation(FAIL, ACT, category.get("extra_symptoms", ""))
             if category.get("match_policy") == "wholebody"
-            else symptom_pattern(category["major"], category["middle"]),
+            else alternation(
+                symptom_pattern(category["major"], category["middle"]),
+                category.get("extra_symptoms", ""),
+            ),
             "exclude": "",
             "role": "nopart" if process else "component",
         }

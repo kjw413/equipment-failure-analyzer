@@ -12,6 +12,11 @@ from collections.abc import Mapping
 from core.failure_modes import UNKNOWN_EQUIPMENT, UNKNOWN_PART, part_name
 from core.models import UserError
 
+SUCTION_COMPONENT_SUFFIX = (
+    r"진공|패드|컵|밸브|솔밸브|제어밸브|자동컨트롤밸브|라인|배관|호스|게이지|블럭|블록"
+    r"|실린더|에어커넥터|연결부|센서"
+)
+
 DEFAULT_EQUIPMENT_TYPES = (
     ("카토닝머신", ("카토닝머신", "카톤머신", "멀티카톤머신", "멀티카톤", "cartoner")),
     ("제대기", ("제대기",)),
@@ -114,6 +119,8 @@ class EquipmentResolver:
         for alias, name in self.aliases:
             for match in re.finditer(re.escape(alias), text):
                 start, end = match.span()
+                if alias == "석션" and re.match(SUCTION_COMPONENT_SUFFIX, text[end:]):
+                    continue
                 # A specific name such as 로봇파렛타이져 owns the embedded 로봇.
                 if any(
                     start < other_end and end > other_start for other_start, other_end, _ in matches

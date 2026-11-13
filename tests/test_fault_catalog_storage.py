@@ -29,7 +29,7 @@ def test_catalogue_documents_internal_parts_and_output_axes():
         "actions": "조치 내역",
     }
     assert catalogue["part_axes"]["minor"] == "세부 부품 종류"
-    assert len(catalogue["categories"]) == 244
+    assert len(catalogue["categories"]) == 246
     original = catalog_signature(catalogue)
     changed = {**catalogue, "output_axes": {**catalogue["output_axes"], "minor": "증상"}}
     assert catalog_signature(changed) != original
@@ -46,14 +46,14 @@ def test_schema_seven_blocks_a_pre_113_reader(monkeypatch):
     path = resource_root() / "config/classification_config.xlsx"
     workbook = openpyxl.load_workbook(path, read_only=True)
     try:
-        assert file_schema(workbook) == (7, "1.15.0")
+        assert file_schema(workbook) == (7, "1.16.0")
     finally:
         workbook.close()
-    assert RULES_SCHEMA == 7 and MIN_APP_VERSION == "1.15.0"
+    assert RULES_SCHEMA == 7 and MIN_APP_VERSION == "1.16.0"
     with monkeypatch.context() as patch:
         patch.setattr(core.rules, "RULES_SCHEMA", 6)
         patch.setattr(core.rules, "VERSION", "1.12.2")
-        with pytest.raises(UserError, match="v1.15.0"):
+        with pytest.raises(UserError, match="v1.16.0"):
             read_rules(path)
 
 
@@ -205,7 +205,7 @@ def test_v110_profile_upgrade_preserves_rule_choices_and_legacy_manual_bytes(sto
     assert upgraded.read("classification_catalog.json")["output_schema"] == CLASSIFICATION_SCHEMA
     workbook = openpyxl.load_workbook(rules_path, read_only=True)
     try:
-        assert file_schema(workbook) == (7, "1.15.0")
+        assert file_schema(workbook) == (7, "1.16.0")
     finally:
         workbook.close()
     assert ConfigStore(store.root).merge_summary == {}

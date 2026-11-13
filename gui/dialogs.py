@@ -53,6 +53,7 @@ from gui.classification_picker import (
     RepairActionsPicker,
     record_candidates,
 )
+from gui.source_text_review import ClassificationTextComparison
 
 
 class EquipmentNamesDialog(QDialog):
@@ -666,11 +667,8 @@ class CorrectionDialog(QDialog):
         )
         self.diagnostic.setMinimumHeight(165)
         layout.addWidget(self.diagnostic)
-        source = QTextEdit()
-        source.setReadOnly(True)
-        source.setPlainText(str(record.get("raw_description", "")))
-        source.setMaximumHeight(120)
-        layout.addWidget(source)
+        self.text_comparison = ClassificationTextComparison(record)
+        layout.addWidget(self.text_comparison)
         self.candidate_picker = CandidateListPicker(record_candidates(record, self.existing))
         self.candidate_list = self.candidate_picker.table
         self.candidate_picker.selected.connect(self.choose_candidate)

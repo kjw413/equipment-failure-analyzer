@@ -173,6 +173,34 @@ def test_classification_dialog_centers_on_owner_and_is_movable(app, pane):
     pane.cancel_editing()
 
 
+def test_classification_dialog_compares_exact_raw_and_analyzed_text(app, record):
+    raw = "보드에러 <비고>\n스패어 없음"
+    normalized = "보드 에러 <비고> 스패어 없음"
+    values = {**record, "raw_description": raw, "normalized": normalized}
+    submitted = []
+    dialog = ClassificationCellEditor(values, {}, PATHS, submitted.append)
+    dialog.show()
+    app.processEvents()
+    comparison = dialog.text_comparison
+    assert comparison.raw.toPlainText() == raw
+    assert comparison.normalized.toPlainText() == normalized
+    assert comparison.raw.isReadOnly() and comparison.normalized.isReadOnly()
+    assert (
+        comparison.raw.mapToGlobal(QPoint()).x() < comparison.normalized.mapToGlobal(QPoint()).x()
+    )
+    assert not submitted
+    dialog.close()
+    app.processEvents()
+    assert values["raw_description"] == raw and values["normalized"] == normalized
+
+
+def test_classification_dialog_does_not_fabricate_missing_normalization(app, record):
+    dialog = ClassificationCellEditor(record, {}, PATHS, lambda patch: None)
+    assert dialog.text_comparison.normalized.toPlainText() == ""
+    assert dialog.text_comparison.normalized.placeholderText() == "표준화 후 내용 없음"
+    dialog.close()
+
+
 def test_configured_fields_visible_as_editable_and_calculations_read_only(pane):
     configure(pane, [])
     for column in ("date", "minutes", "target", "product", *FIELDS, "type", "component_types"):

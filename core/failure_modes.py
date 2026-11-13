@@ -50,6 +50,7 @@ SYMPTOM_PATTERNS = (
         r"과열|과냉|발열|동결|결빙|냉동불|냉각불|냉기부족|냉매부족|온도(?:저하|상승|이상|불량|불안정|안올|안내)",
     ),
     ("압력이상", r"압력(?:저하|상승|이상|불량|과다|부족)|공급불|토출불|안걸|약함|약해"),
+    ("점도이상", r"점도(?:가|이|는)?(?:헌팅|hunting|불량|이상|불안정|저하|상승|변동|편차)"),
     ("오염", r"오염|이물|혼입"),
     ("위치·설정이상", r"틀어|틀려|원점|타이밍|늘어|미끄|텐션|정렬|티칭"),
     ("낙하", r"떨어|낙하|넘어|쓰러"),
@@ -69,7 +70,7 @@ ACTION_PATTERNS = (
         r"조정|조절|세팅|셋팅|수정|교정|adjusted",
     ),
     ("점검", r"점검|확인|inspected"),
-    ("청소·급유", r"청소|세척(?!장|기|설비|라인|부)|급유|도포"),
+    ("청소·급유", r"청소|세척(?!장|기|설비|라인|부)|급유|도포|윤활(?!유)"),
     (
         "체결·조립",
         r"체결|고정(?!셋트|세트|볼트|너트|핀|브라켓|브래킷|장치|부|축|판)|재조임|분해|조립",
@@ -109,6 +110,8 @@ def canonical_symptom(value: str) -> str:
 
 def symptom_names(words: list[str], context: str = "") -> list[str]:
     names = {name for word in words for name, pattern in COMPILED_SYMPTOMS if pattern.search(word)}
+    if "점도이상" in names:
+        names.discard("감지불량")
     if "낙하" in names and re.search(r"차단기.{0,12}떨어", context):
         names.discard("낙하")
         names.add("보호장치 동작")

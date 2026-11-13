@@ -22,11 +22,11 @@ def test_public_master_covers_approved_axes_without_repeating_machine_bodies_as_
     parts = {row["name"]: row for row in public["parts"]}
     equipment = {row["name"] for row in catalog["equipment_types"]}
     assert catalog["output_schema"] == "equipment_part_failure_v3"
-    assert catalog["catalog_version"] == "1.15.0"
-    assert len(equipment) == 65 and len(parts) == 199
+    assert catalog["catalog_version"] == "1.16.0"
+    assert len(equipment) == 67 and len(parts) == 199
     assert len({row["family"] for row in parts.values()}) == 29
     assert len(public["domains"]) == 7 and "분야 미상" in public["domains"]
-    assert len(public["modes"]) == 23 and "현상 미기재" in public["modes"]
+    assert len(public["modes"]) == 24 and {"현상 미기재", "점도이상"} <= set(public["modes"])
     assert len(public["actions"]) == 7 and "교체" not in public["modes"]
     assert {name for group in public["equipment_groups"] for name in group["items"]} == equipment
     assert not {"컨베어", "열풍건조기", "냉각수 공급부", "엔드씰러"} & parts.keys()

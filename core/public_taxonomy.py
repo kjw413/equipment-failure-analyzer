@@ -112,7 +112,14 @@ class PublicTaxonomy:
             return "세부 부품 미기재"
         return canonical
 
-    def major_for(self, part, symptom, context, original):
+    def major_for(self, part, symptom, context, original, equipment=""):
+        for mapping in self.value.get("contextual_domains", []):
+            if (
+                part == mapping["part"]
+                and equipment == mapping["equipment"]
+                and symptom in mapping["symptoms"]
+            ):
+                return mapping["domain"]
         family = self.group(part)
         if symptom == "소손·단락":
             electrical_families = {

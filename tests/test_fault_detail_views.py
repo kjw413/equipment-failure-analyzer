@@ -35,8 +35,8 @@ def test_excel_has_one_detail_row_per_fault_including_pending_classifications(
     assert len(members) == 1 and members.event_id.nunique() == 1
     assert members.iloc[0].status == K["partial"]
     assert tuple(members.iloc[0][key] for key in ("major", "middle", "minor")) == (
-        "기계",
-        "베어링(종류 미상)",
+        "공압·진공",
+        "실린더(종류 미상)",
         "손상·파손",
     )
     assert "1순위 대표 자동선택" in source.classification_reason
@@ -70,7 +70,7 @@ def test_excel_has_one_detail_row_per_fault_including_pending_classifications(
             for row in range(7, sheet.max_row + 1)
             if sheet.cell(row, record_column).value == source.record_id
         }
-        assert observed == {("베어링(종류 미상)", "손상·파손")}
+        assert observed == {("실린더(종류 미상)", "손상·파손")}
         pending_values = {
             (sheet.cell(row, middle_column).value, sheet.cell(row, minor_column).value)
             for row in range(7, sheet.max_row + 1)

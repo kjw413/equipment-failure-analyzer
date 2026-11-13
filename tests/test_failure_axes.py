@@ -299,7 +299,9 @@ def test_analysis_keeps_one_history_and_only_one_final_classification_per_record
     parts = result.tables["component"]
     assert parts["count"].sum() == 3
     bearings = parts.loc[parts.component_type.str.contains("베어링(종류 미상)", regex=False)]
-    assert bearings["count"].sum() == 2
+    assert bearings["count"].sum() == 1
+    cylinders = parts.loc[parts.component_type.str.contains("실린더(종류 미상)", regex=False)]
+    assert cylinders["count"].sum() == 2
     assert fault_axes_input.read_bytes() == source_bytes
 
 
@@ -324,9 +326,9 @@ def test_old_manual_part_confirmation_is_projected_without_guessing_or_rewriting
 def test_new_manual_selection_preserves_part_symptom_meaning_and_schema(store, fault_axes_input):
     original = analyze_file(store, fault_axes_input).selected.iloc[0]
     category = {
-        "major": "공압·진공",
+        "major": "기계",
         "detail_equipment": "상세설비 미상",
-        "middle": "실린더(종류 미상)",
+        "middle": "베어링(종류 미상)",
         "minor": "손상·파손",
     }
     assert recommendations(original)[0]["middle"] != category["middle"]
@@ -335,8 +337,8 @@ def test_new_manual_selection_preserves_part_symptom_meaning_and_schema(store, f
     assert saved["classification_schema"] == SCHEMA
     updated = analyze_file(store, fault_axes_input).selected.iloc[0]
     assert (updated.major, updated.middle, updated.minor) == (
-        "공압·진공",
-        "실린더(종류 미상)",
+        "기계",
+        "베어링(종류 미상)",
         "손상·파손",
     )
     assert updated.status == K["manual"]

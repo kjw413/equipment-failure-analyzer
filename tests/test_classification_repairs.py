@@ -114,7 +114,7 @@ def test_source_codes_categories_and_legacy_report_projection(store, tmp_path):
     assert all(
         representative[key] == members[0][key] == candidates[0][key] for key in CATEGORY_FIELDS
     )
-    assert candidates[0]["middle"] == "실린더(종류 미상)"
+    assert candidates[0]["middle"] == "베어링(종류 미상)"
     assert {item["middle"] for item in candidates} == {"베어링(종류 미상)", "실린더(종류 미상)"}
     assert all(item["minor"] == "손상·파손" and item["symptom_evidence"] for item in candidates)
     assert "베어링 및 실린더 손상" not in set(result.tables["review"].raw_description)

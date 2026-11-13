@@ -68,7 +68,7 @@ class FaultClassifier:
         if chunks is not None:
             prefix = chunks[symptom.clause][max(0, start - 12) : start]
             qualifier = re.search(
-                r"(?:품온|온도|진공도|압력)(?:가|이|는)?(?:\d+(?:\.\d+)?(?:도|℃|bar|mpa|%)?)?$",
+                r"(?:품온|온도|진공도|압력|점도)(?:가|이|는)?(?:\d+(?:\.\d+)?(?:도|℃|bar|mpa|%)?)?$",
                 prefix,
                 re.I,
             )
@@ -187,7 +187,9 @@ class FaultClassifier:
                 public_part = self.taxonomy.component_name(
                     item["minor"], equipment["detail_equipment"]
                 )
-                major = self.taxonomy.major_for(public_part, name, context, item["major"])
+                major = self.taxonomy.major_for(
+                    public_part, name, context, item["major"], equipment["detail_equipment"]
+                )
                 yield {
                     "major": major,
                     **equipment,
@@ -209,6 +211,13 @@ class FaultClassifier:
     def _automatic(result, member):
         missing = missing_fields_text(member)
         reason = result.get("classification_reason", "")
+        if any(
+            "의심·추정 후보" in candidate.get("reason", "")
+            for candidate in json.loads(result.get("classification_candidates") or "[]")
+        ):
+            reason += (
+                " 뒤에 적힌 의심·추정 원인은 후보로만 보존하며 실제 고장으로 확정하지 않습니다."
+            )
         if missing:
             reason += (
                 " 원문에서 확인된 항목을 부분 분류했습니다. 미기재 항목: "
@@ -322,6 +331,8 @@ class FaultClassifier:
                 default=self.parts.window + 2,
             )
             reasons = []
+            if UNCERTAIN.search(chunks[pair.clause]):
+                reasons.append("의심·추정 후보: 실제 고장 미확정")
             if cause:
                 reasons.append("원문 원인 표현과 연결된 부품")
             if "F" in kinds:
@@ -385,7 +396,65 @@ class FaultClassifier:
                         ),
                     }
                 )
+        # For explicitly listed physical faults in one sentence, retain the
+        # first reported fault even when a later listed fault was repaired.
+        # Keep the existing precedence for causes, nested names, repair-only
+        # mentions and faults in separate statements.
+        physical = [
+            member
+            for member in candidates
+            if member["_observed_failure"]
+            and member["middle"] not in {"세부 부품 미기재", "제품·자재"}
+        ]
+        if physical:
+            for member in candidates:
+                order = member["_order"]
+                module_only = member["middle"] == "세부 부품 미기재" and member[
+                    "detail_equipment"
+                ] in {"석션기·블로워", "익스트랙터 바"}
+                member["_order"] = (*order[:2], module_only, *order[2:])
+            first = min(physical, key=lambda member: (*member["_span"][:2], member["_order"]))
+            top = min(candidates, key=lambda member: member["_order"])
+            clause, start, end = first["_span"]
+            top_clause, top_start, _ = top["_span"]
+            bridge = chunks[clause][end:top_start] if top_clause == clause else ""
+            if (
+                top in physical
+                and first["_order"][0]
+                and top["_order"][0]
+                and start < top_start
+                and re.search(r"및|그리고|&", bridge)
+                and not re.search(r"으로|로인해|로인한|때문", bridge)
+            ):
+                for member in candidates:
+                    member["_order"] = (
+                        member["_span"] != first["_span"],
+                        *member["_order"],
+                    )
         return rank_candidates(candidates), candidates
+
+    @staticmethod
+    def _known_first_before_suspicion(ranked, raw, chunks):
+        """A later guessed cause does not negate an earlier observed failure.
+
+        A suspicion in the first fault's own clause or before it stays under
+        review. Never skip a suspected rank 1 to confirm a lower candidate.
+        """
+        if not ranked:
+            return False
+        first_uncertain = next(
+            (index for index, chunk in enumerate(chunks) if UNCERTAIN.search(chunk)), None
+        )
+        if first_uncertain is None:
+            return False
+        keys = (*CATEGORY_FIELDS, "rule_id", "evidence")
+        return any(
+            all(member.get(key) == ranked[0].get(key) for key in keys)
+            and member.get("_observed_failure")
+            and member["_span"][0] < first_uncertain
+            for member in raw
+            if "_span" in member
+        )
 
     def classify(
         self,
@@ -451,6 +520,24 @@ class FaultClassifier:
             "repair_actions": ", ".join(extract_actions(text)),
             "classification_missing_fields": "",
         }
+        observed = [member for member in raw_candidates if member.get("_observed_failure")]
+        if any(member["minor"] == "점도이상" for member in observed) and all(
+            member["middle"] == "세부 부품 미기재" for member in observed
+        ):
+            return {
+                **result,
+                **{key: "" for key in CATEGORY_FIELDS},
+                **component_payload([], "ambiguous"),
+                "status": K["review"],
+                "review_code": "process_condition_without_fault_part",
+                "classification_reason": (
+                    "점도 헌팅·이상은 공정조건의 현상으로 후보에 보존합니다. "
+                    "원인 부품이 명시되지 않아 검토가 필요하며 센서 고장으로 추정하지 않습니다."
+                ),
+            }
+        known_before_suspicion = self._known_first_before_suspicion(
+            candidates, raw_candidates, chunks
+        )
         network_pattern = r"(?:inputs\s*/\s*outputs\s*network|network\s*station\s*in\s*defect)"
         network = re.search(network_pattern, text, re.I)
         network_members = []
@@ -621,7 +708,7 @@ class FaultClassifier:
             for index, chunk in enumerate(chunks)
         )
         blocked = bool(
-            UNCERTAIN.search(source)
+            (UNCERTAIN.search(source) and not known_before_suspicion)
             or INDEPENDENT_MARKER.search(source)
             or self.parts.alternative_types(live, chunks)
             or self.parts.explicit_cause_pairs(live, chunks)
@@ -640,7 +727,7 @@ class FaultClassifier:
             )
         payload = component_payload(members)
         actual = parse_components(payload["component_details"])
-        uncertain = bool(UNCERTAIN.search("".join(chunks)))
+        uncertain = bool(UNCERTAIN.search("".join(chunks))) and not known_before_suspicion
         shared_action = self._unresolved_shared_action(live, chunks)
         missing_symptom = any(item["minor"] == UNKNOWN_SYMPTOM for item in actual)
         missing_domain = any(item["major"] == UNKNOWN_DOMAIN for item in actual)

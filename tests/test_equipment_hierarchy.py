@@ -241,7 +241,7 @@ def test_current_manual_selection_requires_all_four_axes(store):
     assert store.override("event")["classification_schema"] == CLASSIFICATION_SCHEMA
     store.update_override("event", {"minutes": "12"})
     assert all(store.override("event")[key] == value for key, value in values.items())
-    assert RULES_SCHEMA == 7 and MIN_APP_VERSION == "1.15.0"
+    assert RULES_SCHEMA == 7 and MIN_APP_VERSION == "1.16.0"
 
 
 def test_v1_manual_confirmation_remains_unmodified_and_needs_equipment_review(store, input_file):
