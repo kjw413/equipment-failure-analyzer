@@ -92,3 +92,29 @@ def test_explicit_product_subject_is_not_confirmed_as_belt_failure(classify):
     result = classify("스틱인서터 스틱이 스틱정렬벨트 위치 이탈 및 게이트바디에 걸림")
     assert result["status"] not in (K["auto"], K["partial"])
     assert not parse_components(result["component_details"])
+
+
+def test_set_bolt_modifier_does_not_invent_completed_fastening(classify):
+    result = classify("포장기 타이밍벨트 풀리 고정 셋트볼트 풀림")
+    assert result["repair_actions"] == ""
+    assert (result["middle"], result["minor"]) == ("볼트", "이탈·풀림")
+
+
+def test_reject_transport_name_does_not_supply_a_failure_to_previous_chain(classify):
+    result = classify("버켓 구동부 체인 고착 및 늘어남. 체인교체 및 불량이송컨베어 감속기 교체")
+    ranked = parse_candidates(result["classification_candidates"])
+    assert result["status"] in (K["auto"], K["partial"])
+    assert (result["middle"], result["minor"]) == ("체인(종류 미상)", "막힘·걸림")
+    assert not any(
+        item["middle"] == "체인(종류 미상)" and item["minor"] == "고장·이상" for item in ranked
+    )
+
+
+def test_pockets_leaving_guide_do_not_supply_guide_displacement(classify):
+    result = classify("포장기 포켓 다수 가이드 이탈 발생, 체인 이탈 / 가이드 조정")
+    assert result["status"] in (K["auto"], K["partial"])
+    assert (result["middle"], result["minor"]) == ("체인(종류 미상)", "이탈·풀림")
+    ranked = parse_candidates(result["classification_candidates"])
+    assert not any(
+        item["middle"] == "가이드(종류 미상)" and item["minor"] == "이탈·풀림" for item in ranked
+    )

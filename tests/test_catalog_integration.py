@@ -32,9 +32,12 @@ def test_current_catalog_types_and_ranked_candidates_survive_report_export(
         assert rows.loc[source_row, "status"] == K["partial"]
         assert rows.loc[source_row, "classification_missing_fields"] == expected_missing[source_row]
         assert rows.loc[source_row, "component_count"] == 1
-    multiple = rows.loc[4]
-    assert multiple.classification_mode == "ambiguous" and multiple.status == K["review"]
-    assert multiple.component_details == "[]" and multiple.component_count == 0
+    representative = rows.loc[4]
+    assert representative.classification_mode == "single"
+    assert representative.status == K["partial"]
+    assert representative.component_count == 1 and representative.part_count == 0
+    assert representative.classification_missing_fields == "세부 부품"
+    assert "1순위 대표 자동선택" in representative.classification_reason
     source_parts = {
         ("유체·배관", "펌프", "도징펌프"),
         ("전기·제어", "센서·검출", "근접센서"),
@@ -43,14 +46,28 @@ def test_current_catalog_types_and_ranked_candidates_survive_report_export(
         ("유체·배관", UNKNOWN_PART, "손상·파손"),
         ("전기·제어", "근접센서", "고장·이상"),
     }
+    candidates = parse_components(representative.classification_candidates)
     assert {
-        tuple(member[key] for key in ("major", "middle", "minor"))
-        for member in parse_components(multiple.classification_candidates)
+        tuple(member[key] for key in ("major", "middle", "minor")) for member in candidates
     } == expected_members
+    assert len(candidates) == 2
+    selected = parse_components(representative.component_details)
+    assert len(selected) == 1
+    assert tuple(selected[0][key] for key in ("major", "detail_equipment", "middle", "minor")) == (
+        "유체·배관",
+        "펌프",
+        UNKNOWN_PART,
+        "손상·파손",
+    )
+    assert all(selected[0].get(key) == value for key, value in candidates[0].items())
+    assert selected[0]["selected_rank"] == 1
+    assert selected[0]["selection_method"] == "top_ranked_representative"
     assert source_parts <= approved_catalog_paths
     assert result.metrics["selected_rows"] == 4 and result.metrics["total_minutes"] == 95
     assert result.metrics["auto_rows"] == 0
-    assert result.metrics["partial_rows"] == result.metrics["auto_processed_rows"] == 3
+    assert result.metrics["partial_rows"] == result.metrics["auto_processed_rows"] == 4
+    assert result.metrics["classification_review_rows"] == 0
+    assert result.metrics["review_rows"] == 1  # The unrelated missing-time record stays in review.
     assert result.tables["component"]["count"].sum() == 2
     assert rows.loc[5, "detail_equipment"] == "펌프" and rows.loc[5, "part_count"] == 0
     assert result.tables["fault_detail"].record_id.is_unique
@@ -61,6 +78,23 @@ def test_current_catalog_types_and_ranked_candidates_survive_report_export(
         assert workbook[SHEETS["summary"]]["A7"].value == 4
         assert workbook[SHEETS["summary"]]["E7"].value == 95
         detail = workbook[SHEETS["detail"]]
+        representative_row = next(
+            row
+            for row in range(7, detail.max_row + 1)
+            if detail[f"{D['source_row']}{row}"].value == 4
+        )
+        assert (
+            "1순위 대표 자동선택"
+            in detail[f"{D['classification_reason']}{representative_row}"].value
+        )
+        assert (
+            parse_components(detail[f"{D['classification_candidates']}{representative_row}"].value)
+            == candidates
+        )
+        assert (
+            parse_components(detail[f"{D['component_details']}{representative_row}"].value)
+            == selected
+        )
         for row in range(7, detail.max_row + 1):
             for member in parse_components(detail[f"{D['component_details']}{row}"].value):
                 assert (

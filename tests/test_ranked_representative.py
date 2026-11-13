@@ -87,6 +87,14 @@ def test_repeated_interpretations_of_the_same_public_part_are_not_a_conflict():
     assert select([candidate(), candidate(identifier="duplicate")]) is not None
 
 
+def test_one_part_with_explicit_modes_in_different_domains_allows_a_representative():
+    damaged = candidate("오링", mode="손상·파손", major="기계", order=(0,))
+    leaking = candidate("오링", mode="누설", major="유체·배관", order=(1,))
+    selected = select([damaged, leaking])
+    assert selected["minor"] == "손상·파손"
+    assert selected["selected_rank"] == 1
+
+
 @pytest.mark.parametrize("actions", [[], ["교체 예정"], ["미완료"], ["위치"]])
 def test_weak_noun_or_unperformed_action_is_not_enough(actions):
     assert select([candidate(observed=False, mode="현상 미기재", actions=actions)]) is None

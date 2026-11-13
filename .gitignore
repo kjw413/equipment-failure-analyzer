@@ -16,3 +16,6 @@ output/*
 !output/README.txt
 .ruff_cache/
 tmp/
+~$*
+*.inspect.ndjson
+/EquipmentFailureAnalyzer_v*/

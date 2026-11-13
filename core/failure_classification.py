@@ -82,6 +82,11 @@ class FaultClassifier:
         if chunks is None:
             return True
         chunk = chunks[symptom.clause]
+        if symptom.text == "불량" and re.match(
+            r"(?:품)?(?:이송|배출|분리|선별|검출|처리)(?:용)?(?:컨베어|장치|설비|라인|벨트|기구)",
+            chunk[symptom.end :],
+        ):
+            return False
         if symptom.text.startswith("풀리") and re.match(
             r"풀리(?:고정|축|키|볼트|베어링|교체|파손|마모)", chunk[symptom.start :]
         ):
@@ -94,6 +99,9 @@ class FaultClassifier:
         ):
             return False
         prefix = chunk[max(0, pair.c0 - 18) : pair.c0]
+        if "가이드" in pair.rule["minor"] and symptom.text.startswith(("이탈", "떨어", "낙하")):
+            if re.search(r"(?:포켓|제품|스틱|카톤|팩|컵|박스)(?:다수|여러개|\d+개|이|가)$", prefix):
+                return False
         if chunk[pair.c1 :].startswith("위치") and re.search(
             r"(?:제품|스틱|카톤|팩|컵|박스)(?:이|가).{0,10}$", prefix
         ):

@@ -10,6 +10,7 @@ from openpyxl import load_workbook
 from core.classification_candidates import parse_candidates
 from core.component_analysis import component_tables
 from core.config import ConfigStore
+from core.excel_loader import load_excel
 from core.failure_modes import CLASSIFICATION_SCHEMA, canonical_symptom
 from core.fault_components import (
     CATEGORY_FIELDS,
@@ -22,6 +23,7 @@ from core.fault_components import (
 )
 from core.i18n import K
 from core.models import CLASSIFICATION_COMPONENT_COLUMNS, AnalysisOptions, UserError
+from core.preprocessing import event_ids
 from core.public_taxonomy import canonical_part_name
 from core.report_view import ReportNames
 from report.charts import tidy_label
@@ -96,15 +98,34 @@ def test_legacy_member_scores_are_ignored_without_losing_rule_evidence():
     assert payload["combination_key"] == component_payload([A, B], "multiple")["combination_key"]
 
 
-def test_multiple_candidates_do_not_become_final_members_and_preserve_event_time(
+def assert_ranked_representative(record):
+    candidates = parse_candidates(record.classification_candidates)
+    members = parse_components(record.component_details)
+    assert record.status == K["partial"]
+    assert record.classification_missing_fields == "상세설비·모듈"
+    assert record.classification_mode == "single" and record.combination_key == ""
+    assert len(candidates) == 2
+    assert len(members) == record.component_count == record.part_count == 1
+    assert members[0]["selection_method"] == "top_ranked_representative"
+    assert members[0]["selected_rank"] == candidates[0]["rank"] == 1
+    assert all(record[key] == members[0][key] == candidates[0][key] for key in CATEGORY_FIELDS)
+    assert all(item["symptom_evidence"] for item in candidates)
+    assert "1순위 대표 자동선택" in record.classification_reason
+    return candidates
+
+
+def test_rank_one_becomes_one_representative_and_preserves_other_candidates_and_event_time(
     store, combination_input
 ):
+    source = combination_input.read_bytes()
+    loaded = load_excel(combination_input, store.load()["column_mapping"])
+    source_ids = dict(zip(loaded.frame["__source_row"], event_ids(loaded, loaded.mapping)))
     result = analyze_file(store, combination_input)
     rows = result.selected
     first, reversed_, different = [rows.iloc[index] for index in range(3)]
     assert set(CLASSIFICATION_COMPONENT_COLUMNS) <= set(rows)
-    assert first.classification_mode == reversed_.classification_mode == "ambiguous"
-    assert first.status == reversed_.status == different.status == K["review"]
+    for record in (first, reversed_, different):
+        assert_ranked_representative(record)
     first_types = {
         (item["middle"], item["minor"])
         for item in parse_candidates(first.classification_candidates)
@@ -119,26 +140,31 @@ def test_multiple_candidates_do_not_become_final_members_and_preserve_event_time
     }
     assert first_types == reverse_types and first_types != other_types
     assert len(first_types) == 2
-    assert first.component_count == reversed_.component_count == 0
+    assert rows.source_row.tolist() == [4, 5, 6, 8]
+    assert rows.event_id.tolist() == [source_ids[number] for number in rows.source_row]
+    assert rows.record_id.is_unique and combination_input.read_bytes() == source
     assert result.metrics["selected_rows"] == 4
     assert result.metrics["total_minutes"] == 95
     assert result.tables["type"]["count"].sum() == 4
     assert result.tables["type"]["total_minutes"].sum() == 95
     assert result.tables["combination"].empty
     assert result.metrics["combination_rows"] == 0
-    assert "후보는 확정 부품으로 합산하지 않습니다" in first.aggregation_effect
     parts = result.tables["component"]
-    assert parts.empty
+    assert parts["count"].sum() == 3
+    assert parts["manual_count"].sum() == parts["review_count"].sum() == 0
+    assert result.metrics["partial_rows"] == 3 and result.metrics["review_rows"] == 1
     assert not any("minutes" in key for key in parts)
     assert len(result.tables["fault_detail"]) == len(rows)
     assert result.tables["fault_detail"].record_id.is_unique
 
 
 def test_user_selects_one_ranked_candidate_and_keeps_event_totals(store, combination_input):
+    source = combination_input.read_bytes()
     before = analyze_file(store, combination_input)
     original = before.selected.iloc[0]
-    candidates = parse_candidates(original.classification_candidates)
+    candidates = assert_ranked_representative(original)
     chosen = candidates[1]
+    assert chosen["rank"] == 2 and any(chosen[key] != original[key] for key in CATEGORY_FIELDS)
     category = {key: chosen[key] for key in CATEGORY_FIELDS}
     store.update_override(original.event_id, category)
     after = analyze_file(ConfigStore(store.root), combination_input)
@@ -148,11 +174,17 @@ def test_user_selects_one_ranked_candidate_and_keeps_event_totals(store, combina
     assert all(confirmed[key] == value for key, value in category.items())
     assert "사용자확정" in confirmed.classification_reason and confirmed.candidate_evidence == ""
     assert not any("score" in column for column in after.selected)
-    assert all("score" not in item for item in parse_components(confirmed.component_details))
+    confirmed_members = parse_components(confirmed.component_details)
+    assert all("score" not in item and "selection_method" not in item for item in confirmed_members)
     assert K["multiple_faults"] not in confirmed.issues
     assert after.metrics["manual_rows"] == 1 and after.metrics["manual_multi_rows"] == 0
-    assert after.metrics["review_rows"] == before.metrics["review_rows"] - 1
+    assert after.metrics["review_rows"] == before.metrics["review_rows"]
+    assert after.metrics["partial_rows"] == before.metrics["partial_rows"] - 1
     assert after.metrics["total_minutes"] == before.metrics["total_minutes"]
+    assert after.selected.event_id.tolist() == before.selected.event_id.tolist()
+    assert after.selected.record_id.tolist() == before.selected.record_id.tolist()
+    pd.testing.assert_series_equal(after.selected.minutes, before.selected.minutes)
+    assert combination_input.read_bytes() == source
     parts = after.tables["component"].set_index("component_type")
     assert (
         parts.loc[
@@ -160,23 +192,45 @@ def test_user_selects_one_ranked_candidate_and_keeps_event_totals(store, combina
         ]
         == 1
     )
-    assert parts["count"].sum() == 1
+    assert parts["count"].sum() == before.tables["component"]["count"].sum() == 3
+    assert after.tables["type"]["count"].sum() == len(after.selected) == 4
     store.clear_override(original.event_id)
     reset = analyze_file(store, combination_input).selected.iloc[0]
-    assert reset.status == K["review"] and reset.combination_key == original.combination_key
+    assert_ranked_representative(reset)
+    assert reset.component_details == original.component_details
+    assert reset.classification_candidates == original.classification_candidates
+    assert reset.classification_reason == original.classification_reason
 
 
-def test_time_only_change_does_not_confirm_combination(store, combination_input):
-    before = analyze_file(store, combination_input).selected.iloc[0]
+def test_time_only_change_preserves_the_automatic_representative_and_all_candidates(
+    store, combination_input
+):
+    source = combination_input.read_bytes()
+    before_result = analyze_file(store, combination_input)
+    before = before_result.selected.iloc[0]
+    assert_ranked_representative(before)
     store.update_override(before.event_id, {"minutes": "25"})
-    after = analyze_file(store, combination_input).selected.iloc[0]
-    assert after.status == K["review"] and after.combination_key == before.combination_key
+    after_result = analyze_file(store, combination_input)
+    after = after_result.selected.iloc[0]
+    assert_ranked_representative(after)
+    assert after.status == before.status and after.combination_key == before.combination_key
     assert (
         after.component_details == before.component_details
         and after.classification_reason == before.classification_reason
         and after.candidate_evidence == before.candidate_evidence
+        and after.classification_candidates == before.classification_candidates
     )
     assert after.minutes == 25
+    assert after_result.selected.event_id.tolist() == before_result.selected.event_id.tolist()
+    assert after_result.selected.record_id.tolist() == before_result.selected.record_id.tolist()
+    assert after_result.metrics["total_minutes"] == before_result.metrics["total_minutes"] + 15
+    assert after_result.metrics["selected_rows"] == before_result.metrics["selected_rows"] == 4
+    assert after_result.metrics["manual_rows"] == before_result.metrics["manual_rows"] == 0
+    assert after_result.tables["type"]["count"].sum() == 4
+    assert after_result.tables["type"].total_minutes.sum() == 110
+    assert after_result.tables["component"]["count"].sum() == 3
+    assert set(store.override(before.event_id)) == {"minutes", "saved_at"}
+    assert combination_input.read_bytes() == source
 
 
 def test_single_confirmation_replaces_the_whole_combination(store, combination_input):

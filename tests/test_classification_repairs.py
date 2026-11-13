@@ -9,9 +9,11 @@ from openpyxl import Workbook, load_workbook
 from test_classification_candidates import rule
 
 from core.classification_candidates import parse_candidates
+from core.excel_loader import load_excel
 from core.failure_classification import FaultClassifier
-from core.fault_components import parse_components
+from core.fault_components import CATEGORY_FIELDS, parse_components
 from core.i18n import K
+from core.preprocessing import event_ids
 from report.excel_report import REVIEW_COLS, SHEETS, export_report
 
 
@@ -92,11 +94,30 @@ def test_source_codes_categories_and_legacy_report_projection(store, tmp_path):
     book.save(source)
     book.close()
     before = source.read_bytes()
+    loaded = load_excel(source, store.load()["column_mapping"])
+    source_event_ids = event_ids(loaded, loaded.mapping)
     result = analyze_file(store, source)
     records = result.selected.set_index("raw_description")
-    for text in ("unknown issue", "베어링 및 실린더 손상"):
-        assert all(records.loc[text, key] == "" for key in ("major", "middle", "minor"))
-        assert records.loc[text, "classification_reason"]
+    unknown = records.loc["unknown issue"]
+    assert all(unknown[key] == "" for key in CATEGORY_FIELDS)
+    assert unknown["classification_reason"]
+    # The approved policy selects the displayed rank 1 as the event's
+    # representative; it retains both observed damaged parts as candidates.
+    representative = records.loc["베어링 및 실린더 손상"]
+    candidates = parse_candidates(representative["classification_candidates"])
+    members = parse_components(representative["component_details"])
+    assert representative["status"] == K["partial"]
+    assert representative["classification_missing_fields"] == "상세설비·모듈"
+    assert len(members) == representative["component_count"] == representative["part_count"] == 1
+    assert members[0]["selection_method"] == "top_ranked_representative"
+    assert members[0]["selected_rank"] == candidates[0]["rank"] == 1
+    assert all(
+        representative[key] == members[0][key] == candidates[0][key] for key in CATEGORY_FIELDS
+    )
+    assert candidates[0]["middle"] == "실린더(종류 미상)"
+    assert {item["middle"] for item in candidates} == {"베어링(종류 미상)", "실린더(종류 미상)"}
+    assert all(item["minor"] == "손상·파손" and item["symptom_evidence"] for item in candidates)
+    assert "베어링 및 실린더 손상" not in set(result.tables["review"].raw_description)
     for text in ("탱크 제균필터 교체", "탱크 제균필터"):
         assert records.loc[text, "minor"] == "현상 미기재"
         assert records.loc[text, "middle"] == "제균필터"
@@ -128,6 +149,10 @@ def test_source_codes_categories_and_legacy_report_projection(store, tmp_path):
                 )
         assert report[SHEETS["review"]].max_column == len(REVIEW_COLS) == 22
     assert source.read_bytes() == before
+    assert result.selected.event_id.tolist() == source_event_ids
+    assert result.selected.record_id.is_unique
     assert len(result.tables["fault_detail"]) == len(result.selected) == 5
+    assert result.tables["fault_detail"].record_id.is_unique
     assert result.tables["type"]["count"].sum() == 5
+    assert result.tables["type"].total_minutes.sum() == 50
     assert result.metrics["total_minutes"] == 50

@@ -10,7 +10,7 @@ from openpyxl import load_workbook
 from core.classification_candidates import parse_candidates
 from core.failure_classification import FaultClassifier
 from core.failure_modes import SYMPTOM_NAMES, UNKNOWN_EQUIPMENT, UNKNOWN_PART, UNKNOWN_SYMPTOM
-from core.fault_components import parse_components
+from core.fault_components import CATEGORY_FIELDS, parse_components
 from core.i18n import K
 from core.parsing import prepare_text
 from core.public_taxonomy import parse_repair_actions
@@ -124,7 +124,9 @@ def test_network_supplement_never_confirms_planned_or_negated_fault(classify_cur
 
 
 @pytest.mark.parametrize("source", ["베어링 마모", "모터 소손"])
-def test_independent_network_fault_preserves_all_candidates_with_one_representative(classify_current, source):
+def test_independent_network_fault_preserves_all_candidates_with_one_representative(
+    classify_current, source
+):
     result = classify_current(source + " / network station in defect")
     assert result["status"] == K["partial"]
     (representative,) = parse_components(result["component_details"])
