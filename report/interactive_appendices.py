@@ -83,7 +83,7 @@ def _breakdown(issues, key, keys, title):
             horizontal="right", vertical="center", indent=1
         )
     ws.merge_cells("A11:L11")
-    b.put(ws, 11, 1, "상위 10개와 기타 · 분석 기준 변경 시 정렬·차트 갱신", role="title")
+    b.put(ws, 11, 1, "차트: 상위 10개와 기타 · 하단 표: 전체 항목", role="title")
     label = "상세설비 / 세부부품" if key == "equipment" else "라인 / 상세설비 / 세부부품"
     issues.header(
         ws,
@@ -145,7 +145,7 @@ def _breakdown(issues, key, keys, title):
         )
     helper.sheet_state = "hidden"
     helper_ref = "'" + helper.title + "'"
-    for offset in range(10):
+    for offset in range(max(10, len(items))):
         row = 13 + offset
         ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=6)
         ws.merge_cells(start_row=row, end_row=row, start_column=8, end_column=9)
@@ -190,42 +190,10 @@ def _breakdown(issues, key, keys, title):
                 cached,
                 "0.0%",
             )
-    # The rest remains represented, including time-missing records (no false zeros).
-    ws.merge_cells("A23:F23")
-    ws.merge_cells("H23:I23")
-    b.put(ws, 23, 1, "기타")
+    # Only the chart groups the remainder; the table retains every individual item.
     top = [items[i] for i in orders["count"][:10]]
     remaining_count = len(issues.facts) - sum(item["count"] for item in top)
-    top_time = sum(item["total_minutes"] for item in top if item["valid_count"])
-    remaining_time = float(total) - top_time if valid else ""
-    for col, total_cell, cached in (
-        ("G", "$B$9", remaining_count),
-        ("H", "$E$9", remaining_time),
-        (
-            "L",
-            "$K$9",
-            int(issues.facts.review_count.sum()) - sum(item["review_count"] for item in top),
-        ),
-    ):
-        issues.formula(
-            ws,
-            f"{col}23",
-            f'=IF({total_cell}="","",{total_cell}-SUM({col}13:{col}22))',
-            cached,
-            "#,##0" if col != "H" else "#,##0.0",
-        )
-    for col, numerator, denominator, cached in (
-        ("J", "G23", "$B$9", remaining_count / len(issues.facts) if len(issues.facts) else ""),
-        ("K", "H23", "$E$9", remaining_time / total if valid and total > 0 else ""),
-    ):
-        issues.formula(
-            ws,
-            f"{col}23",
-            f'=IF(OR({denominator}=0,{denominator}="",{numerator}=""),"",{numerator}/{denominator})',
-            cached,
-            "0.0%",
-        )
-    issues.table_borders(ws, 12, 23, 1, 12)
+    issues.table_borders(ws, 12, 12 + max(10, len(items)), 1, 12)
     chart = DoughnutChart()
     chart.title, chart.holeSize = "순위별 구성비 (표의 순위 기준)", 55
     chart.legend.position = "b"
@@ -238,15 +206,19 @@ def _breakdown(issues, key, keys, title):
         issues.formula(
             helper,
             f"I{row}",
-            f'=IF({owner}!A{row}="","","{label}")',
+            f'="{label}"' if row == 23 else f'=IF({owner}!A{row}="","","{label}")',
             label if has_item else "",
             "General",
         )
         issues.formula(
             helper,
             f"H{row}",
-            f'=IF({owner}!$J$6="정지시간",{owner}!H{row},{owner}!G{row})',
-            b.cache.values.get((ws.title, f"G{row}"), ""),
+            (
+                f'=IF({owner}!$J$6="정지시간",IF({owner}!$E$9="","",{owner}!$E$9-SUM({owner}!H13:H22)),{owner}!$B$9-SUM({owner}!G13:G22))'
+                if row == 23
+                else f'=IF({owner}!$J$6="정지시간",{owner}!H{row},{owner}!G{row})'
+            ),
+            remaining_count if row == 23 else b.cache.values.get((ws.title, f"G{row}"), ""),
         )
     chart.add_data(Reference(helper, min_col=8, min_row=12, max_row=23), titles_from_data=True)
     chart.set_categories(Reference(helper, min_col=9, min_row=13, max_row=23))
@@ -272,5 +244,5 @@ def _breakdown(issues, key, keys, title):
         point.graphicalProperties.solidFill = color
     ws.add_chart(chart, "A26")
     ws.freeze_panes = "G13"
-    ws.print_area = "A1:L42"
+    ws.print_area = f"A1:L{max(42, 12 + len(items))}"
     ws.page_setup.orientation = "landscape"

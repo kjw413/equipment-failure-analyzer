@@ -125,7 +125,8 @@ def test_workbook_names_formulas_and_report_code_conversion(store, input_file, t
                 if cell.data_type == "f":
                     assert "#REF!" not in cell.value
                     assert values[sheet.title][cell.coordinate].data_type != "e"
-    assert len(values[SHEETS["summary"]]._images) == 4
+    assert len(values[SHEETS["summary"]]._images) == 0
+    assert len(values[SHEETS["summary"]].conditional_formatting) == 2
     values.close()
     formulas.close()
 
@@ -285,10 +286,10 @@ def test_breakdown_total_cached_and_formulas(store, input_file, tmp_path):
     wb = load_workbook(path, data_only=True)
     ws = wb[SHEETS["equipment"]]
     assert ws["C9"].value == 4 and ws["F9"].value == 95
-    assert sum(ws.cell(r, 8).value or 0 for r in range(13, 24)) == 4
-    assert sum(ws.cell(r, 9).value or 0 for r in range(13, 24)) == 95
-    assert sum(ws.cell(r, 11).value or 0 for r in range(13, 24)) == 1
-    assert sum(ws.cell(r, 12).value or 0 for r in range(13, 24)) == 1
+    assert sum(ws.cell(r, 8).value or 0 for r in range(33, ws.max_row + 1)) == 4
+    assert sum(ws.cell(r, 9).value or 0 for r in range(33, ws.max_row + 1)) == 95
+    assert sum(ws.cell(r, 11).value or 0 for r in range(33, ws.max_row + 1)) == 1
+    assert sum(ws.cell(r, 12).value or 0 for r in range(33, ws.max_row + 1)) == 1
     wb.close()
 
 

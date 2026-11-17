@@ -170,7 +170,7 @@ FILL = "F1F3F5"
 TEAL = "166A70"
 ORANGE = "AD6817"
 GREEN = "237245"
-NUM = "#,##0.0;-#,##0.0"
+NUM = "#,##0;-#,##0"
 INT = "#,##0"
 PCT = "0.0%"
 
@@ -1039,7 +1039,7 @@ class ReportBuilder:
                 12,
                 f'=IF(COUNT({self.range("minutes")})=0,"",AVERAGE({self.range("minutes")}))',
                 self.r.metrics["mean_minutes"],
-                '"평균 정지시간 "#,##0.0"분"',
+                '"평균 정지시간 "#,##0"분"',
             ),
         )
         for left, right, formula, expected, fmt in metrics:
@@ -1055,61 +1055,9 @@ class ReportBuilder:
             f"부분 자동분류 {self.r.metrics.get('partial_rows', 0):,}건   "
             f"검토 대상 {self.r.metrics['review_rows']:,}건",
         )
-        basis = K.get(self.r.options.equipment_basis, "분석 설비")
-        if self.r.options.equipment_basis == "mapped":
-            basis = "라인"
-        for row, metric, anchors in (
-            (9, "count", ("A10", "G10")),
-            (22, "total_minutes", ("A23", "G23")),
-        ):
-            metric_label = "발생 건수" if metric == "count" else "정지시간"
-            for left, right, label in ((1, 6, basis), (7, 12, "상세설비·세부부품")):
-                ws.merge_cells(start_row=row, start_column=left, end_row=row, end_column=right)
-                cell = self.put(
-                    ws,
-                    row,
-                    left,
-                    f"□ {metric_label} TOP {self.r.options.top_n} _ {label}",
-                    role="title",
-                )
-                cell.font = Font(name=FONT, size=14, bold=True, color=DARK)
-            self.add_image(
-                ws,
-                anchors[0],
-                self.r.tables["equipment"],
-                "equipment",
-                metric=metric,
-                width=490,
-                height=260,
-                company_style=False,
-            )
-            self.add_image(
-                ws,
-                anchors[1],
-                self.issue_types,
-                "module_part",
-                metric=metric,
-                width=490,
-                height=260,
-                company_style=False,
-            )
-        ws.merge_cells("A36:L36")
-        self.put(ws, 36, 1, "□ 우선 확인 항목", role="title").font = Font(
-            name=FONT, size=14, bold=True, color=DARK
-        )
-        ws.merge_cells("A37:L38")
-        available = descending(self.r.tables["equipment"], "total_minutes")
-        available = available[available.total_minutes.notna()]
-        if len(available):
-            top = available.iloc[0]
-            note = f"정지시간 최다 {basis}: {top['equipment']} / {top['total_minutes']:,.0f}분 / {top['count']:,}건"
-        else:
-            note = "정지시간 기재 없음: 시간 기준 순위 확인 필요"
-        self.put(ws, 37, 1, note)
-        ws.print_area = "A1:L40"
+        ws.print_area = "A1:H41"
         ws.page_setup.orientation = "portrait"
         ws.page_setup.fitToHeight = 1
-        ws.freeze_panes = "A8"
 
     def trends(self):
         ws = self.new_sheet("trend", K["trend_tab"], span=9)
@@ -1125,9 +1073,6 @@ class ReportBuilder:
                 ],
                 role="title",
             ).font = Font(name=FONT, size=14, bold=True, color=DARK)
-            row = self.stats(
-                ws, self.r.tables["trend_" + freq], ["period"], row + 1, False, period_freq=freq
-            )
             if freq == "month":
                 self.add_image(
                     ws,
@@ -1139,6 +1084,9 @@ class ReportBuilder:
                     height=365,
                 )
                 row += 19
+            row = self.stats(
+                ws, self.r.tables["trend_" + freq], ["period"], row + 1, False, period_freq=freq
+            )
         ws.print_area = f"A1:L{row}"
 
     def pareto(self, ws, key, row):
@@ -1282,7 +1230,7 @@ class ReportBuilder:
             ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=12)
             total_minutes = selected.minutes.sum(min_count=1)
             time_text = (
-                f"{total_minutes:,.1f}\ubd84"
+                f"{total_minutes:,.0f}\ubd84"
                 if pd.notna(total_minutes)
                 else "\uc815\ubcf4 \uc5c6\uc74c"
             )
@@ -1648,6 +1596,12 @@ class ReportBuilder:
             self.wb, self.cache, author=department or "확인 필요", exclude_sheets=LOCKED_SHEETS
         )
         apply_locked_template(self)
+        from report.drilldown import install_controls
+
+        install_controls(self)
+        from report.rank_layout import apply_rank_layout
+
+        apply_rank_layout(self)
         self.wb.active = 0
         progress(80, K["exporting"])
         return self.wb
@@ -1664,6 +1618,7 @@ def export_report(
             "\uc6d0\ubcf8 \ud30c\uc77c\uc740 \ub36e\uc5b4\uc4f8 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4. \ub2e4\ub978 \uc774\ub984\uc744 \uc0ac\uc6a9\ud558\uc138\uc694."
         )
     builder = ReportBuilder(result)
+    builder.macro_navigation = p.suffix.casefold() == ".xlsm"
     try:
         with atomic_output(p, prefix="efa_") as temp:
             wb = builder.build(progress)

@@ -20,8 +20,8 @@ OUTPUT_D = {
 
 EXPECTED_SHEETS = [
     "01.종합현황",
-    "02.주요이슈_팀별",
-    "03.비교",
+    "02.팀별 주요이슈",
+    "03.팀간 비교",
     "04.고장추이",
     "별첨. 라인별분석",
     "별첨. 상세설비별분석",
@@ -155,10 +155,14 @@ def test_consolidated_report_keeps_manager_tables_and_audit_contract(
         # The overview retains the global denominator and the full local rankings.
         equipment = values[SHEETS["equipment"]]
         assert equipment["C9"].value == 4 and equipment["F9"].value == 95
-        assert sum(equipment.cell(row, 8).value or 0 for row in range(13, 24)) == 4
-        assert sum(equipment.cell(row, 9).value or 0 for row in range(13, 24)) == 95
+        assert (
+            sum(equipment.cell(row, 8).value or 0 for row in range(33, equipment.max_row + 1)) == 4
+        )
+        assert (
+            sum(equipment.cell(row, 9).value or 0 for row in range(33, equipment.max_row + 1)) == 95
+        )
         assert len(equipment._charts) == 1 and not equipment._images
-        assert formulas[SHEETS["equipment"]]["B13"].data_type == "f"
+        assert formulas[SHEETS["equipment"]]["B33"].data_type == "f"
         assert formulas["_breakdown_equipment"]["B2"].data_type == "f"
         assert "COUNTIFS(" in formulas["_breakdown_equipment"]["B2"].value
 

@@ -20,8 +20,8 @@ from core.issue_analysis import (
 from report.formatting import bounded_int
 
 ISSUE_SHEETS = {
-    "organization_issues": "02.주요이슈_팀별",
-    "issue_comparison": "03.비교",
+    "organization_issues": "02.팀별 주요이슈",
+    "issue_comparison": "03.팀간 비교",
     "issue_trends": "04.고장추이",
 }
 
@@ -266,14 +266,20 @@ class IssueWorkbook:
         ws = self.sheet("organization_issues", "공장·팀·라인의 주요 고장이슈")
         for index, width in enumerate((6, 20, 20, 9, 12, 9) * 2, 1):
             ws.column_dimensions[get_column_letter(index)].width = width
-        fields = {"factory": "B6", "team": "D6", "asset": "F6", "module": "K6"}
+        fields = {"factory": "B6", "team": "D6", "asset": "F6", "module": "K6", "part": "K7"}
         for key, cell in fields.items():
             self.selector(
                 ws,
                 cell,
                 key,
-                {"factory": "공장", "team": "팀", "asset": "라인", "module": "상세설비"}[key],
-                span={"asset": 3, "module": 2}.get(key, 1),
+                {
+                    "factory": "공장",
+                    "team": "팀",
+                    "asset": "라인",
+                    "module": "상세설비",
+                    "part": "세부부품",
+                }[key],
+                span={"asset": 3, "module": 2, "part": 2}.get(key, 1),
             )
         filters = self.filters(ws, fields)
         args = self.args(filters)
@@ -299,54 +305,15 @@ class IssueWorkbook:
             "#,##0",
         )
         self.table_borders(ws, 7, 7, 1, 8)
-        rank = self.b.wb.create_sheet("_issue_rank")
-        rank.append(["사례", "건수", "시간유효", "정지시간", "검토", "건수순위", "시간순위"])
-        summaries = issue_summary(self.facts, ["case"]).set_index("case")
+        from report.drilldown import build_ranks
+
+        end, summaries = build_ranks(self, filters)
         cases = sorted(summaries.index)
-        end = max(2, len(cases) + 1)
         count_order = sorted(cases, key=lambda case: (-summaries.at[case, "count"], case))
         time_order = sorted(
             (case for case in cases if summaries.at[case, "valid_count"]),
             key=lambda case: (-summaries.at[case, "total_minutes"], case),
         )
-        ranks = {
-            "count": {case: i for i, case in enumerate(count_order, 1)},
-            "time": {case: i for i, case in enumerate(time_order, 1)},
-        }
-        for row, case in enumerate(cases, 2):
-            self.b.put(rank, row, 1, case, project=False)
-            item = summaries.loc[case]
-            scoped = self.args(filters, [(self.fact_range("case"), exact(case))])
-            self.formula(rank, f"B{row}", self.count_formula(scoped), item["count"], "#,##0")
-            self.formula(rank, f"C{row}", self.valid_formula(scoped), item["valid_count"], "#,##0")
-            self.formula(
-                rank,
-                f"D{row}",
-                f'=IF(C{row}=0,"",SUMIFS({self.fact_range("minutes")},{scoped}))',
-                item["total_minutes"] if item["valid_count"] else "",
-            )
-            self.formula(
-                rank,
-                f"E{row}",
-                f"=SUMIFS({self.fact_range('review_count')},{scoped})",
-                item["review_count"],
-                "#,##0",
-            )
-            self.formula(
-                rank,
-                f"F{row}",
-                f'=IF(B{row}=0,"",RANK(B{row},$B$2:$B${end},0)+COUNTIF($B$2:B{row},B{row})-1)',
-                ranks["count"][case],
-                "#,##0",
-            )
-            self.formula(
-                rank,
-                f"G{row}",
-                f'=IF(C{row}=0,"",RANK(D{row},$D$2:$D${end},0)+COUNTIFS($C$2:C{row},">0",$D$2:D{row},D{row})-1)',
-                ranks["time"].get(case, ""),
-                "#,##0",
-            )
-        rank.sheet_state = "hidden"
         for left, metric, label, rank_col, order in (
             (1, "count", "발생 건수", "F", count_order),
             (7, "time", "정지시간", "G", time_order),
@@ -379,7 +346,7 @@ class IssueWorkbook:
                     self.formula(
                         ws,
                         f"{get_column_letter(left + offset)}{row}",
-                        f"=IF({case_cell}=\"\",\"\",INDEX('_issue_rank'!${helper_col}$2:${helper_col}${end},MATCH({escaped_cell(case_cell)},'_issue_rank'!$A$2:$A${end},0)))",
+                        f"=IF({case_cell}=\"\",\"\",INDEX('_issue_rank'!${helper_col}$2:${helper_col}${end},MATCH({index + 1},'_issue_rank'!${rank_col}$2:${rank_col}${end},0)))",
                         value,
                         "#,##0" if key == "count" else "#,##0.0",
                     )
@@ -435,13 +402,9 @@ class IssueWorkbook:
             next(iter(self.org_labels), ALL),
             span=3,
         )
-        self.selector(ws, "G6", "comparison_mode", "비교 방식", "세부부품별", span=3)
         self.selector(ws, "B7", "asset", "라인", span=3)
         self.selector(ws, "G7", "module", "상세설비", span=4)
-        self.selector(ws, "B8", "part", "세부부품", ALL, span=9)
-        filters = self.filters(ws, {"module": "G7", "part": "B8", "asset": "B7"})
-        mode = f"{ref(ws.title)}!$G$6"
-        filters["part"] = f'IF({mode}="세부부품별",{filters["part"]},"{ALL}")'
+        filters = self.filters(ws, {"module": "G7", "asset": "B7"})
         selected = self.facts
         cached = issue_summary(selected, ["factory", "team"]).set_index(["factory", "team"])
         ws.merge_cells("A9:J9")
@@ -538,7 +501,7 @@ class IssueWorkbook:
         self.note(
             ws,
             last,
-            "차이 = 해당 조직 - 기준 조직. 라인·상세설비 필터는 항상 적용하며 세부부품별 비교에서 부품 필터를 추가 적용합니다. 가동시간·생산량 미보정. 시간 미기재는 빈칸.",
+            "차이 = 해당 조직 - 기준 부서. 선택한 라인·상세설비 범위로 비교합니다. 가동시간·생산량 미보정. 시간 미기재는 빈칸.",
             span=10,
         )
         ws.print_area = f"A1:J{last + 2}"

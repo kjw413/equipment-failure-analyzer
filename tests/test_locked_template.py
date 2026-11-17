@@ -47,14 +47,24 @@ def populate(result, path):
 
 
 def without_caches(raw):
-    return re.sub(rb"<c:(strCache|numCache)\b[^>]*>.*?</c:\1>", b"", raw, flags=re.DOTALL)
+    raw = re.sub(rb"<c:(strCache|numCache)\b[^>]*>.*?</c:\1>", b"", raw, flags=re.DOTALL)
+    raw = re.sub(
+        rb'(<c:numFmt\b[^>]*formatCode=")([^"]*)(")',
+        lambda m: m[0] if b"%" in m[2] else m[1] + re.sub(rb"\.0+", b"", m[2]) + m[3],
+        raw,
+    )
+    if b'<c:barDir val="bar"' in raw:
+        raw = re.sub(
+            rb'<c:orientation val="(?:minMax|maxMin)"/>', b'<c:orientation val="maxMin"/>', raw
+        )
+    return raw
 
 
 def test_template_asset_contains_design_only():
     book = load_workbook(template_path())
     assert book.sheetnames == list(LOCKED_SHEETS)
     assert sum(len(sheet._charts) for sheet in book) == 6
-    assert sum(len(sheet._images) for sheet in book) == 4
+    assert sum(len(sheet._images) for sheet in book) == 0
     assert not any(cell.data_type == "f" for sheet in book for row in sheet for cell in row)
     with ZipFile(template_path()) as archive:
         assert "xl/sharedStrings.xml" not in archive.namelist()
@@ -78,6 +88,7 @@ def test_locked_design_keeps_formats_and_approved_filter_space(organization_resu
     result = load_workbook(path)
     try:
         assert result.sheetnames[:4] == list(LOCKED_SHEETS)
+        assert result._fonts[0] == design._fonts[0]
         for source, name in zip(design, LOCKED_SHEETS, strict=True):
             target = result[name]
             for address in ("A1", "A4"):
@@ -86,12 +97,14 @@ def test_locked_design_keeps_formats_and_approved_filter_space(organization_resu
                 assert target[address].alignment == copy(source[address].alignment)
             assert target.row_dimensions[1].height == source.row_dimensions[1].height
             assert target.row_dimensions[2].height == source.row_dimensions[2].height
-            assert target.row_dimensions[5].height == 27.95
+            assert target.row_dimensions[5].height == source.row_dimensions[5].height
             assert target.column_dimensions["A"].width == 13
             assert target.page_margins == source.page_margins
-        assert {"F5:H5", "K5:L5"} <= {str(x) for x in result[LOCKED_SHEETS[1]].merged_cells.ranges}
-        assert "B6:L6" in {str(x) for x in result[LOCKED_SHEETS[3]].merged_cells.ranges}
-        assert "B7:J7" in {str(x) for x in result[LOCKED_SHEETS[2]].merged_cells.ranges}
+            assert target.sheet_properties.pageSetUpPr.fitToPage
+            assert target.page_setup.fitToWidth == 1
+        assert {"G5:I5", "K5:L5"} <= {str(x) for x in result[LOCKED_SHEETS[1]].merged_cells.ranges}
+        assert "J6:K6" in {str(x) for x in result[LOCKED_SHEETS[3]].merged_cells.ranges}
+        assert "E5:G5" in {str(x) for x in result[LOCKED_SHEETS[2]].merged_cells.ranges}
         for name in LOCKED_SHEETS[1:]:
             assert len(result[name]._charts) == 2
     finally:
@@ -108,20 +121,20 @@ def test_locked_values_formulas_and_native_graphics(organization_result, tmp_pat
         assert values[METRICS_SHEET]["A2"].value == 6
         assert values[METRICS_SHEET]["A3"].value == 144
         assert values[METRICS_SHEET]["A4"].value == 28.8
-        assert "평균 정지시간 28.8분" in values[LOCKED_SHEETS[0]]["A5"].value
-        assert values[LOCKED_SHEETS[1]]["B6"].value == 6
-        assert values[LOCKED_SHEETS[1]]["D6"].value == 144
+        assert "평균 정지시간 29분" in values[LOCKED_SHEETS[0]]["A5"].value
+        assert values[LOCKED_SHEETS[1]]["C9"].value == 6
+        assert values[LOCKED_SHEETS[1]]["E9"].value == 144
         comparison = values[LOCKED_SHEETS[2]]
-        assert [comparison.cell(10, col).value for col in (3, 4, 6, 7)] == [2, 100, -2, 56]
+        assert [comparison.cell(23, col).value for col in (3, 4, 6, 7)] == [2, 100, -2, 56]
         trend = values[LOCKED_SHEETS[3]]
-        assert [(trend.cell(row, 2).value, trend.cell(row, 3).value) for row in range(8, 12)] == [
+        assert [(trend.cell(row, 2).value, trend.cell(row, 3).value) for row in range(23, 27)] == [
             (3, 130),
             (0, 0),
             (1, None),
             (2, 14),
         ]
         assert "$K$5" in formulas["_issue_filter_1"]["A2"].value
-        assert "$G$5" in formulas["_issue_filter_2"]["A2"].value
+        assert "$I$5" in formulas["_issue_filter_2"]["A2"].value
         for name in LOCKED_SHEETS[1:]:
             for validation in formulas[name].data_validations.dataValidation:
                 if validation.formula1.removeprefix("=") not in (
@@ -132,7 +145,7 @@ def test_locked_values_formulas_and_native_graphics(organization_result, tmp_pat
         with ZipFile(template_path()) as design, ZipFile(path) as output:
             for number in range(1, 7):
                 name = f"xl/charts/chart{number}.xml"
-                assert without_caches(output.read(name)) == design.read(name)
+                assert without_caches(output.read(name)) == without_caches(design.read(name))
                 root = ET.fromstring(output.read(name))
                 labels = root.findall(".//c:dLbls", NS)
                 assert len(labels) == 2
@@ -140,7 +153,7 @@ def test_locked_values_formulas_and_native_graphics(organization_result, tmp_pat
                     assert label.find("c:showVal", NS).get("val") == "1"
                     assert label.find("c:showCatName", NS).get("val") == "0"
                     assert label.find("c:showSerName", NS).get("val") == "0"
-            for number in range(1, 5):
+            for number in range(1, 4):
                 name = f"xl/drawings/drawing{number}.xml"
                 assert output.read(name) == design.read(name)
     finally:
@@ -168,7 +181,7 @@ def test_summary_missing_time_and_zero_stay_distinct(organization_result, tmp_pa
         text = values[LOCKED_SHEETS[0]]["A5"].value
         if minutes == 0 and not empty:
             assert "정지시간 합계 0분" in text
-            assert "평균 정지시간 0.0분" in text
+            assert "평균 정지시간 0분" in text
         else:
             assert "정지시간 합계 확인 필요" in text
             assert "평균 정지시간 확인 필요" in text
@@ -210,13 +223,13 @@ def test_longer_tables_preserve_every_organization_and_month(organization_result
     values = load_workbook(path, data_only=True)
     try:
         comparison, trend = values[LOCKED_SHEETS[2]], values[LOCKED_SHEETS[3]]
-        assert sum(comparison.cell(row, 3).value for row in range(9, 18)) == 24
-        assert sum(trend.cell(row, 2).value for row in range(8, 32)) == 24
-        assert comparison["A17"].value == "공장8"
-        assert trend["A31"].value == "2026-12"
-        assert comparison._charts[0].anchor._from.row == 18
-        assert trend._charts[0].anchor._from.row == 33
-        assert trend.row_dimensions[31].height == 27.95
+        assert sum(comparison.cell(row, 3).value for row in range(22, 31)) == 24
+        assert sum(trend.cell(row, 2).value for row in range(23, 47)) == 24
+        assert comparison["A30"].value == "공장8"
+        assert trend["A46"].value == "2026-12"
+        assert comparison._charts[0].anchor._from.row == 6
+        assert trend._charts[0].anchor._from.row == 7
+        assert trend.row_dimensions[46].height == 21
     finally:
         builder.close()
         values.close()

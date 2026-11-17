@@ -253,7 +253,7 @@ def donut_figure(
         textprops={"fontsize": 10, "fontname": font},
     )
     total = float(data.value.sum())
-    text = f"{total:,.0f}" if is_count else f"{total:,.1f}"
+    text = f"{total:,.0f}" if is_count else f"{total:,.0f}"
     ax.text(0, 0.08, text, ha="center", va="center", fontname=font, fontsize=27, fontweight="bold")
     ax.text(
         0,

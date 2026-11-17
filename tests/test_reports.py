@@ -26,7 +26,8 @@ def test_missing_time_excel_summary_does_not_name_a_time_leader(store, input_fil
             str(cell.value) for row in summary for cell in row if cell.value is not None
         )
         assert "nan" not in text.lower()
-        assert summary["A35"].value == "정지시간 기재 없음: 시간 기준 순위 확인 필요"
+        assert "정지시간 합계 확인 필요" in summary["A5"].value
+        assert summary["A35"].value is None
         assert "최다 설비:" not in text
     finally:
         workbook.close()

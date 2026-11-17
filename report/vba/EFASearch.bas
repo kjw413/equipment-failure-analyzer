@@ -1,7 +1,102 @@
 Option Explicit
 
 Private Opening As Boolean
+Private Updating As Boolean
+Private ChartHandlers As Collection
 Private Const AllLabel As String = "(전체)"
+
+Public Sub Initialize()
+    On Error GoTo Done
+    If Not ChartHandlers Is Nothing Then Exit Sub
+    Set ChartHandlers = New Collection
+    Dim item As ChartObject, handler As EFADrillChart
+    For Each item In ThisWorkbook.Worksheets("02.팀별 주요이슈").ChartObjects
+        Set handler = New EFADrillChart
+        Set handler.Watched = item.Chart
+        ChartHandlers.Add handler
+    Next item
+Done:
+End Sub
+
+Public Function SourceRange(ByVal Target As Range) As Range
+    ' Worksheet-local names narrow the native dropdown and the search window alike.
+    Dim label As String, scoped As Name
+    label = Mid$(Target.Validation.Formula1, 2)
+    On Error Resume Next
+    Set scoped = ThisWorkbook.Names("'" & Replace(Target.Parent.Name, "'", "''") & "'!" & label)
+    On Error GoTo 0
+    If scoped Is Nothing Then Set scoped = ThisWorkbook.Names(label)
+    Set SourceRange = scoped.RefersToRange
+End Function
+
+Private Function ControlRow(ByVal Target As Range) As Long
+    On Error GoTo Done
+    Dim ws As Worksheet, row As Long
+    Set ws = ThisWorkbook.Worksheets("_report_controls")
+    For row = 2 To ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+        If CStr(ws.Cells(row, 1).Value2) = Target.Parent.Name Then
+            If CStr(ws.Cells(row, 3).Value2) = Target.Cells(1, 1).Address(False, False) Then
+                ControlRow = row: Exit Function
+            End If
+        End If
+    Next row
+Done:
+End Function
+
+Public Function ControlCell(ByVal sheet As Worksheet, ByVal field As String) As Range
+    Dim metadata As Worksheet, row As Long
+    Set metadata = ThisWorkbook.Worksheets("_report_controls")
+    For row = 2 To metadata.Cells(metadata.Rows.Count, 1).End(xlUp).Row
+        If metadata.Cells(row, 1).Value2 = sheet.Name And metadata.Cells(row, 2).Value2 = field Then
+            Set ControlCell = sheet.Range(metadata.Cells(row, 3).Value2): Exit Function
+        End If
+    Next row
+End Function
+
+Private Sub ResetChildren(ByVal Target As Range, ByVal changed As Long)
+    If changed = 0 Then Exit Sub
+    Dim metadata As Worksheet, row As Long, child As Range
+    Set metadata = ThisWorkbook.Worksheets("_report_controls")
+    For row = 2 To metadata.Cells(metadata.Rows.Count, 1).End(xlUp).Row
+        If metadata.Cells(row, 1).Value2 = Target.Parent.Name Then
+            If metadata.Cells(row, 4).Value2 > metadata.Cells(changed, 4).Value2 Then
+                Set child = Target.Parent.Range(metadata.Cells(row, 3).Value2)
+                child.Value2 = "'" & AllLabel
+                metadata.Cells(row, 6).Value2 = AllLabel
+            End If
+        End If
+    Next row
+End Sub
+
+Public Sub HandleChange(ByVal sheet As Object, ByVal Target As Range)
+    If Updating Then Exit Sub
+    On Error GoTo Done
+    Dim metadata As Worksheet, row As Long, cell As Range, incoming As String, events As Boolean, changedEvents As Boolean
+    Set metadata = ThisWorkbook.Worksheets("_report_controls")
+    For row = 2 To metadata.Cells(metadata.Rows.Count, 1).End(xlUp).Row
+        If metadata.Cells(row, 1).Value2 = sheet.Name Then
+            Set cell = sheet.Range(metadata.Cells(row, 3).Value2)
+            If Not Application.Intersect(Target, cell.MergeArea) Is Nothing Then
+                incoming = CStr(cell.Value2)
+                If Len(incoming) = 0 Then incoming = AllLabel
+                events = Application.EnableEvents
+                changedEvents = True
+                Application.EnableEvents = False
+                cell.Value2 = "'" & CStr(metadata.Cells(row, 6).Value2)
+                Application.EnableEvents = events
+                changedEvents = False
+                CommitSelection cell, incoming
+                Exit Sub
+            End If
+        End If
+    Next row
+Done:
+    If changedEvents Then Application.EnableEvents = events
+    If Not Updating Then
+        Application.Calculate
+        RefreshTables
+    End If
+End Sub
 
 Public Function IsSelector(ByVal Target As Range) As Boolean
     On Error GoTo Done
@@ -27,6 +122,8 @@ Public Sub OpenPicker(ByVal Target As Range)
     If Not IsSelector(Target) Then Exit Sub
     On Error GoTo Failed
     Opening = True
+    Initialize
+    Application.Calculate
     Dim picker As EFAPicker
     Set picker = New EFAPicker
     picker.Prepare Target.Cells(1, 1)
@@ -138,21 +235,124 @@ End Function
 
 Public Function CommitSelection(ByVal Target As Range, ByVal value As String) As Boolean
     ' Revalidate the exact value against this field's own list before writing.
-    Dim source As Range, c As Range, events As Boolean
+    Dim source As Range, c As Range, events As Boolean, changed As Long, previous As String
     If Not IsSelector(Target) Then Exit Function
-    Set source = ThisWorkbook.Names(Mid$(Target.Validation.Formula1, 2)).RefersToRange
+    Application.Calculate
+    Set source = SourceRange(Target)
     For Each c In source.Cells
         If StrComp(CStr(c.Value2), value, vbBinaryCompare) = 0 Then
             events = Application.EnableEvents
             On Error GoTo Restore
             Application.EnableEvents = False
+            Updating = True
+            changed = ControlRow(Target)
+            previous = CStr(Target.Value2)
             ' Preserve names beginning with '=' as literal categories as well.
             Target.Value2 = "'" & value
+            If StrComp(previous, value, vbBinaryCompare) <> 0 Then ResetChildren Target, changed
+            If changed > 0 Then ThisWorkbook.Worksheets("_report_controls").Cells(changed, 6).Value2 = "'" & value
             CommitSelection = True
 Restore:
             Application.EnableEvents = events
-            If CommitSelection Then Application.Calculate
+            Updating = False
+            If CommitSelection Then
+                Application.Calculate
+                RefreshTables
+            End If
             Exit Function
         End If
     Next c
 End Function
+
+Public Sub RefreshTables()
+    On Error GoTo Done
+    Dim key As Variant, labels As Range, other As Range, row As Long, count As Long, ws As Worksheet
+    For Each key In Array("_Drill_CountLabels", "_Breakdown_equipmentLabels", "_Breakdown_lineLabels")
+        Set labels = ThisWorkbook.Names(CStr(key)).RefersToRange
+        Set ws = labels.Parent
+        Set other = Nothing
+        If CStr(key) = "_Drill_CountLabels" Then Set other = ThisWorkbook.Names("_Drill_TimeLabels").RefersToRange
+        count = 0
+        For row = 1 To labels.Rows.Count
+            If Len(CStr(labels.Cells(row, 1).Value2)) > 0 Then count = row
+            If Not other Is Nothing Then
+                If Len(CStr(other.Cells(row, 1).Value2)) > 0 Then count = row
+            End If
+        Next row
+        labels.EntireRow.Hidden = True
+        If count > 0 Then labels.Cells(1, 1).Resize(count, 1).EntireRow.Hidden = False
+        ws.PageSetup.PrintArea = "$A$1:$" & IIf(other Is Nothing, "M", "L") & "$" & CStr(labels.Row + IIf(count > 0, count, 1) - 1)
+        If other Is Nothing Then ws.PageSetup.FitToPagesTall = IIf(count > 12, 0, 1)
+    Next key
+Done:
+End Sub
+
+Public Function FollowRank(ByVal Target As Range) As Boolean
+    If Target.Parent.Name <> "02.팀별 주요이슈" Then Exit Function
+    Dim labels As Range, key As Variant
+    For Each key In Array("_Drill_CountLabels", "_Drill_TimeLabels")
+        Set labels = ThisWorkbook.Names(CStr(key)).RefersToRange
+        If Not Application.Intersect(Target, labels) Is Nothing Then
+            FollowRank = DrillValue(CStr(Target.Cells(1, 1).Value2)): Exit Function
+        End If
+    Next key
+End Function
+
+Public Function FollowChart(ByVal chart As Excel.Chart, ByVal point As Long) As Boolean
+    Dim labels As Range
+    If chart.Parent.Parent.Name <> "02.팀별 주요이슈" Then Exit Function
+    If chart.Parent.TopLeftCell.Column < 7 Then
+        Set labels = ThisWorkbook.Names("_Drill_CountLabels").RefersToRange
+    Else
+        Set labels = ThisWorkbook.Names("_Drill_TimeLabels").RefersToRange
+    End If
+    If point < 1 Or point > labels.Cells.Count Then Exit Function
+    FollowChart = DrillValue(CStr(labels.Cells(point, 1).Value2))
+End Function
+
+Private Function DrillValue(ByVal label As String) As Boolean
+    If Len(label) = 0 Then Exit Function
+    Application.Calculate
+    Dim field As String, main As Worksheet
+    Set main = ThisWorkbook.Worksheets("02.팀별 주요이슈")
+    field = CStr(ThisWorkbook.Worksheets("_drill_state").Range("B2").Value2)
+    DrillValue = CommitSelection(ControlCell(main, field), label)
+    If DrillValue And field = "part" Then ShowHistory
+End Function
+
+Private Sub ShowHistory()
+    Dim main As Worksheet, history As Worksheet, trends As Worksheet
+    Dim data As Variant, included As Variant, ids() As String, i As Long, count As Long
+    Dim header As Range, idField As Long, textColumn As Long, key As Variant
+    Set main = ThisWorkbook.Worksheets("02.팀별 주요이슈")
+    Set trends = ThisWorkbook.Worksheets("04.고장추이")
+    For Each key In Array("factory", "team", "asset", "module", "part")
+        CommitSelection ControlCell(trends, CStr(key)), CStr(ControlCell(main, CStr(key)).Value2)
+    Next key
+    Set history = ThisWorkbook.Worksheets("별첨. 고장이력")
+    data = ThisWorkbook.Worksheets("_issue_facts").Range("A2:A" & ThisWorkbook.Worksheets("_issue_facts").Cells(Rows.Count, 1).End(xlUp).Row).Value2
+    included = ThisWorkbook.Worksheets("_issue_filter_1").Range("A2:A" & ThisWorkbook.Worksheets("_issue_facts").Cells(Rows.Count, 1).End(xlUp).Row).Value2
+    ' A single-record array is returned as a scalar by Excel.
+    If Not IsArray(data) Then
+        ReDim ids(0 To 0): ids(0) = CStr(data)
+        If included = 1 Then count = 1
+    Else
+        ReDim ids(0 To UBound(data, 1) - 1)
+        For i = 1 To UBound(data, 1)
+            If included(i, 1) = 1 Then ids(count) = CStr(data(i, 1)): count = count + 1
+        Next i
+    End If
+    For Each header In history.AutoFilter.Range.Rows(1).Cells
+        If header.Value2 = "원본 기록 ID" Then idField = header.Column - history.AutoFilter.Range.Column + 1
+        If header.Value2 = "고장내용(표준화 후)" Then textColumn = header.Column
+    Next header
+    If history.FilterMode Then history.ShowAllData
+    If count > 0 Then
+        ReDim Preserve ids(0 To count - 1)
+        history.AutoFilter.Range.AutoFilter Field:=idField, Criteria1:=ids, Operator:=xlFilterValues
+    Else
+        history.AutoFilter.Range.AutoFilter Field:=idField, Criteria1:="=__EFA_no_record__"
+    End If
+    history.Activate
+    If textColumn > 0 Then Application.Goto history.Cells(6, textColumn), True
+End Sub

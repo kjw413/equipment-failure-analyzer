@@ -11,7 +11,7 @@ Public Sub Prepare(ByVal Target As Range)
         control.Font.Size = 10
     Next control
     Set Destination = Target
-    Set Options = ThisWorkbook.Names(Mid$(Target.Validation.Formula1, 2)).RefersToRange
+    Set Options = EFASearch.SourceRange(Target)
     Me.Caption = "필터 검색 · " & Target.Worksheet.Name
     CurrentValue.Caption = "현재 선택: " & CStr(Target.Value2)
     Query.Text = ""

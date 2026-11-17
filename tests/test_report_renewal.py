@@ -25,7 +25,7 @@ def test_renewal_summary_uses_correct_average_and_configured_department(
         # One of the four records has no duration; it is not a zero-minute stop.
         assert metrics["A4"].value == pytest.approx(95 / 3)
         assert "4건" in summary["A5"].value and "95분" in summary["A5"].value
-        assert "31.7분" in summary["A5"].value
+        assert "32분" in summary["A5"].value
         assert formulas[SHEETS["summary"]]["A5"].data_type == "f"
         appendix = values[SHEETS["equipment"]]
         assert appendix["B3"].value == f"{datetime.now():%Y.%m.%d} 생산기술팀 작성"
@@ -33,11 +33,11 @@ def test_renewal_summary_uses_correct_average_and_configured_department(
         assert "AVERAGE(" in formulas["_report_metrics"]["A4"].value
         minutes_column = get_column_letter(DETAIL_COLS.index("minutes") + 2)
         assert f"${minutes_column}$" in formulas["_report_metrics"]["A4"].value
-        assert len(summary._images) == 4
+        assert len(summary._images) == 0
         assert values.sheetnames[:4] == [
             "01.종합현황",
-            "02.주요이슈_팀별",
-            "03.비교",
+            "02.팀별 주요이슈",
+            "03.팀간 비교",
             "04.고장추이",
         ]
         for sheet in values:

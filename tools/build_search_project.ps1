@@ -37,6 +37,9 @@ try {
     $workbookCodeName = $workbookModule.Name
     if ($workbookCodeName -ne 'ThisWorkbook') { throw 'Workbook event module rename failed.' }
     $workbookModule.CodeModule.AddFromString([IO.File]::ReadAllText((Join-Path $root 'report/vba/ThisWorkbook.cls')))
+    $chartModule = $project.VBComponents.Add(2)
+    $chartModule.Name = 'EFADrillChart'
+    $chartModule.CodeModule.AddFromString([IO.File]::ReadAllText((Join-Path $root 'report/vba/EFADrillChart.cls')))
     $form = $project.VBComponents.Add(3)
     $form.Name = 'EFAPicker'
     $designer = $form.Designer
@@ -78,7 +81,7 @@ try {
         [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path $root 'config/report_search_vba.bin'), $true)
     } finally { $archive.Dispose() }
     $sourceHashes = [ordered]@{}
-    foreach ($name in @('ThisWorkbook.cls', 'EFASearch.bas', 'EFAPicker.vba')) {
+    foreach ($name in @('ThisWorkbook.cls', 'EFASearch.bas', 'EFAPicker.vba', 'EFADrillChart.cls')) {
         $sourceHashes[$name] = (Get-FileHash -LiteralPath (Join-Path $root ('report/vba/' + $name)) -Algorithm SHA256).Hash.ToLowerInvariant()
     }
     [ordered]@{

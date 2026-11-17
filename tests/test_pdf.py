@@ -35,7 +35,8 @@ def test_bundle_generates_three_files_same_totals_and_name(store, input_file, tm
     text = pdf_text(files.pdf)
     assert "미확정 분류" in text and "검토 중에도 출력 가능" in text
     assert "VITAL#2" in text and "IF18115" not in text
-    assert "95.0" in text and "31.7" in text
+    assert "95" in text and "32" in text
+    assert "31.7" not in text
     wb = load_workbook(files.excel, data_only=True)
     assert wb["_report_metrics"]["A2"].value == 4
     assert wb["_report_metrics"]["A3"].value == 95

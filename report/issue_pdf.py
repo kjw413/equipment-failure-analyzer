@@ -49,7 +49,7 @@ class IssuePdf:
             [
                 case,
                 number(lookup.at[case, "count"]),
-                number(lookup.at[case, "total_minutes"], 1),
+                number(lookup.at[case, "total_minutes"]),
                 number(ranks["count"].get(case)),
                 number(ranks["total_minutes"].get(case)),
                 number(lookup.at[case, "review_count"]),
@@ -74,7 +74,7 @@ class IssuePdf:
                 row["factory"],
                 row["team"],
                 number(row["count"]),
-                number(row["total_minutes"], 1),
+                number(row["total_minutes"]),
                 number(row["review_count"]),
             ]
             for row in summary.to_dict("records")
@@ -123,9 +123,9 @@ class IssuePdf:
                 factory,
                 team,
                 number(count),
-                number(minutes, 1),
+                number(minutes),
                 number(count - baseline[2]),
-                number(minutes - baseline[3], 1),
+                number(minutes - baseline[3]),
             ]
             for factory, team, count, minutes in values
         ]
@@ -219,7 +219,7 @@ class IssuePdf:
                 [
                     row["period"],
                     number(row["count"]),
-                    number(row["total_minutes"], 1),
+                    number(row["total_minutes"]),
                     number(row["valid_count"]),
                     number(row["review_count"]),
                 ]

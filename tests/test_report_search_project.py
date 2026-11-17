@@ -72,7 +72,7 @@ def test_macro_report_keeps_values_charts_and_exact_lists(organization_result, t
         assert workbook_type == "application/vnd.ms-excel.sheet.macroEnabled.main+xml"
     book = load_workbook(macro, keep_vba=True, data_only=True)
     try:
-        assert book["02.주요이슈_팀별"]["B5"].value == "(전체)"
+        assert book["02.팀별 주요이슈"]["B5"].value == "(전체)"
         assert book.vba_archive is not None
     finally:
         book.close()

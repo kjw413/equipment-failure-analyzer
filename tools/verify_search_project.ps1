@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$ReportPath, [switch]$AllowTemporaryVbaAccess, [string]$EvidenceDirectory='output/report_v122_qa')
+param([Parameter(Mandatory=$true)][string]$ReportPath, [switch]$AllowTemporaryVbaAccess, [string]$EvidenceDirectory='output/report_v122_qa', [switch]$PreviewPdf)
 $ErrorActionPreference = 'Stop'
 if (-not $AllowTemporaryVbaAccess) { throw 'Explicit authorization required.' }
 $root = Split-Path -Parent $PSScriptRoot
@@ -36,17 +36,29 @@ try {
     $searchModule.DeleteLines(1, $searchModule.CountOfLines)
     $searchModule.AddFromString($searchCode)
     $excel.CalculateFull()
+    if ($PreviewPdf) { $excel.Run("'" + $book.Name + "'!NativeSearchQA.SetPreviewDirectory", (Join-Path $root $EvidenceDirectory)) }
     $result = $excel.Run("'" + $book.Name + "'!NativeSearchQA.VerifySearch")
     if ($result -notlike 'PASS;*') { throw "Native Excel verification failed: $result" }
     Write-Output $result
+    $drill = $excel.Run("'" + $book.Name + "'!NativeSearchQA.VerifyDrilldown")
+    Write-Output $drill
+    if ($drill -notlike 'PASS;*') { throw "Drilldown verification failed: $drill" }
     $excel.Visible = $true
     $events = $excel.Run("'" + $book.Name + "'!NativeSearchQA.VerifyWorkbookEvents")
     Write-Output $events
     if ($events -notlike 'PASS;*') { throw "Native workbook event verification failed: $events" }
+    if ($PreviewPdf) {
+        $book.Worksheets.Item('01.종합현황').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/summary_native.pdf')))
+        $book.Worksheets.Item('04.고장추이').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/trend_native.pdf')))
+        $book.Worksheets.Item('03.팀간 비교').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/comparison_native.pdf')))
+        $book.Worksheets.Item('별첨. 라인별분석').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/line_appendix_native.pdf')))
+        $book.Worksheets.Item('별첨. 상세설비별분석').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/module_appendix_native.pdf')))
+        $book.Worksheets.Item('별첨. 기간별추이').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/period_native.pdf')))
+    }
     $book.Close($false)
     $book = $null
     if ((Get-FileHash -LiteralPath $ReportPath -Algorithm SHA256).Hash -ne $hashBefore) { throw 'Report changed during verification.' }
-    $evidence = [ordered]@{ passed=$true; native_excel_version=$excel.Version; result=$result; workbook_selection_event=$events; source_sha256=$hashBefore; source_unchanged=$true; keyboard_handlers_tested=$true; keyboard_visual_test=$false }
+    $evidence = [ordered]@{ passed=$true; native_excel_version=$excel.Version; result=$result; drilldown=$drill; workbook_selection_event=$events; source_sha256=$hashBefore; source_unchanged=$true; keyboard_handlers_tested=$true; keyboard_visual_test=$false }
     $evidence | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root ($EvidenceDirectory + '/native_verification.json')) -Encoding utf8
 } finally {
     try {

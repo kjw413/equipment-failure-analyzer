@@ -84,7 +84,7 @@ def summary_findings(result: AnalysisResult) -> list[tuple[str, str]]:
         rows.append(
             (
                 "최대 정지시간 설비",
-                f"{row['equipment']}{tie}: {number(row['total_minutes'], 1)}분, 전체 유효 정지시간의 {row['total_minutes'] / total:.1%}.",
+                f"{row['equipment']}{tie}: {number(row['total_minutes'])}분, 전체 유효 정지시간의 {row['total_minutes'] / total:.1%}.",
             )
         )
         n = min(3, len(ranked))
@@ -239,8 +239,8 @@ class FinalReport:
             layout.kpis(
                 [
                     ("분석 기록(건)", number(m["selected_rows"])),
-                    ("정지시간(분)", number(m["total_minutes"], 1)),
-                    ("평균 정지(분)", number(m["mean_minutes"], 1)),
+                    ("정지시간(분)", number(m["total_minutes"])),
+                    ("평균 정지(분)", number(m["mean_minutes"])),
                     ("분석 대상(개)", number(m["equipment_count"])),
                 ]
             )
@@ -394,7 +394,7 @@ class FinalReport:
                     str(i),
                     row["equipment"],
                     number(row["count"]),
-                    number(row["total_minutes"], 1),
+                    number(row["total_minutes"]),
                     percent(row["time_share"]),
                 ]
                 for i, row in enumerate(ranked.head(self.top_n).to_dict("records"), 1)
@@ -418,7 +418,7 @@ class FinalReport:
                     str(i),
                     row["type"],
                     number(row["count"]),
-                    number(row["total_minutes"], 1),
+                    number(row["total_minutes"]),
                     percent(row["time_share"]),
                 ]
                 for i, row in enumerate(ranked.head(self.top_n).to_dict("records"), 1)
@@ -454,8 +454,8 @@ class FinalReport:
             [
                 row["period"],
                 number(row["count"]),
-                number(row["total_minutes"], 1),
-                number(row["mean_minutes"], 1),
+                number(row["total_minutes"]),
+                number(row["mean_minutes"]),
                 number(row["valid_count"]),
             ]
             for row in table.to_dict("records")
@@ -507,7 +507,7 @@ class FinalReport:
             layout.kpis(
                 [
                     ("기록(건)", number(len(selected))),
-                    ("정지(분)", number(total, 1)),
+                    ("정지(분)", number(total)),
                     ("고장유형(개)", str(len(table))),
                     ("시간 유효(건)", number(selected["minutes"].count())),
                 ]
@@ -611,7 +611,7 @@ class FinalReport:
                     brief_type(row["type"]),
                     number(row["count"]),
                     percent(row["count_share"]),
-                    number(row["total_minutes"], 1),
+                    number(row["total_minutes"]),
                     percent(row["time_share"]),
                 ]
             )
@@ -652,7 +652,7 @@ class FinalReport:
         ):
             table = type_breakdown(r.selected, row["equipment"])
             top = table.sort_values("total_minutes", ascending=False, na_position="last").iloc[0]
-            evidence = f"{number(row['total_minutes'], 1)}분 / {percent(row['time_share'])}\n시간 상위 유형: {brief_type(top['type'])}"
+            evidence = f"{number(row['total_minutes'])}분 / {percent(row['time_share'])}\n시간 상위 유형: {brief_type(top['type'])}"
             rows.append(
                 [
                     row["equipment"],
@@ -675,7 +675,7 @@ class FinalReport:
             raw = str(row.get("raw_description", ""))
             if len(raw) > 125:
                 raw = raw[:125] + " [이하 Excel 참조]"
-            rows.append([date, row["equipment"], number(row["minutes"], 1), raw])
+            rows.append([date, row["equipment"], number(row["minutes"]), raw])
         self.story.append(
             layout.table(
                 ["발생일", "설비", "정지(분)", "기록 내용(발췌)"],

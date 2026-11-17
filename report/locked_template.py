@@ -6,6 +6,7 @@ is restored after saving because an openpyxl round trip discards Excel extension
 
 from __future__ import annotations
 
+import json
 import math
 import posixpath
 import re
@@ -17,24 +18,25 @@ from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import load_workbook
-from openpyxl.cell.cell import MergedCell
+from openpyxl.cell.cell import Cell, MergedCell
 from openpyxl.formula import Tokenizer
 from openpyxl.utils.cell import get_column_letter, range_boundaries
+from openpyxl.utils.indexed_list import IndexedList
+from openpyxl.worksheet.properties import PageSetupProperties
 
 from core.config import resource_root
-from report.workbook_layout import INCREASE_FORMAT, INCREASE_INT_FORMAT
 from version import VERSION
 
 LOCKED_SHEETS = (
     "01.종합현황",
-    "02.주요이슈_팀별",
-    "03.비교",
+    "02.팀별 주요이슈",
+    "03.팀간 비교",
     "04.고장추이",
 )
 ALIASES = (
     (LOCKED_SHEETS[0], "01_종합현황"),
-    (LOCKED_SHEETS[1], "주요이슈_팀별", "공장팀_주요이슈"),
-    (LOCKED_SHEETS[2], "동일설비사례_비교"),
+    (LOCKED_SHEETS[1], "02.주요이슈_팀별", "주요이슈_팀별", "공장팀_주요이슈"),
+    (LOCKED_SHEETS[2], "03.비교", "동일설비사례_비교"),
     (LOCKED_SHEETS[3], "고장사례_추이"),
 )
 METRICS_SHEET = "_report_metrics"
@@ -140,72 +142,6 @@ def _row_map(mapping, first, count, offset, width):
             mapping[f"{letter}{row}"] = f"{letter}{row + offset}"
 
 
-def _input(target, source, address, span=1, label=None):
-    """Reuse existing input/label formatting for the user's approved merges."""
-    cell = target[address]
-    row, col = cell.row, cell.column
-    for merged in list(target.merged_cells.ranges):
-        if merged.min_row <= row <= merged.max_row and not (
-            merged.max_col < col or merged.min_col > col + span - 1
-        ):
-            target.unmerge_cells(str(merged))
-    for column in range(col, col + span):
-        dest = target.cell(row, column)
-        _style(source, dest)
-        dest.value = None
-    if label is not None:
-        dest = target.cell(row, col - 1)
-        _style(label, dest)
-        dest.value = label.value
-    if span > 1:
-        target.merge_cells(start_row=row, end_row=row, start_column=col, end_column=col + span - 1)
-
-
-def _approved_inputs(target, design, index):
-    if index == 0:
-        target.merge_cells("A35:L35")
-    elif index in (1, 3):
-        for address in ("G5", "H5", "I5", "J5"):
-            target[address] = None
-        _input(target, design["F5"], "F5", 3)
-        _input(target, design["H5"], "K5", 2, design["G5"])
-        if index == 3:
-            _input(target, design["J5"], "B6", 11, design["I5"])
-    elif index == 2:
-        for merged in ("B5:C5", "E5:F5", "F6:H6"):
-            target.unmerge_cells(merged)
-        for address in ("D5", "E5", "F5", "C6", "D6", "E6", "F6", "G6", "H6"):
-            target[address] = None
-        _input(target, design["B5"], "B5", 3)
-        _input(target, design["E5"], "G5", 3, design["D5"])
-        _input(target, design["B6"], "B6", 3)
-        _input(target, design["D6"], "G6", 4, design["C6"])
-        _input(target, design["F6"], "B7", 9, design["E6"])
-
-
-def _approved_dimensions(target, index, actual=0):
-    # These two geometry overrides were explicitly selected by the user.
-    for dimension in list(target.column_dimensions.values()):
-        if dimension.min <= 12:
-            if dimension.max > 12:
-                tail = copy(dimension)
-                tail.min, tail.index = 13, "M"
-                target.column_dimensions["M"] = tail
-                dimension.max = 12
-            dimension.width = 13
-    body = (
-        [5, 6, 35]
-        if index == 0
-        else [5, 6, *range(8, 14)]
-        if index == 1
-        else [5, 6, 7, *range(8, max(15, 8 + actual) + 1)]
-        if index == 2
-        else [5, 6, *range(7, max(18, 7 + actual) + 1)]
-    )
-    for row in body:
-        target.row_dimensions[row].height = 27.95
-
-
 def _extend(target, start, capacity, actual):
     extra = max(0, actual - capacity)
     if not extra:
@@ -216,11 +152,7 @@ def _extend(target, start, capacity, actual):
             _style(target.cell(old_end, col), target.cell(row, col))
         target.row_dimensions[row] = copy(target.row_dimensions[old_end])
         target.row_dimensions[row].index = row
-    # Keep all observations; charts move down only when the data table grows.
-    for chart in target._charts:
-        chart.anchor._from.row += extra
-        if hasattr(chart.anchor, "to"):
-            chart.anchor.to.row += extra
+    # Tables are below the charts; growing tables keep the chart anchors fixed.
     bounds = range_boundaries(str(target.print_area).split("!")[-1])
     target.print_area = (
         f"{get_column_letter(bounds[0])}{bounds[1]}:"
@@ -229,60 +161,212 @@ def _extend(target, start, capacity, actual):
     return extra
 
 
-def _image_bytes(image):
-    if hasattr(image.ref, "getvalue"):
-        return image.ref.getvalue()
-    return image._data()
+def _summary_lines(builder, target):
+    """Rank physical report lines independently of the GUI grouping selection."""
+    from core.aggregation import grouped
+    from report.issue_workbook import escaped_cell, exact, ref
+
+    frame = builder.r.selected
+    field = "report_equipment" if "report_equipment" in frame else "equipment"
+    groups = grouped(frame.assign(equipment=frame[field]), ["equipment"])
+    rows = sorted(groups.to_dict("records"), key=lambda item: str(item["equipment"]))
+    detail = builder.wb[next(s.title for s in builder.wb if s.title.endswith("고장이력"))]
+    headers = {cell.value: cell.column_letter for cell in detail[6]}
+    line_col = headers[builder.display_header(field)]
+    time_col = headers[builder.display_header("minutes")]
+    last = max(7, 6 + len(frame))
+    line_range = f"{ref(detail.title)}!${line_col}$7:${line_col}${last}"
+    time_range = f"{ref(detail.title)}!${time_col}$7:${time_col}${last}"
+    helper = builder.wb.create_sheet("_report_lines")
+    helper.append(["라인", "건수", "시간 유효", "정지시간", "건수순위", "시간순위"])
+    helper.sheet_state = "hidden"
+    count_order = sorted(rows, key=lambda item: (-item["count"], str(item["equipment"])))
+    time_order = sorted(
+        [item for item in rows if item["valid_count"]],
+        key=lambda item: (-item["total_minutes"], str(item["equipment"])),
+    )
+    ranks = [
+        {item["equipment"]: i for i, item in enumerate(order, 1)}
+        for order in (count_order, time_order)
+    ]
+    end = max(2, len(rows) + 1)
+    for row, item in enumerate(rows, 2):
+        label = str(item["equipment"])
+        helper.cell(row, 1, label).data_type = "s"
+        criterion = exact(label)
+        for col, formula, cached in (
+            ("B", f"=COUNTIF({line_range},{criterion})", item["count"]),
+            (
+                "C",
+                f'=COUNTIFS({line_range},{criterion},{time_range},">=0",{time_range},"<>")',
+                item["valid_count"],
+            ),
+            (
+                "D",
+                f'=IF(C{row}=0,"",SUMIF({line_range},{criterion},{time_range}))',
+                item["total_minutes"] if item["valid_count"] else "",
+            ),
+            (
+                "E",
+                f'=IF(B{row}=0,"",RANK(B{row},$B$2:$B${end},0)+COUNTIF($B$2:B{row},B{row})-1)',
+                ranks[0][label],
+            ),
+            (
+                "F",
+                f'=IF(C{row}=0,"",RANK(D{row},$D$2:$D${end},0)+COUNTIFS($C$2:C{row},">0",$D$2:D{row},D{row})-1)',
+                ranks[1].get(label, ""),
+            ),
+        ):
+            builder.cache.set(helper, f"{col}{row}", formula, cached)
+    for first, order, rank_col, value_col, key in (
+        (10, count_order, "E", "B", "count"),
+        (23, time_order, "F", "D", "total_minutes"),
+    ):
+        for index in range(10):
+            row = first + index
+            item = order[index] if index < len(order) else None
+            label = str(item["equipment"]) if item else ""
+            builder.cache.set(
+                target,
+                f"B{row}",
+                f"=IFERROR(INDEX('_report_lines'!$A$2:$A${end},MATCH({index + 1},'_report_lines'!${rank_col}$2:${rank_col}${end},0)),\"\")",
+                label,
+            )
+            builder.cache.set(
+                target,
+                f"D{row}",
+                f"=IF(B{row}=\"\",\"\",INDEX('_report_lines'!${value_col}$2:${value_col}${end},MATCH({escaped_cell(f'B{row}')},'_report_lines'!$A$2:$A${end},0)))",
+                item[key] if item else "",
+            )
+
+
+def _appendix_layout(builder, design):
+    """Apply the reference's appendix geometry without fixed source-data row counts."""
+    from openpyxl.worksheet.dimensions import ColumnDimension
+
+    path = resource_root() / "config" / "report_appendix_layout.json"
+    layouts = json.loads(path.read_text(encoding="utf-8"))
+    reference_styles = {}
+
+    def reference(style_id):
+        if style_id not in reference_styles:
+            cell = Cell(design.worksheets[0], row=1, column=1)
+            cell._style = design._cell_styles[style_id]
+            reference_styles[style_id] = cell
+        return reference_styles[style_id]
+
+    for name, layout in layouts.items():
+        if name not in builder.wb:
+            continue
+        target = builder.wb[name]
+        target.column_dimensions.clear()
+        for attrs in layout["columns"]:
+            key = get_column_letter(int(attrs["min"]))
+            dimension = ColumnDimension(target, index=key)
+            target.column_dimensions[key] = dimension
+            # Apply grouped Excel column dimensions including hidden source IDs.
+            for attr in ("min", "max", "width", "hidden", "bestFit", "outlineLevel", "collapsed"):
+                if attr in attrs:
+                    value = attrs[attr]
+                    setattr(
+                        dimension,
+                        attr,
+                        float(value)
+                        if attr == "width"
+                        else bool(int(value))
+                        if attr in ("hidden", "bestFit", "collapsed")
+                        else int(value),
+                    )
+            if "style" in attrs:
+                _style(reference(int(attrs["style"])), dimension)
+        for address, style_id in layout["header_styles"].items():
+            cell = target[address]
+            if not isinstance(cell, MergedCell):
+                _style(reference(style_id), cell)
+        for row in range(1, target.max_row + 1):
+            target.row_dimensions[row].height = (
+                layout["row_heights"].get(str(row), layout["body_height"])
+                if row <= 6
+                else layout["body_height"]
+            )
+        for key, value in layout["margins"].items():
+            setattr(target.page_margins, key, float(value))
+        for key, value in layout["page_setup"].items():
+            if key in ("orientation", "paperSize", "fitToWidth", "fitToHeight", "scale"):
+                setattr(target.page_setup, key, value if key == "orientation" else int(value))
+        left, right = layout["print_columns"]
+        bottom = max(target.max_row, 42) if name.endswith("분석") else target.max_row
+        target.print_area = f"{left}1:{right}{bottom}"
 
 
 def apply_locked_template(builder):
     """Replace scratch front sheets with the template, retaining live formulas."""
     book, cache = builder.wb, builder.cache
     design = load_workbook(template_path())
+    # Excel measures column widths using the Normal font, including chart offsets.
+    # Copying only individual cell fonts leaves the same width=13 visibly narrower.
+    book._fonts = IndexedList([copy(design._fonts[0]), *book._fonts[1:]])
     sources = [
         next((book[n] for n in aliases if n in book.sheetnames), None) for aliases in ALIASES
     ]
     maps, names = {}, {}
     states = {}
     old_cache = dict(cache.values)
-    runtime_images = [_image_bytes(x) for x in sources[0]._images] if sources[0] else []
     for index, source in enumerate(sources):
         if source is None:
             continue
         mapping = {}
         if index == 0:
-            mapping.update({"A1": "A1", "A3": "A4", "A7": "A6", "A37": "A35"})
+            mapping.update({"A3": "A4", "A7": "A6"})
         elif index == 1:
             mapping.update(
                 {
                     "B6": "B5",
                     "D6": "D5",
-                    "F6": "F5",
+                    "F6": "G5",
                     "K6": "K5",
-                    "B7": "B6",
-                    "D7": "D6",
-                    "F7": "F6",
-                    "H7": "H6",
+                    "K7": "K6",
+                    "B7": "C9",
+                    "D7": "E9",
+                    "F7": "G9",
+                    "H7": "I9",
                 }
             )
-            _row_map(mapping, 10, 5, -1, 12)
+            count = sum(source.cell(row, 4).data_type == "f" for row in range(10, 20))
+            _row_map(mapping, 10, count, 18, 12)
+            states[LOCKED_SHEETS[index]] = {
+                "actual": count,
+                "capacity": 5,
+                "start": 28,
+                "chart_row_shift": 0,
+            }
         elif index == 2:
-            mapping.update({"B6": "B5", "G6": "G5", "B7": "B6", "G7": "G6", "B8": "B7"})
+            mapping.update({"B6": "B5", "B7": "E5", "G7": "I5"})
             # The issue source excludes planned stops and can contain fewer organizations.
             count = sum(
                 source.cell(row, 1).value is not None
                 for row in range(11, source.max_row + 1)
                 if source.cell(row, 3).data_type == "f"
             )
-            _row_map(mapping, 11, count, -2, 10)
-            states[LOCKED_SHEETS[index]] = {"actual": count, "capacity": 7, "start": 9}
+            _row_map(mapping, 11, count, 11, 10)
+            states[LOCKED_SHEETS[index]] = {
+                "actual": count,
+                "capacity": 7,
+                "start": 22,
+                "chart_row_shift": 0,
+            }
         else:
-            mapping.update({"B6": "B5", "D6": "D5", "F6": "F5", "K6": "K5", "B7": "B6"})
+            mapping.update({"B6": "B5", "D6": "D5", "F6": "F5", "K6": "J5", "B7": "J6"})
             count = sum(
                 source.cell(row, 2).data_type == "f" for row in range(10, source.max_row + 1)
             )
-            _row_map(mapping, 10, count, -2, 11)
-            states[LOCKED_SHEETS[index]] = {"actual": count, "capacity": 11, "start": 8}
+            _row_map(mapping, 10, count, 13, 11)
+            states[LOCKED_SHEETS[index]] = {
+                "actual": count,
+                "capacity": 11,
+                "start": 23,
+                "chart_row_shift": 0,
+            }
         maps[source.title], names[source.title] = mapping, LOCKED_SHEETS[index]
     metrics = None
     if sources[0]:
@@ -313,7 +397,6 @@ def apply_locked_template(builder):
         target = _copy_sheet(design[name], book)
         if str(target.oddFooter.right.text).startswith("EFA "):
             target.oddFooter.right.text = f"EFA {VERSION}"
-        _approved_inputs(target, design[name], index)
         targets[name] = target
         for row in design[name]:
             for cell in row:
@@ -328,8 +411,15 @@ def apply_locked_template(builder):
             if state
             else 0
         )
-        _approved_dimensions(target, index, state.get("actual", 0))
         states[name] = state
+        if target.sheet_properties.pageSetUpPr is None:
+            target.sheet_properties.pageSetUpPr = PageSetupProperties()
+        target.sheet_properties.pageSetUpPr.fitToPage = True
+        target.page_setup.fitToWidth = 1
+        if index == 3:
+            # The reference's right-hand chart reaches L; include it when printing.
+            bottom = range_boundaries(str(target.print_area).split("!")[-1])[3]
+            target.print_area = f"A1:L{bottom}"
         # Controls come from the current report logic, never stale template lists.
         target.data_validations = deepcopy(source.data_validations)
         for validation in target.data_validations.dataValidation:
@@ -364,14 +454,16 @@ def apply_locked_template(builder):
                     else "확인 필요"
                 )
 
-            text = f"총 기록 건수 {int(count):,}건  |  정지시간 합계 {display(total)}  |  평균 정지시간 {display(mean, 1)}"
+            text = f"총 기록 건수 {int(count):,}건  |  정지시간 합계 {display(total)}  |  평균 정지시간 {display(mean)}"
             formula = (
                 '="총 기록 건수 "&TEXT(\'_report_metrics\'!A2,"#,##0")&"건  |  정지시간 합계 "&'
                 'IF(ISNUMBER(\'_report_metrics\'!A3),TEXT(\'_report_metrics\'!A3,"#,##0")&"분","확인 필요")&'
-                '"  |  평균 정지시간 "&IF(ISNUMBER(\'_report_metrics\'!A4),TEXT(\'_report_metrics\'!A4,"#,##0.0")&"분","확인 필요")'
+                '"  |  평균 정지시간 "&IF(ISNUMBER(\'_report_metrics\'!A4),TEXT(\'_report_metrics\'!A4,"#,##0")&"분","확인 필요")'
             )
             cache.set(target, "A5", formula, text)
-        _report_content(target, index, state.get("actual", 0), builder.r.options.top_n)
+        if index == 0:
+            _summary_lines(builder, target)
+    _appendix_layout(builder, design)
     # Rewrite references in hidden rank helpers and the rest of the report once.
     source_names = set(maps)
     for sheet in book:
@@ -398,57 +490,8 @@ def apply_locked_template(builder):
         ws for ws in book if ws.title not in targets
     ]
     book.loaded_theme = design.loaded_theme
-    builder._locked_template = {"sheets": states, "styles": style_map, "images": runtime_images}
+    builder._locked_template = {"sheets": states, "styles": style_map, "images": []}
     design.close()
-
-
-def _report_content(target, index, actual, top_n):
-    """Approved terminology and comparison-only value colors; retain other styling."""
-    for row in target:
-        for cell in row:
-            if cell.data_type == "s" and isinstance(cell.value, str):
-                cell.value = (
-                    cell.value.replace("실제 설비", "라인")
-                    .replace("고장사례", "상세설비·세부부품")
-                    .replace("고장 사례", "상세설비·세부부품")
-                )
-    if index == 1:
-        target["A1"] = "공장·팀·라인의 주요 고장이슈"
-        target["B8"] = target["H8"] = "상세설비 / 세부부품"
-    elif index == 2:
-        target["A1"] = "동일 상세설비·세부부품의 공장·팀 비교"
-        target["A6"], target["A7"] = "라인", "세부부품"
-    elif index == 3:
-        target["A1"] = "세부부품의 월별 건수·정지시간"
-        target["A6"] = "세부부품"
-    elif index == 0:
-        target["G8"] = f"○ 발생 건수 TOP {top_n} _ 상세설비·세부부품"
-        target["G21"] = f"○ 정지시간 TOP {top_n} _ 상세설비·세부부품"
-        for address in ("A8", "A21"):
-            target[address] = re.sub(r"TOP\s*\d+", f"TOP {top_n}", str(target[address].value))
-    first, last = (
-        (5, 6)
-        if index == 0
-        else (9, 13)
-        if index == 1
-        else (9, 8 + actual)
-        if index == 2
-        else (8, 7 + actual)
-    )
-    for row in target.iter_rows(min_row=first, max_row=max(first, last), max_col=12):
-        for cell in row:
-            if isinstance(cell, MergedCell):
-                continue
-            font = copy(cell.font)
-            font.color = "222222"
-            cell.font = font
-            cell.number_format = re.sub(r"\[(?:Red|Blue)\]", "", cell.number_format, flags=re.I)
-            if cell.data_type == "f" and index == 2 and cell.column in (6, 7):
-                cell.number_format = INCREASE_INT_FORMAT if cell.column == 6 else INCREASE_FORMAT
-            elif cell.data_type == "f" and index == 3 and cell.column in (7, 8, 9, 10):
-                cell.number_format = (
-                    INCREASE_INT_FORMAT if cell.column in (7, 9) else INCREASE_FORMAT
-                )
 
 
 def _resolve(base, target):
@@ -493,6 +536,8 @@ def _chart_data(raw, builder, name, extra):
     def replace_reference(match):
         kind, inner = match[2], match[3]
         text = re.search(r"<c:f>(.*?)</c:f>", inner, flags=re.DOTALL)
+        if text is None:
+            return match[0]
         formula = ET.fromstring("<f>" + text[1] + "</f>").text
         sheet, _, address = formula.rpartition("!")
         if extra and ":" in address:
@@ -500,6 +545,18 @@ def _chart_data(raw, builder, name, extra):
             match = CELL.fullmatch(last)
             address = first + ":" + match[1] + match[2] + match[3] + str(int(match[4]) + extra)
             formula = sheet + "!" + address
+        state = builder._locked_template["sheets"][name]
+        if state.get("rank_row_shift"):
+            mapping = {}
+            for row in range(11, 21):
+                for col in range(1, 13):
+                    letter = get_column_letter(col)
+                    mapping[f"{letter}{row}"] = f"{letter}{row + state['rank_row_shift']}"
+        else:
+            mapping = state.get("cell_map", {})
+        if mapping:
+            formula = _formula("=" + formula, name, {name: mapping}, {name: name})[1:]
+            sheet, _, address = formula.rpartition("!")
         sheet = sheet.strip("'").replace("''", "'")
         bounds = range_boundaries(address)
         values = [
@@ -539,12 +596,28 @@ def _chart_data(raw, builder, name, extra):
         )
         return f"<c:{kind}>" + inner + "".join(cache) + f"</c:{kind}>"
 
-    return re.sub(
+    result = re.sub(
         r"(<c:(strRef|numRef)\b[^>]*>)(.*?)(</c:\2>)",
         replace_reference,
         raw.decode("utf-8"),
         flags=re.DOTALL,
-    ).encode("utf-8")
+    )
+    # Preserve the native design while changing only display precision and order.
+    result = re.sub(
+        r'(<c:numFmt\b[^>]*formatCode=")([^"]*)(")',
+        lambda m: m[0] if "%" in m[2] else m[1] + re.sub(r"\.0+", "", m[2]) + m[3],
+        result,
+    )
+    if '<c:barDir val="bar"' in result:
+        result = re.sub(
+            r"<c:catAx\b.*?</c:catAx>",
+            lambda m: re.sub(
+                r'<c:orientation val="[^"]*"\s*/>', '<c:orientation val="maxMin"/>', m[0]
+            ),
+            result,
+            flags=re.DOTALL,
+        )
+    return result.encode("utf-8")
 
 
 def _replace_node(raw, tag, node):
@@ -571,6 +644,8 @@ def restore_template_charts(path, builder):
             original = ET.fromstring(original_raw)
             generated = ET.fromstring(output.read(dst))
             for tag in (
+                "sheetPr",
+                "pageSetup",
                 "sheetData",
                 "cols",
                 "mergeCells",
@@ -628,8 +703,8 @@ def restore_template_charts(path, builder):
                         replacements[dest_part] = state["images"][image_index]
                         image_index += 1
                 drawing_raw = design.read(src_drawing).decode("utf-8")
-                if sheet_state.get("extra", 0):
-                    extra = sheet_state["extra"]
+                if sheet_state.get("chart_row_shift", sheet_state.get("extra", 0)):
+                    extra = sheet_state.get("chart_row_shift", sheet_state.get("extra", 0))
                     drawing_raw = re.sub(
                         r"<xdr:row>([0-9]+)</xdr:row>",
                         lambda m: "<xdr:row>" + str(int(m[1]) + extra) + "</xdr:row>",
