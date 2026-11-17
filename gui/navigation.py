@@ -16,6 +16,7 @@ class WorkspaceNavigation(QWidget):
     ANALYSIS_PAGES = (
         ("equipment", "설비별"),
         ("line", "라인별"),
+        ("detailed_equipment", "상세설비별"),
         ("type", "유형별"),
         ("cross", "교차분석"),
         ("detail", "전체 기록 · 수정"),

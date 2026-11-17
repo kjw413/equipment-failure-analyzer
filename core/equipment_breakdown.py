@@ -8,14 +8,15 @@ from core.aggregation import grouped
 from core.sorting import descending
 
 
-def type_breakdown(records: pd.DataFrame, equipment: str) -> pd.DataFrame:
+def type_breakdown(records: pd.DataFrame, equipment: str, metric: str = "count") -> pd.DataFrame:
+    if metric not in ("count", "total_minutes"):
+        raise ValueError("Unsupported ranking metric")
     selected = records.loc[records["equipment"].eq(equipment)]
     table = grouped(selected, ["type"])
     if table.empty:
         table["rank"] = pd.Series(dtype="int64")
         return table
-    table = descending(table.sort_values("type", kind="stable"), "count")
-    # Rows are ordered by count, then time, then type for deterministic ties.
+    table = descending(table.sort_values("type", kind="stable"), metric)
     table.insert(0, "rank", range(1, len(table) + 1))
     return table
 

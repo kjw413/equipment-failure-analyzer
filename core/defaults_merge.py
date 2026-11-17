@@ -76,7 +76,7 @@ def merge_named_defaults(user: list, bundled: list, previous: list) -> tuple[lis
     known = {item["name"]: [item] for item in previous}
     merged, counts = merge_items(old, new, known, lambda a, b: a == b)
     order = [item["name"] for item in bundled if item["name"] in merged]
-    order += [item["name"] for item in user if item["name"] not in new]
+    order += [item["name"] for item in user if item["name"] not in new and item["name"] in merged]
     return [merged[name] for name in order], counts["kept"]
 
 

@@ -16,6 +16,11 @@ SUCTION_COMPONENT_SUFFIX = (
     r"진공|패드|컵|밸브|솔밸브|제어밸브|자동컨트롤밸브|라인|배관|호스|게이지|블럭|블록"
     r"|실린더|에어커넥터|연결부|센서"
 )
+EQUIPMENT_REFINEMENTS = {
+    "포장기": {"필름·필로우 포장기", "멀티포장기", "콘팩커"},
+    "케이서": {"랩어라운드 케이서"},
+    "씰러": {"센터씰러", "엔드씰러", "리드씰러", "초음파씰러"},
+}
 
 DEFAULT_EQUIPMENT_TYPES = (
     ("카토닝머신", ("카토닝머신", "카톤머신", "멀티카톤머신", "멀티카톤", "cartoner")),
@@ -115,6 +120,8 @@ class EquipmentResolver:
 
     def mentions(self, value: str) -> list[tuple[int, int, str]]:
         text = _compact(value)
+        original = str(value or "").casefold()
+        positions = [index for index, char in enumerate(original) if not char.isspace()]
         matches = []
         for alias, name in self.aliases:
             for match in re.finditer(re.escape(alias), text):
@@ -129,6 +136,10 @@ class EquipmentResolver:
                 if alias.isascii() and alias.isalnum():
                     prefix_word = start and text[start - 1].isalpha() and text[start - 1].isascii()
                     suffix_word = end < len(text) and text[end].isalpha() and text[end].isascii()
+                    if prefix_word and positions[start] > positions[start - 1] + 1:
+                        prefix_word = False
+                    if suffix_word and positions[end] > positions[end - 1] + 1:
+                        suffix_word = False
                     # RuleClassifier removes spaces: "filler motor trip" becomes
                     # "fillermotortrip". Recognize known maintenance words while
                     # rejecting unrelated words such as "refiller"/"freezersideways".
@@ -237,4 +248,25 @@ class EquipmentResolver:
                     break
         if not found:
             return [self._value(UNKNOWN_EQUIPMENT, "미기재", "")]
-        return list({item["detail_equipment"]: item for item in found}.values())
+        return list(
+            {
+                item["detail_equipment"]: item
+                for item in (self.refine(item, code_mid) for item in found)
+            }.values()
+        )
+
+    def refine(self, value: dict, code_mid: str) -> dict:
+        """A specific MES subtype refines an explicitly generic source name.
+
+        A different machine such as a printer inside a wrapper stays the source
+        machine; the parent MES asset must not replace it.
+        """
+        options = EQUIPMENT_REFINEMENTS.get(value["detail_equipment"], set())
+        names = {name for _, _, name in self.mentions(code_mid)}
+        if len(names) == 1 and names <= options:
+            return self._value(
+                next(iter(names)),
+                "원문 + 비가동코드(중)",
+                value.get("detail_equipment_evidence", "") + " | " + code_mid,
+            )
+        return value

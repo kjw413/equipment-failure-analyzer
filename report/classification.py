@@ -11,12 +11,14 @@ import pandas as pd
 
 from core.aggregation import grouped, trend
 from core.classification_policy import unresolved_classifications
-from core.component_analysis import component_tables
+from core.component_analysis import component_tables, detailed_equipment_table
 from core.failure_modes import LEGACY_CLASSIFICATION_SCHEMAS, UNKNOWN_EQUIPMENT, UNKNOWN_PART
 from core.fault_components import CATEGORY_FIELDS, component_payload, parse_components, type_label
 from core.i18n import UNMATCHED, K
+from core.known_classification import KNOWN_FIELDS, known_fields
 from core.models import CLASSIFICATION_COMPONENT_COLUMNS, CLASSIFICATION_DECISION_COLUMNS
 from core.parsing import text
+from core.public_taxonomy import part_group
 from core.report_view import report_result
 from core.sorting import descending
 
@@ -40,7 +42,7 @@ _LEGACY_TEXT = re.compile(r"점수|격차|저점수|접전|\bscore\b", re.IGNORE
 
 def classification_principles() -> list[str]:
     return [
-        "최종 분류는 고장 분야 / 상세설비·모듈 / 세부 부품 / 고장 현상입니다. 부품군은 세부 부품에 따라 표시하고 조치는 별도 열에 보존합니다. 한 고장이력은 하나의 최종 분류만 갖습니다. 부분분류는 확인된 항목을 보존하고 미기재 항목을 표시합니다. 후보가 충돌한 미확정 분류는 빈칸으로 두고 판정은 상태·사유에 표시합니다.",
+        "최종 분류는 고장 분야 / 상세설비·모듈 / 세부 부품 / 고장 현상입니다. 부품군은 세부 부품에 따라 표시하고 조치는 별도 열에 보존합니다. 한 고장이력은 하나의 최종 분류만 갖습니다. 부분분류는 확인된 항목을 보존하고 미기재 항목을 표시합니다. 검토 중에도 확인된 공통 항목은 보존하고 충돌·추정 항목만 빈칸으로 둡니다. 라인·상세설비별 표는 부품 미기재·검토 중인 기록도 확인된 상세설비에 한 번 집계하며 미확인 설비는 미상으로 표시합니다.",
         "상세설비는 고장·조치 근거가 붙은 원문과 비가동코드(중)를 확인해 표준화합니다. 근거가 없으면 상세설비 미상으로 보존하며, 등록 설비명만으로 실제 고장 설비를 추정하지 않습니다.",
         "고장 분야·상세설비·세부 부품·고장 현상은 독립적으로 선택합니다. 부품군은 부품 종류를 찾는 탐색 기준입니다. 부품의 고유 소속 분야를 실제 고장 분야로 강제하지 않습니다.",
         "상세설비 본체만 적힌 기록은 세부 부품 미기재로 표시합니다. 부품을 추정하지 않으며 제품·자재 대상과 함께 실제 부품 발생 건수에서는 제외합니다.",
@@ -157,8 +159,11 @@ def classification_result(result):
                     if field != "repair_actions":
                         value.at[index, field] = field_value
                 value.at[index, "status"] = K["review"]
+                retained = known_fields(record) if not previous_axes and not members else {}
                 for field in CATEGORY_FIELDS:
-                    value.at[index, field] = ""
+                    value.at[index, field] = retained.get(field, "")
+                if not retained:
+                    value.at[index, KNOWN_FIELDS] = ""
                 value.at[index, "type"] = K["review"]
                 if previous_axes:
                     value.at[index, "classification_reason"] = (
@@ -188,11 +193,19 @@ def classification_result(result):
             value.loc[legacy, "classification_reason"] = LEGACY_REASON
         if "status" in value:
             unresolved = value.status.isin([*UNMATCHED, K["review"], K["manual_multi"]])
+            retained = {
+                index: known_fields(record) for index, record in value.to_dict("index").items()
+            }
             for field in CATEGORY_FIELDS:
                 if field in value:
                     value.loc[unresolved, field] = ""
+            for index in value.index[unresolved]:
+                for field, field_value in retained[index].items():
+                    value.at[index, field] = field_value
             if "part_group" in value:
                 value.loc[unresolved, "part_group"] = ""
+                for index in value.index[unresolved]:
+                    value.at[index, "part_group"] = part_group(retained[index].get("middle", ""))
             if "type" in value:
                 value.loc[unresolved, "type"] = K["review"]
         return value
@@ -209,6 +222,7 @@ def classification_result(result):
     selected = frame(projected.selected)
     metrics["unresolved_classification_rows"] = len(unresolved_classifications(selected))
     tables = {key: frame(table) for key, table in projected.tables.items()}
+    tables["detailed_equipment"] = detailed_equipment_table(selected)
     if "component_details" in selected:
         # A caller may pass an older saved result directly to a low-level exporter.
         # Rebuild its classifications so stale multiple-member tables cannot leak

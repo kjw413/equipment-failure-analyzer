@@ -217,7 +217,9 @@ class FrameModel(QAbstractTableModel):
                 "ambiguous",
                 "pending",
             ):
-                return "-"
+                from core.known_classification import known_fields
+
+                return known_fields(record).get(column, "-")
             draft = self.draft_provider(record)
             if draft is not None:
                 return draft.get(column) or DISPLAY.get(column, column) + " 선택"
@@ -300,6 +302,8 @@ class FrameModel(QAbstractTableModel):
                 "classification_mode": "분류 상태",
                 "classification_candidates": "추천 후보·근거",
             }.get(key, DISPLAY.get(key, str(key)))
+            if key == "review_count" and "detail_equipment" in self.frame:
+                label = "분류 검토 중(건)"
             return label + " · 수정" if self.edit_request and key in EDITABLE_COLUMNS else label
         return str(section + 1)
 
@@ -452,7 +456,13 @@ class TablePane(QWidget):
         self.table.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.DescendingOrder)
         self.table.setSortingEnabled(True)
         for index, column in enumerate(prepared.columns):
-            hidden = column in ("record_id", "event_id", "__source_row", "classification_schema")
+            hidden = column in (
+                "record_id",
+                "event_id",
+                "__source_row",
+                "classification_schema",
+                "classification_known_fields",
+            )
             self.table.setColumnHidden(index, hidden)
             width = (
                 270

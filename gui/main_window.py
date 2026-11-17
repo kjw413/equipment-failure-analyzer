@@ -298,6 +298,9 @@ class MainWindow(QMainWindow):
             self.panes[key] = pane
         pane = TablePane(sort_policy="grouped")
         self.panes["equipment_types"] = pane
+        self.panes["detailed_equipment"] = TablePane(
+            description="라인·상세설비별 고장이력입니다. 부품이 미기재이거나 최종 분류를 검토 중이어도 확인된 상세설비는 포함합니다. 미확인 설비는 '상세설비 미상'으로 표시하며 각 이력·정지시간은 한 번 집계합니다."
+        )
         component_note = (
             "고장이력 한 건의 최종 분류는 하나입니다. "
             "미확정 추천 후보는 부품별 확정 건수에 포함하지 않습니다. "
@@ -379,9 +382,8 @@ class MainWindow(QMainWindow):
         ):
             self.chart_choice.addItem(label, key)
         self.chart_metric = QComboBox()
-        self.chart_metric.addItem(K["total"], "total_minutes")
         self.chart_metric.addItem(K["count"], "count")
-        self.chart_metric.setCurrentIndex(1)
+        self.chart_metric.addItem(K["total"], "total_minutes")
         self.chart_equipment = QComboBox()
         self.chart_equipment.setMinimumWidth(210)
         chart_controls.addWidget(self.chart_choice)
@@ -841,7 +843,7 @@ class MainWindow(QMainWindow):
             )
         for key in ("equipment", "line", "type"):
             self.panes[key].set_frame(result.tables[key])
-        for key in ("component", "component_trend", "fault_detail"):
+        for key in ("component", "component_trend", "fault_detail", "detailed_equipment"):
             self.panes[key].set_frame(result.tables.get(key, pd.DataFrame()))
         fault_pane = self.panes["fault_detail"]
         if "record_id" in fault_pane.model.frame:
@@ -895,6 +897,11 @@ class MainWindow(QMainWindow):
     def classification_frame(frame: pd.DataFrame, *, review: bool = False) -> pd.DataFrame:
         frame = frame.copy()
         if "classification_mode" in frame:
+            from core.known_classification import known_fields
+
+            retained = {
+                index: known_fields(record) for index, record in frame.to_dict("index").items()
+            }
             unresolved = frame["classification_mode"].isin(("multiple", "ambiguous", "pending"))
             if "classification_candidates" in frame:
                 unresolved |= frame["classification_mode"].ne("single") & frame[
@@ -903,6 +910,9 @@ class MainWindow(QMainWindow):
             for key in CATEGORY_FIELDS:
                 if key in frame:
                     frame.loc[unresolved, key] = ""
+            for index in frame.index[unresolved]:
+                for key, value in retained[index].items():
+                    frame.at[index, key] = value
             if "component_types" in frame:
                 frame.loc[unresolved, "component_types"] = "미확정 · 후보 선택 필요"
             if "type" in frame:
@@ -982,12 +992,12 @@ class MainWindow(QMainWindow):
     def save_report(self):
         if self.loaded is None:
             return
-        default = output_root() / f"Equipment_Analysis_{datetime.now():%Y%m%d_%H%M%S}.xlsx"
+        default = output_root() / f"Equipment_Analysis_{datetime.now():%Y%m%d_%H%M%S}.xlsm"
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Excel + PDF \uc800\uc7a5",
             str(default),
-            "Excel (*.xlsx)",
+            "검색형 Excel (*.xlsm);;일반 Excel (*.xlsx)",
             options=QFileDialog.Option.DontConfirmOverwrite,
         )
         if not path:

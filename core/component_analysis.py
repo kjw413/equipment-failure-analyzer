@@ -7,6 +7,7 @@ import pandas as pd
 from core.failure_modes import CLASSIFICATION_SCHEMA, UNKNOWN_PART
 from core.fault_components import CATEGORY_FIELDS, parse_components, type_label
 from core.i18n import UNMATCHED, K
+from core.known_classification import known_fields
 from core.public_taxonomy import part_group
 
 COMPONENT_STATS = ["component_type", "count", "manual_count", "review_count", "count_share"]
@@ -28,6 +29,7 @@ FAULT_DETAIL_COLUMNS = [
     "repair_actions",
     "classification_missing_fields",
     "detail_equipment_source",
+    "classification_known_fields",
 ]
 
 
@@ -81,7 +83,7 @@ def component_tables(records: pd.DataFrame) -> dict[str, pd.DataFrame]:
                     "review_count": 0,
                 }
             )
-        category = member or {key: "" for key in CATEGORY_FIELDS}
+        category = member or known_fields(record)
         details.append(
             {
                 "record_id": record["record_id"],
@@ -102,6 +104,7 @@ def component_tables(records: pd.DataFrame) -> dict[str, pd.DataFrame]:
                 "part_group": part_group(category.get("middle", "")),
                 "classification_missing_fields": record.get("classification_missing_fields", ""),
                 "detail_equipment_source": record.get("detail_equipment_source", ""),
+                "classification_known_fields": record.get("classification_known_fields", ""),
             }
         )
     detail_table = pd.DataFrame(details, columns=FAULT_DETAIL_COLUMNS).reset_index(drop=True)
@@ -145,3 +148,57 @@ def component_tables(records: pd.DataFrame) -> dict[str, pd.DataFrame]:
         "component_trend": monthly,
         "fault_detail": detail_table,
     }
+
+
+def detailed_equipment_table(records: pd.DataFrame) -> pd.DataFrame:
+    """One event/time allocation by line and supported module, including unknowns.
+
+    Pending records may identify a module while their failed part remains open.
+    Retained facts are used; a ranked candidate by itself is never sufficient.
+    """
+    columns = [
+        "line",
+        "detail_equipment",
+        "count",
+        "count_share",
+        "total_minutes",
+        "valid_count",
+        "review_count",
+    ]
+    rows = []
+    for record in records.to_dict("records"):
+        if record.get("kind") != K["fault"]:
+            continue
+        category = final_component(record) or known_fields(record)
+        rows.append(
+            {
+                "line": record.get("line", K["missing"]),
+                "detail_equipment": category.get("detail_equipment") or "상세설비 미상",
+                "minutes": record.get("minutes"),
+                "review_count": int(
+                    record.get("status") in (K["review"], *UNMATCHED, K["manual_multi"])
+                ),
+            }
+        )
+    if not rows:
+        return pd.DataFrame(columns=columns)
+    source = pd.DataFrame(rows)
+    source["minutes"] = pd.to_numeric(source["minutes"], errors="coerce")
+    table = (
+        source.groupby(["line", "detail_equipment"], dropna=False, observed=True)
+        .agg(
+            count=("detail_equipment", "size"),
+            total_minutes=("minutes", lambda series: series.sum(min_count=1)),
+            valid_count=("minutes", "count"),
+            review_count=("review_count", "sum"),
+        )
+        .reset_index()
+    )
+    table["count_share"] = table["count"] / len(source)
+    return (
+        table[columns]
+        .sort_values(
+            ["count", "line", "detail_equipment"], ascending=[False, True, True], kind="stable"
+        )
+        .reset_index(drop=True)
+    )

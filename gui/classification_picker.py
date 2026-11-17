@@ -51,7 +51,7 @@ class ClassificationPicker(QWidget):
         self.index = category_index(categories)
         self.categories = self.index.paths
         original = tuple(str((value or {}).get(key, "")).strip() for key in FIELDS)
-        self.legacy = original if any(original) and original not in self.index else None
+        self.legacy = original if any(original) and not self.index.matches(original) else None
         self.paths = self.categories + ((self.legacy,) if self.legacy else ())
         self._updating = False
         self._group_filter = ""

@@ -147,7 +147,7 @@ def test_source_codes_categories_and_legacy_report_projection(store, tmp_path):
                     in {K["review"], K["code_missing"], K["rule_unmatched"]}
                     for row in range(7, ws.max_row + 1)
                 )
-        assert report[SHEETS["review"]].max_column == len(REVIEW_COLS) == 22
+        assert report[SHEETS["review"]].max_column == len(REVIEW_COLS) + 1 == 23
     assert source.read_bytes() == before
     assert result.selected.event_id.tolist() == source_event_ids
     assert result.selected.record_id.is_unique

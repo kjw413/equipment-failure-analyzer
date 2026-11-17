@@ -328,6 +328,7 @@ def standardize(
                 prepare_text(raw_small, config["normalization"]),
                 equipment_context=prepare_text(raw_mid, config["normalization"]),
                 registered_equipment=prepare_text(raw_equipment_name, config["normalization"]),
+                source_text=" | ".join(value for value in (description, cause, action) if value),
             )
             if kind == K["fault"]
             else {
@@ -387,6 +388,7 @@ def standardize(
             )
             manual_components = [category]
         if manual_components is not None:
+            classification["classification_known_fields"] = ""
             if (
                 len(manual_components) == 1
                 and manual_components[0]["minor"] != UNKNOWN_SYMPTOM
@@ -456,6 +458,7 @@ def standardize(
         classification["classification_missing_fields"] = (
             missing_fields_text(classification)
             if classification.get("status") in (K["auto"], K["manual"], K["partial"])
+            or classification.get("classification_known_fields")
             else ""
         )
         from core.public_taxonomy import parse_repair_actions, part_group
@@ -573,7 +576,8 @@ def standardize(
             "raw_small": raw_small,
             **classification,
             "type": type_label(classification)
-            if all(classification.get(k) for k in CATEGORY_FIELDS)
+            if classification.get("status") in (K["auto"], K["partial"], K["manual"])
+            and all(classification.get(k) for k in CATEGORY_FIELDS)
             else K["review"],
             "issues": " | ".join(dict.fromkeys(issues)),
             "duplicate": False,

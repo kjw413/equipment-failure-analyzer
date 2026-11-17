@@ -79,15 +79,16 @@ def test_line_names_and_groups_reach_excel_and_pdf(store, line_file, tmp_path):
 
     path = export_report(grouped, tmp_path / "group.xlsx")
     book = load_workbook(path, data_only=True)
-    assert book[SHEETS["summary"]]["A7"].value == 3
-    assert book[SHEETS["summary"]]["E7"].value == 60
-    assert book[SHEETS["equipment"]]["A7"].value == "A"
+    assert book["_report_metrics"]["A2"].value == 3
+    assert book["_report_metrics"]["A3"].value == 60
+    assert book[SHEETS["equipment"]]["C9"].value == 3
+    assert book[SHEETS["equipment"]]["F9"].value == 60
     names = book[SHEETS["criteria"]]
     assert names.max_row > 8  # Classification settings follow the name mappings.
-    assert [names.cell(row, 3).value for row in (7, 8)] == ["A#1(1호기)", "A#2"]
-    assert [names.cell(row, 4).value for row in (7, 8)] == ["A", "A"]
+    assert [names.cell(row, 4).value for row in (7, 8)] == ["A#1(1호기)", "A#2"]
+    assert [names.cell(row, 5).value for row in (7, 8)] == ["A", "A"]
     details = book[SHEETS["detail"]]
-    group_column = DETAIL_COLS.index("equipment_group") + 1
+    group_column = DETAIL_COLS.index("equipment_group") + 2
     assert {details.cell(row, group_column).value for row in range(7, 10)} == {"A"}
     book.close()
     pypdf = pytest.importorskip("pypdf")
@@ -147,7 +148,7 @@ def test_group_label_that_matches_a_line_code_is_not_renamed(store, line_file, t
     assert projected.selected.line_code.tolist() == ["A#1", "A#1", "B#2"]
     output = export_report(result, tmp_path / "collision.xlsx")
     book = load_workbook(output, data_only=True)
-    assert book[SHEETS["equipment"]]["A7"].value == "A"
+    assert {book["_issue_facts"].cell(row, 5).value for row in range(2, 5)} == {"A#1", "B#2"}
     book.close()
 
 
@@ -182,16 +183,16 @@ def test_factory_team_overrides_and_line_defaults_reach_reports(store, line_file
     path = export_report(by_team, tmp_path / "organization.xlsx")
     book = load_workbook(path, data_only=True)
     names = book[SHEETS["criteria"]]
-    assert [names.cell(row, 5).value for row in (7, 8)] == ["직접공장", "부산공장"]
-    assert [names.cell(row, 6).value for row in (7, 8)] == ["생산팀", "생산팀"]
+    assert [names.cell(row, 6).value for row in (7, 8)] == ["직접공장", "부산공장"]
+    assert [names.cell(row, 7).value for row in (7, 8)] == ["생산팀", "생산팀"]
     details = book[SHEETS["detail"]]
-    factory_column = DETAIL_COLS.index("factory") + 1
+    factory_column = DETAIL_COLS.index("factory") + 2
     assert {details.cell(row, factory_column).value for row in range(7, 10)} == {
         "직접공장",
         "부산공장",
     }
-    assert book[SHEETS["summary"]]["A7"].value == 3
-    assert book[SHEETS["summary"]]["E7"].value == 60
+    assert book["_report_metrics"]["A2"].value == 3
+    assert book["_report_metrics"]["A3"].value == 60
     book.close()
     pypdf = pytest.importorskip("pypdf")
     pdf = export_pdf(by_team, tmp_path / "organization.pdf")
@@ -219,10 +220,8 @@ def test_organization_names_matching_line_codes_are_not_projected(store, line_fi
     assert set(projected.tables["equipment"].equipment) == {"LN02 / LN01", "LN01 / LN02"}
     path = export_report(result, tmp_path / "organization_codes.xlsx")
     book = load_workbook(path, data_only=True)
-    assert {book[SHEETS["equipment"]].cell(row, 1).value for row in (7, 8)} == {
-        "LN02 / LN01",
-        "LN01 / LN02",
-    }
+    assert {book["_issue_facts"].cell(row, 3).value for row in range(2, 5)} == {"LN02", "LN01"}
+    assert {book["_issue_facts"].cell(row, 4).value for row in range(2, 5)} == {"LN01", "LN02"}
     book.close()
 
 
@@ -239,8 +238,8 @@ def test_unloaded_organization_labels_are_kept_exactly_in_settings_sheet(
     path = export_report(result, tmp_path / "unloaded_organization.xlsx")
     book = load_workbook(path, data_only=True)
     sheet = book[SHEETS["criteria"]]
-    row = next(row for row in range(7, sheet.max_row + 1) if sheet.cell(row, 3).value == "ORG_ONLY")
-    assert [sheet.cell(row, col).value for col in (4, 5, 6)] == ["LN02", "LN01", "LN02"]
+    row = next(row for row in range(7, sheet.max_row + 1) if sheet.cell(row, 4).value == "ORG_ONLY")
+    assert [sheet.cell(row, col).value for col in (5, 6, 7)] == ["LN02", "LN01", "LN02"]
     book.close()
 
 
@@ -275,9 +274,9 @@ def test_factory_team_filters_apply_to_all_three_outputs(store, line_file, tmp_p
     assert result.metrics["review_rows"] == 0
     files = export_bundle(result, tmp_path / "filtered.xlsx")
     book = load_workbook(files.excel, data_only=True)
-    assert book[SHEETS["summary"]]["A7"].value == 2
-    assert book[SHEETS["summary"]]["E7"].value == 30
-    criteria = {row[0].value: row[1].value for row in book[SHEETS["criteria"]]}
+    assert book["_report_metrics"]["A2"].value == 2
+    assert book["_report_metrics"]["A3"].value == 30
+    criteria = {row[1].value: row[2].value for row in book[SHEETS["criteria"]]}
     assert criteria["공장 필터"] == "서울공장" and criteria["팀 필터"] == "포장팀"
     book.close()
     marked = load_workbook(files.source_review)
@@ -299,7 +298,7 @@ def test_unmatched_filter_names_are_exported_exactly_and_select_no_records(
     assert result.selected.empty and result.metrics["selected_rows"] == 0
     path = export_report(result, tmp_path / "empty_filter.xlsx")
     book = load_workbook(path, data_only=True)
-    criteria = {row[0].value: row[1].value for row in book[SHEETS["criteria"]]}
+    criteria = {row[1].value: row[2].value for row in book[SHEETS["criteria"]]}
     assert criteria["공장 필터"] == "LN02" and criteria["팀 필터"] == "LN01"
     book.close()
 

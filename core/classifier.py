@@ -80,6 +80,7 @@ STRENGTH_REASON = {
 # Clause boundaries. Decimal points (1.3.5번) and hyphens inside codes (A-5, x-ray) are not boundaries.
 CLAUSE_SPLIT = re.compile(
     r"[\n\r/;|*()\[\]→]|->|=>|>>|(?<!\d)\.|\.(?!\d)|\s-\s|(?<=[가-힣])-(?=[가-힣\s])"
+    r"|(?<=교체),(?=[^/;|]{0,24}(?:의심|추정|추측|가능성))"
 )
 NEGATION = re.compile(
     r"(?:은|는|이|가|도|을|를)?(?:전혀)?(?:없|무(?![가-힣])|아님|아니(?!면)|하지않|하지안|"

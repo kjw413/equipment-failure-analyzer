@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 from conftest import analyze_file
 from openpyxl import load_workbook
+from openpyxl.utils import column_index_from_string, get_column_letter
 
 from core.component_analysis import component_tables
 from core.failure_modes import (
@@ -21,6 +22,10 @@ from core.i18n import DISPLAY, K
 from report.classification import classification_result
 from report.excel_report import DETAIL_COLS, REVIEW_COLS, SHEETS, D, export_report
 from report.pdf_report import export_pdf
+
+OUTPUT_D = {
+    key: get_column_letter(column_index_from_string(column) + 1) for key, column in D.items()
+}
 
 
 def event(number, equipment, *, pending=False):
@@ -121,19 +126,19 @@ def test_four_axes_export_in_order_and_preserve_cached_totals(hierarchy_result, 
             positions = [keys.index(key) for key in fields]
             assert positions == list(range(positions[0], positions[0] + len(fields)))
         detail = workbook[SHEETS["detail"]]
-        assert detail[f"{D['detail_equipment']}6"].value == DISPLAY["detail_equipment"]
-        assert detail[f"{D['detail_equipment']}7"].value in {"컨베어", "필러"}
-        assert detail[f"{D['detail_equipment_source']}7"].value == "원문 고장 문맥"
-        assert detail[f"{D['part_group']}7"].value == "베어링·부싱"
-        assert detail[f"{D['repair_actions']}7"].value == "교체"
-        assert workbook[SHEETS["summary"]]["E7"].value == hierarchy_result.metrics["total_minutes"]
+        assert detail[f"{OUTPUT_D['detail_equipment']}6"].value == DISPLAY["detail_equipment"]
+        assert detail[f"{OUTPUT_D['detail_equipment']}7"].value in {"컨베어", "필러"}
+        assert detail[f"{OUTPUT_D['detail_equipment_source']}7"].value == "원문 고장 문맥"
+        assert detail[f"{OUTPUT_D['part_group']}7"].value == "베어링·부싱"
+        assert detail[f"{OUTPUT_D['repair_actions']}7"].value == "교체"
+        assert workbook["_report_metrics"]["A3"].value == hierarchy_result.metrics["total_minutes"]
         faults = workbook[SHEETS["fault_detail"]]
         headers = [cell.value for cell in faults[6]]
         fields = ["major", "detail_equipment", "part_group", "middle", "minor", "repair_actions"]
         positions = [headers.index(DISPLAY[key]) for key in fields]
         assert positions == list(range(positions[0], positions[0] + len(fields)))
-        assert faults.auto_filter.ref.startswith("A6:N")
-        assert faults.column_dimensions["O"].hidden
+        assert faults.auto_filter.ref.startswith("B6:O")
+        assert faults.column_dimensions["P"].hidden
         assert faults.cell(7, headers.index(DISPLAY["repair_actions"]) + 1).value == "교체"
     finally:
         workbook.close()
@@ -163,7 +168,7 @@ def test_explicitly_cleared_action_does_not_reappear_from_original_evidence(
     workbook = load_workbook(export_report(cleared, tmp_path / "cleared_action.xlsx"))
     try:
         detail = workbook[SHEETS["detail"]]
-        assert detail[f"{D['repair_actions']}7"].value is None
+        assert detail[f"{OUTPUT_D['repair_actions']}7"].value is None
         faults = workbook[SHEETS["fault_detail"]]
         headers = [cell.value for cell in faults[6]]
         assert faults.cell(7, headers.index(DISPLAY["repair_actions"]) + 1).value is None
@@ -274,18 +279,18 @@ def test_partial_excel_has_separate_counts_and_retains_missing_field(partial_res
         partial = [
             row
             for row in sheet.iter_rows(min_row=7, values_only=True)
-            if row[DETAIL_COLS.index("status")] == K["partial"]
+            if row[DETAIL_COLS.index("status") + 1] == K["partial"]
         ]
         assert len(partial) == 1
-        assert partial[0][DETAIL_COLS.index("middle")] == "베어링"
-        assert partial[0][DETAIL_COLS.index("minor")] == UNKNOWN_SYMPTOM
-        assert partial[0][DETAIL_COLS.index("classification_missing_fields")] == "고장 현상"
-        summary = workbook[SHEETS["summary"]]["A12"].value
+        assert partial[0][DETAIL_COLS.index("middle") + 1] == "베어링"
+        assert partial[0][DETAIL_COLS.index("minor") + 1] == UNKNOWN_SYMPTOM
+        assert partial[0][DETAIL_COLS.index("classification_missing_fields") + 1] == "고장 현상"
+        summary = workbook[SHEETS["summary"]]["A6"].value
         assert "부분 자동분류 1건" in summary
         assert "완전 자동분류" in summary
-        assert "검토 대상(중복 제외) 0건" in summary
+        assert "검토 대상 0건" in summary
         quality = {
-            row[0].value: row[1].value for row in workbook[SHEETS["criteria"]] if len(row) >= 2
+            row[1].value: row[2].value for row in workbook[SHEETS["criteria"]] if len(row) >= 3
         }
         assert quality[K["partial"]] == 1
         assert quality["자동처리 합계(완전+부분)"] == len(partial_result.selected)

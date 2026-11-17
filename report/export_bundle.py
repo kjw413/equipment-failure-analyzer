@@ -22,7 +22,11 @@ class ReportFiles:
 
 
 def report_paths(excel_path: str | Path, source_path: str | Path | None = None) -> ReportFiles:
-    excel = Path(excel_path).expanduser().resolve().with_suffix(".xlsx")
+    excel = Path(excel_path).expanduser().resolve()
+    if excel.suffix.casefold() not in (".xlsx", ".xlsm"):
+        excel = excel.with_suffix(".xlsm")
+    else:
+        excel = excel.with_suffix(excel.suffix.casefold())
     source_suffix = Path(source_path).suffix.casefold() if source_path is not None else ".xlsx"
     if source_suffix not in (".xlsx", ".xlsm"):
         source_suffix = ".xlsx"
@@ -96,7 +100,9 @@ def export_bundle(
         ) as directory:
             staging = Path(directory)
             excel = export_report(
-                result, staging / "analysis.xlsx", lambda n, t: progress(int(n * 0.55), t)
+                result,
+                staging / ("analysis" + paths.excel.suffix),
+                lambda n, t: progress(int(n * 0.55), t),
             )
             pdf = export_pdf(
                 result, staging / "final.pdf", lambda n, t: progress(55 + int(n * 0.35), t)

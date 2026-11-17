@@ -106,6 +106,8 @@ class PublicTaxonomy:
 
     def component_name(self, name, equipment):
         canonical = self.canonical_part(name)
+        if canonical == "포머" and equipment in {"포밍부", "포밍부(포머)"}:
+            return "세부 부품 미기재"
         if canonical not in self.names and _key(_bare(name)) in self.module_names:
             return "세부 부품 미기재"
         if _key(_bare(name)) == _key(equipment):
@@ -118,6 +120,10 @@ class PublicTaxonomy:
                 part == mapping["part"]
                 and equipment == mapping["equipment"]
                 and symptom in mapping["symptoms"]
+                and (
+                    not mapping.get("context")
+                    or re.search(mapping["context"], re.sub(r"\s+", "", context), re.I)
+                )
             ):
                 return mapping["domain"]
         family = self.group(part)
@@ -140,7 +146,13 @@ class PublicTaxonomy:
                 return UNKNOWN_DOMAIN
             # A worn or burned belt is not evidence of an electrical short.
             return original if original in self.domains else UNKNOWN_DOMAIN
-        if symptom in {"단선", "보호장치 동작", "과부하·과전류", "통신·입출력 이상"}:
+        if symptom in {
+            "단선",
+            "보호장치 동작",
+            "과부하·과전류",
+            "통신·입출력 이상",
+            "에러코드 발생",
+        }:
             return "전기·제어"
         if part == "밸브 제어헤드":
             return "전기·제어"

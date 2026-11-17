@@ -27,6 +27,7 @@ from core.equipment_names import (
 )
 from core.fault_components import mode_label
 from core.i18n import DISPLAY, UNMATCHED, K
+from core.issue_analysis import issue_summary
 from core.models import AnalysisResult, Progress, UserError, noop_progress
 from core.parsing import is_missing
 from core.preprocessing import review_target
@@ -44,22 +45,23 @@ from report.classification import (
     component_principles,
 )
 from report.formatting import bounded_int
+from report.issue_workbook import ISSUE_SHEETS, IssueWorkbook, report_issue_facts
+from report.locked_template import LOCKED_SHEETS, apply_locked_template, restore_template_charts
 from report.output import atomic_output
+from report.workbook_layout import apply_workbook_layout
 from version import VERSION
 
 SHEETS = {
-    "summary": "01_종합현황",
-    "equipment": "02_설비별분석",
-    "line": "03_라인별분석",
-    "type": "04_유형별분석",
-    "trend": "05_기간별추이",
-    "component": "06_부품별분석",
-    "detail": "07_고장이력",
-    "fault_detail": "08_부품증상상세",
-    "review": "09_검토품질",
-    "raw": "10_원본데이터",
-    "criteria": "11_기준정보",
-    "cross": "12_제품교차분석",
+    "summary": "01.종합현황",
+    **ISSUE_SHEETS,
+    "equipment": "별첨. 라인별분석",
+    "line": "별첨. 상세설비별분석",
+    "trend": "별첨. 기간별추이",
+    "detail": "별첨. 고장이력",
+    "fault_detail": "별첨. 부품증상상세",
+    "review": "별첨. 검토품질",
+    "criteria": "별첨. 기준정보",
+    "cross": "별첨. 제품교차분석",
 }
 DETAIL_COLS = [
     "record_id",
@@ -73,6 +75,7 @@ DETAIL_COLS = [
     "minutes",
     "type",
     "status",
+    "normalized",
     "raw_description",
     "major",
     "detail_equipment",
@@ -80,7 +83,6 @@ DETAIL_COLS = [
     "middle",
     "minor",
     "repair_actions",
-    "normalized",
     "evidence",
     "candidates",
     "issues",
@@ -110,7 +112,13 @@ DETAIL_COLS = [
     *(
         field
         for field in COMPONENT_FIELDS
-        if field not in ("classification_schema", "part_group", "repair_actions")
+        if field
+        not in (
+            "classification_schema",
+            "part_group",
+            "repair_actions",
+            "classification_known_fields",
+        )
     ),
     "line_code",
     "raw_line_name",
@@ -118,6 +126,7 @@ DETAIL_COLS = [
     "factory",
     "team",
     "classification_candidates",
+    "classification_known_fields",
 ]
 D = {k: get_column_letter(i + 1) for i, k in enumerate(DETAIL_COLS)}
 REVIEW_COLS = [
@@ -161,7 +170,7 @@ FILL = "F1F3F5"
 TEAL = "166A70"
 ORANGE = "AD6817"
 GREEN = "237245"
-NUM = "#,##0.0;[Red]-#,##0.0"
+NUM = "#,##0.0;-#,##0.0"
 INT = "#,##0"
 PCT = "0.0%"
 
@@ -231,6 +240,9 @@ class ReportBuilder:
         self._donut_png: dict[str, bytes] = {}
         self.donut_top_n = bounded_int(result.config_snapshot["settings"].get("donut_top_n"), 5, 10)
         self.data = descending(self.r.selected, "minutes")
+        self.issue_types = issue_summary(report_issue_facts(self.r.selected), ["case"]).rename(
+            columns={"case": "module_part"}
+        )
         self.sections = set(
             result.config_snapshot["settings"].get("report_sections", SHEETS.keys())
         )
@@ -247,7 +259,8 @@ class ReportBuilder:
         }.items():
             if old in self.sections:
                 self.sections.update(destinations)
-        self.sections.update(("detail", "raw", "review", "criteria", "equipment"))
+        self.sections.difference_update(("type", "component", "component_trend", "raw"))
+        self.sections.update(("summary", "detail", "review", "criteria", "equipment", "line"))
         self.start = 7
         self.end = max(7, 6 + len(self.data))
         self.raw_helpers = {}
@@ -371,14 +384,21 @@ class ReportBuilder:
         return f"{sheet_ref(SHEETS['detail'])}!${D[field]}${self.start}:${D[field]}${self.end}"
 
     def add_image(
-        self, ws, anchor, table, key, metric="total_minutes", kind="bar", width=650, height=360
+        self,
+        ws,
+        anchor,
+        table,
+        key,
+        metric="total_minutes",
+        kind="bar",
+        width=650,
+        height=360,
+        *,
+        company_style=True,
     ):
-        if anchor.startswith("K"):
-            # Explicit widths keep the side chart inside the print area in Excel
-            # and in renderers whose default column width differs from Excel's.
-            for column in range(11, 19):
-                ws.column_dimensions[get_column_letter(column)].width = 12
-        buffer = chart_png(table, key, metric, kind, self.r.options.top_n)
+        buffer = chart_png(
+            table, key, metric, kind, self.r.options.top_n, company_style=company_style
+        )
         self.images.append(buffer)
         image = Image(buffer)
         image.width = width
@@ -477,6 +497,7 @@ class ReportBuilder:
         ws.column_dimensions[D["minutes"]].width = 18
         ws.column_dimensions[D["record_id"]].hidden = True
         ws.column_dimensions[D["event_id"]].hidden = True
+        ws.column_dimensions[D["classification_known_fields"]].hidden = True
         if self.r.metrics["product_count"] == 0:
             ws.column_dimensions[D["product"]].hidden = True
         ws.freeze_panes = "G7"
@@ -703,55 +724,16 @@ class ReportBuilder:
         return end + 3
 
     def raw(self):
-        ws = self.new_sheet(
-            "raw", "\uc6d0\ubcf8\ub370\uc774\ud130 | \uc124\ube44\uba85 \ubcc0\ud658\ubcf8", span=10
-        )
-        headers = list(self.r.loaded.headers)
-        if self.r.config_snapshot["settings"].get("omit_personal_columns", True):
-            blocked = {
-                "\uc0dd\uc131\uc0ac\uc6a9\uc790",
-                "\uc0dd\uc131\uc0ac\uc6a9\uc790\uba85",
-                "\uc218\uc815\uc0ac\uc6a9\uc790",
-                "\uc218\uc815\uc0ac\uc6a9\uc790\uba85",
-            }
-            headers = [h for h in headers if re.sub(r"\s+", "", h) not in blocked]
-        labels = [K["row"], *headers, "_kind", "_minutes", "_included"]
-        self.header(ws, 6, labels)
-        records = self.r.all_records.set_index("source_row")
-        selected_ids = set(self.data.record_id)
-        for index, record in enumerate(self.r.loaded.frame.to_dict("records"), 7):
-            src = int(record["__source_row"])
-            normalized = records.loc[src]
-            values = [
-                src,
-                *[record.get(h) for h in headers],
-                normalized["kind"],
-                normalized["minutes"],
-                int(normalized["record_id"] in selected_ids),
-            ]
-            for col, value in enumerate(values, 1):
-                self.put(ws, index, col, value, role="raw")
-            ws.row_dimensions[index].height = 32
-        for col in range(1, len(labels) + 1):
-            ws.column_dimensions[get_column_letter(col)].width = 24
-        for i, label in enumerate(labels, 1):
-            if label in (
-                "\ube44\uace0",
-                "\uc124\ube44\uba85",
-                "\ube44\uac00\ub3d9 \ucf54\ub4dc(\uc911)",
-            ):
-                ws.column_dimensions[get_column_letter(i)].width = 50
-        self.raw_helpers = {
-            name: get_column_letter(labels.index(name) + 1)
-            for name in ("_kind", "_minutes", "_included")
-        }
-        for col in self.raw_helpers.values():
-            ws.column_dimensions[col].hidden = True
-        ws.freeze_panes = "G7"
-        ws.auto_filter.ref = (
-            f"A6:{get_column_letter(len(labels))}{max(6, 6 + len(self.r.all_records))}"
-        )
-        ws.print_area = f"A1:O{max(7, 6 + len(self.r.all_records))}"
+        # Only two quality-control inputs remain; the source workbook is separate.
+        ws = self.wb.create_sheet("_source_quality")
+        ws.append(["kind", "minutes"])
+        for record in self.r.all_records.to_dict("records"):
+            ws.append([cell_value(record.get("kind")), cell_value(record.get("minutes"))])
+        for row in ws:
+            for cell in row:
+                if isinstance(cell.value, str):
+                    cell.data_type = "s"
+        ws.sheet_state = "hidden"
 
     def quality(self, ws, row):
         row = self.section(ws, row, "데이터 품질 및 분석 조건", span=8)
@@ -805,9 +787,9 @@ class ReportBuilder:
         row += 2
         self.header(ws, row, [K["kind"], K["count"], K["total"]])
         row += 1
-        last = max(7, 6 + len(self.r.all_records))
-        kr = f"{sheet_ref(SHEETS['raw'])}!${self.raw_helpers['_kind']}$7:${self.raw_helpers['_kind']}${last}"
-        dr = f"{sheet_ref(SHEETS['raw'])}!${self.raw_helpers['_minutes']}$7:${self.raw_helpers['_minutes']}${last}"
+        last = max(2, 1 + len(self.r.all_records))
+        kr = f"'_source_quality'!$A$2:$A${last}"
+        dr = f"'_source_quality'!$B$2:$B${last}"
         for item in self.r.tables["raw_kind"].to_dict("records"):
             self.put(ws, row, 1, item["kind"])
             self.formula(ws, row, 2, f"=COUNTIF({kr},{criteria(item['kind'])})", item["count"], INT)
@@ -873,8 +855,8 @@ class ReportBuilder:
             *classification_principles(),
             *component_principles(),
             "\ubcf4\uace0\uc11c \uc804\uccb4\uc758 \ub4f1\ub85d \uc124\ube44 \ucf54\ub4dc\ub294 \uc9c0\uc815\ud55c \uc774\ub984\uc73c\ub85c \ubcc0\ud658\ud568. \uc5c5\ub85c\ub4dc\ud55c \uc6d0\ubcf8 \ud30c\uc77c\uc740 \ubcc0\uacbd \uc5c6\uc74c.",
-            f"\uc6d0\ud615 \ucc28\ud2b8\ub294 \uac01 \uc124\ube44\uc758 \uc804\uccb4 \uae30\ub85d \uac74\uc218=100%. \ucc28\ud2b8\uc758 \uae30\ud0c0\ub294 \uc0c1\uc704 {self.donut_top_n}\uac1c \uc678 \uc720\ud615 \ud569\uc0b0. 비가동코드 미기입·규칙 미일치도 분모에 포함.",
-            "\ubd84\ub958\ubcc4 \ucc28\ud2b8\ub294 \ubcf4\uace0\uc11c \uc0dd\uc131 \uc2dc\uc810\uc758 \uc774\ubbf8\uc9c0\uc784. \uc785\ub825/\uc124\uc815\uc744 \ubc14\uafbc \uacbd\uc6b0 \ubcf4\uace0\uc11c \uc7ac\uc0dd\uc131 \ud544\uc694.",
+            "선택형 별첨의 구성비는 현재 공장·팀·라인·상세설비 범위의 전체 건수 또는 정지시간=100%. 상위 10개 외 항목은 기타로 합산하며 미기재 항목도 분모에 포함.",
+            "02~04와 라인별·상세설비별 별첨은 입력칸 변경 시 표·차트 갱신. 01의 이미지와 기간별 차트는 생성 시점 자료이며 분류·표준화 규칙 변경 후에는 재생성 필요.",
         ]:
             ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
             self.put(ws, row, 1, note, role="review")
@@ -1042,91 +1024,92 @@ class ReportBuilder:
         )
         for col in range(1, 13):
             ws.column_dimensions[get_column_letter(col)].width = 11.5
-        for row in range(5, 48):
-            ws.row_dimensions[row].height = 21
-        cards = [
-            (1, 4, K["count"], f"=COUNTA({self.range('record_id')})", len(self.data), INT),
+        # Compact, formula-backed totals follow the user's renewed report layout.
+        metrics = (
+            (1, 4, f"=COUNTA({self.range('record_id')})", len(self.data), '"고장 건수 "#,##0"건"'),
             (
                 5,
                 8,
-                K["total"],
                 f'=IF(COUNT({self.range("minutes")})=0,"",SUM({self.range("minutes")}))',
                 self.r.metrics["total_minutes"],
-                INT,
+                '"정지시간 "#,##0"분"',
             ),
             (
                 9,
                 12,
-                K["mean"],
                 f'=IF(COUNT({self.range("minutes")})=0,"",AVERAGE({self.range("minutes")}))',
                 self.r.metrics["mean_minutes"],
-                NUM,
+                '"평균 정지시간 "#,##0.0"분"',
             ),
-        ]
-        for left, right, label, formula, value, fmt in cards:
+        )
+        for left, right, formula, expected, fmt in metrics:
             ws.merge_cells(start_row=6, start_column=left, end_row=6, end_column=right)
-            self.put(ws, 6, left, label, role="muted")
-            ws.merge_cells(start_row=7, start_column=left, end_row=9, end_column=right)
-            cell = self.formula(ws, 7, left, formula, value, fmt)
-            cell.font = Font(name=FONT, size=30, bold=True, color=TEAL)
-            cell.alignment = Alignment(vertical="center", horizontal="left")
-            for row in range(6, 10):
-                for col in range(left, right + 1):
-                    ws.cell(row, col).fill = PatternFill("solid", fgColor=FILL)
-        info = f"{K['raw_rows']} {self.r.metrics['source_rows']:,}  |  {K['excluded_rows']} {self.r.metrics['excluded_rows']:,}  |  {K['line']} {self.r.metrics['line_count']}"
-        ws.merge_cells("A11:L11")
-        self.put(ws, 11, 1, info, role="muted")
-        ws.merge_cells("A12:L12")
+            cell = self.formula(ws, 6, left, formula, expected, fmt)
+            cell.alignment = Alignment(horizontal="left", vertical="center")
+        ws.merge_cells("A7:L7")
         self.put(
             ws,
-            12,
+            7,
             1,
-            f"완전 자동분류 {self.r.metrics['auto_rows']:,}건  |  부분 자동분류 {self.r.metrics.get('partial_rows', 0):,}건  |  검토 대상(중복 제외) {self.r.metrics['review_rows']:,}건",
-            role="derived",
+            f"완전 자동분류 {self.r.metrics['auto_rows']:,}건   "
+            f"부분 자동분류 {self.r.metrics.get('partial_rows', 0):,}건   "
+            f"검토 대상 {self.r.metrics['review_rows']:,}건",
         )
-        ws.merge_cells("A13:L14")
-        self.put(
-            ws,
-            13,
-            1,
-            "부분분류는 확인된 항목을 보존하고 미기재 항목을 표시합니다. 상세 정보는 07_고장이력에서 확인하세요.",
-            role="review",
-        )
-        ws.merge_cells("A16:F16")
-        self.put(
-            ws, 16, 1, K["equipment_tab"] + " | TOP " + str(self.r.options.top_n), role="title"
-        ).font = Font(name=FONT, size=12, bold=True, color=DARK)
-        ws.merge_cells("G16:L16")
-        self.put(
-            ws, 16, 7, K["type_tab"] + " | TOP " + str(self.r.options.top_n), role="title"
-        ).font = Font(name=FONT, size=12, bold=True, color=DARK)
-        self.add_image(ws, "A17", self.r.tables["equipment"], "equipment", width=490, height=285)
-        self.add_image(ws, "G17", self.r.tables["type"], "type", width=490, height=285)
-        ws.merge_cells("A32:L32")
-        self.put(ws, 32, 1, "\uc6b0\uc120 \ud655\uc778 \ud56d\ubaa9", role="title").font = Font(
-            name=FONT, size=12, bold=True, color=DARK
-        )
-        points = []
-        if len(self.r.tables["equipment"]):
-            top = self.r.tables["equipment"].iloc[0]
-            if pd.notna(top["total_minutes"]):
-                points.append(
-                    f"{K['total']} \ucd5c\ub2e4 \uc124\ube44: {top['equipment']} / {top['total_minutes']:,.0f}\ubd84 / {top['count']:,}\uac74"
+        basis = K.get(self.r.options.equipment_basis, "분석 설비")
+        if self.r.options.equipment_basis == "mapped":
+            basis = "라인"
+        for row, metric, anchors in (
+            (9, "count", ("A10", "G10")),
+            (22, "total_minutes", ("A23", "G23")),
+        ):
+            metric_label = "발생 건수" if metric == "count" else "정지시간"
+            for left, right, label in ((1, 6, basis), (7, 12, "상세설비·세부부품")):
+                ws.merge_cells(start_row=row, start_column=left, end_row=row, end_column=right)
+                cell = self.put(
+                    ws,
+                    row,
+                    left,
+                    f"□ {metric_label} TOP {self.r.options.top_n} _ {label}",
+                    role="title",
                 )
-            else:
-                points.append(
-                    "\uc720\ud6a8\ud55c \uc815\uc9c0\uc2dc\uac04\uc774 \uc5c6\uc5b4 \uc2dc\uac04 \uae30\uc900 \ucd5c\ub2e4 \uc124\ube44\ub97c \uc120\uc815\ud558\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4."
-                )
-        points.append(
-            f"{K['target_missing']}: {self.r.metrics['missing_target_rows']}\uac74 | {K['code_missing']}: {self.r.metrics['code_missing_rows']}건 | {K['rule_unmatched']}: {self.r.metrics['rule_unmatched_rows']}건 | \ubcf5\uc218 \uc720\ud615 \ud6c4\ubcf4: {self.r.metrics['ambiguous_rows']}\uac74"
+                cell.font = Font(name=FONT, size=14, bold=True, color=DARK)
+            self.add_image(
+                ws,
+                anchors[0],
+                self.r.tables["equipment"],
+                "equipment",
+                metric=metric,
+                width=490,
+                height=260,
+                company_style=False,
+            )
+            self.add_image(
+                ws,
+                anchors[1],
+                self.issue_types,
+                "module_part",
+                metric=metric,
+                width=490,
+                height=260,
+                company_style=False,
+            )
+        ws.merge_cells("A36:L36")
+        self.put(ws, 36, 1, "□ 우선 확인 항목", role="title").font = Font(
+            name=FONT, size=14, bold=True, color=DARK
         )
-        points.extend([K["record_note"], K["time_note"], K["exposure_note"]])
-        for r, note in zip((34, 36, 39, 41, 43), points):
-            ws.merge_cells(start_row=r, start_column=1, end_row=r + 1, end_column=12)
-            self.put(ws, r, 1, note, role="muted" if r >= 39 else "derived")
-        ws.print_area = "A1:L45"
+        ws.merge_cells("A37:L38")
+        available = descending(self.r.tables["equipment"], "total_minutes")
+        available = available[available.total_minutes.notna()]
+        if len(available):
+            top = available.iloc[0]
+            note = f"정지시간 최다 {basis}: {top['equipment']} / {top['total_minutes']:,.0f}분 / {top['count']:,}건"
+        else:
+            note = "정지시간 기재 없음: 시간 기준 순위 확인 필요"
+        self.put(ws, 37, 1, note)
+        ws.print_area = "A1:L40"
+        ws.page_setup.orientation = "portrait"
         ws.page_setup.fitToHeight = 1
-        ws.freeze_panes = "A11"
+        ws.freeze_panes = "A8"
 
     def trends(self):
         ws = self.new_sheet("trend", K["trend_tab"], span=9)
@@ -1145,10 +1128,18 @@ class ReportBuilder:
             row = self.stats(
                 ws, self.r.tables["trend_" + freq], ["period"], row + 1, False, period_freq=freq
             )
-        self.add_image(
-            ws, "K6", self.r.tables["trend_month"], "period", kind="trend", width=660, height=365
-        )
-        ws.print_area = f"A1:R{max(row, 27)}"
+            if freq == "month":
+                self.add_image(
+                    ws,
+                    f"A{row + 1}",
+                    self.r.tables["trend_month"],
+                    "period",
+                    kind="trend",
+                    width=660,
+                    height=365,
+                )
+                row += 19
+        ws.print_area = f"A1:L{row}"
 
     def pareto(self, ws, key, row):
         row = self.section(ws, row, "개선 우선순위 · 건수와 정지시간의 누적 기여도")
@@ -1210,11 +1201,12 @@ class ReportBuilder:
                         PCT,
                     )
                     ws.row_dimensions[n].height = 37
+                chart_row = first + len(ordered) + 1
                 self.add_image(
-                    ws, f"F{row + 1}", ordered, key, metric, kind="pareto", width=650, height=350
+                    ws, f"A{chart_row}", ordered, key, metric, kind="pareto", width=650, height=350
                 )
-                row += max(len(ordered) + 5, 20)
-        ws.print_area = f"A1:N{row}"
+                row = chart_row + 16
+        ws.print_area = f"A1:L{row}"
         return row
 
     def crosses(self):
@@ -1245,11 +1237,16 @@ class ReportBuilder:
             "raw_equipment_name": "\ub4f1\ub85d \uc124\ube44\uba85(\ubcc0\ud658)",
             "registered": "\ub4f1\ub85d \uc124\ube44(\ubcc0\ud658)",
             "raw_description": "\uace0\uc7a5\ub0b4\uc6a9(\uc124\ube44\uba85 \ubcc0\ud658)",
+            "normalized": "고장내용(표준화 후)",
+            "equipment": "분석 라인",
+            "report_equipment": "보고서 라인명",
         }.get(key, DISPLAY.get(key, key))
 
     def add_donut(self, ws, anchor, equipment, table, width=970, height=335):
         if equipment not in self._donut_png:
-            with donut_png(table, equipment, top_n=self.donut_top_n) as rendered:
+            with donut_png(
+                table, equipment, top_n=self.donut_top_n, company_style=True
+            ) as rendered:
                 self._donut_png[equipment] = rendered.getvalue()
         # openpyxl closes each image stream while saving, so each placement owns one.
         buffer = BytesIO(self._donut_png[equipment])
@@ -1560,46 +1557,97 @@ class ReportBuilder:
         ws.freeze_panes = "E7"
         ws.print_area = f"A1:{last_column}{last}"
 
+    def detailed_equipment(self, ws, row):
+        """Preserved module facts remain useful without a complete part path."""
+        table = self.r.tables.get("detailed_equipment", pd.DataFrame())
+        row = self.section(ws, row, "라인·상세설비별 고장이력 (확인된 항목 기준)", span=9)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=9)
+        self.put(
+            ws,
+            row,
+            1,
+            "부품 미기재·검토 중인 기록도 확인된 상세설비에 포함합니다. 검토 중인 부품 후보를 확정 고장으로 합산하지 않습니다. 미확인 설비는 미상으로 표시하며 이력·정지시간은 각각 한 번 집계합니다. 변경 후 보고서를 다시 생성하세요.",
+            role="muted",
+        )
+        ws.row_dimensions[row].height = 42
+        row += 2
+        columns = [
+            "line",
+            "detail_equipment",
+            "count",
+            "count_share",
+            "total_minutes",
+            "valid_count",
+            "review_count",
+        ]
+        self.header(
+            ws,
+            row,
+            [
+                "라인",
+                "상세설비·모듈",
+                "고장이력(건)",
+                "전체 고장이력 비율",
+                "정지시간(분)",
+                "시간 기재(건)",
+                "분류 검토 중(건)",
+            ],
+        )
+        for number, record in enumerate(table.to_dict("records"), row + 1):
+            for column, key in enumerate(columns, 1):
+                self.put(
+                    ws,
+                    number,
+                    column,
+                    record[key],
+                    fmt=PCT
+                    if key == "count_share"
+                    else INT
+                    if key in ("count", "valid_count", "review_count")
+                    else None,
+                )
+            ws.row_dimensions[number].height = 32
+        last = row + max(1, len(table))
+        if table.empty:
+            self.put(ws, last, 1, K["empty"], role="review")
+        if not table.empty:
+            self.filter_table(ws, "DetailedEquipment", row, last, len(columns))
+        ws.print_area = f"A1:R{last}"
+
     def build(self, progress: Progress = noop_progress):
         self.detail()
         self.raw()
         progress(25, K["exporting"])
-        for key in ("equipment", "line", "type"):
-            if key in self.sections:
-                ws = self.new_sheet(key, span=9)
-                end = self.stats(ws, self.r.tables[key], [key])
-                if key == "equipment":
-                    end = self.pareto(ws, key, end + 2)
-                    self.equipment_types(ws, end + 2)
-                elif len(self.r.tables[key]):
-                    self.add_image(ws, "K6", self.r.tables[key], key, width=680, height=385)
-                    end = max(end, 27)
-                    ws.print_area = f"A1:R{end}"
-                if key == "type":
-                    end = self.pareto(ws, key, end + 2)
-                    ws.print_area = f"A1:R{end}"
         if "summary" in self.sections:
             self.summary()
+        issues = IssueWorkbook(self)
+        issues.build()
+        from report.interactive_appendices import build_appendices
+
+        build_appendices(issues)
         if "trend" in self.sections:
             self.trends()
         progress(55, K["exporting"])
         if "cross" in self.sections and self.r.metrics["product_count"]:
             self.crosses()
-        ws = self.detail("review", self.r.tables["review"])
+        self.detail("review", self.r.tables["review"])
         self.names()
         criteria_ws = self.wb[SHEETS["criteria"]]
         criteria_columns = criteria_ws.max_column
         self.quality(criteria_ws, criteria_ws.max_row + 3)
         criteria_ws.print_area = f"A1:{get_column_letter(criteria_columns)}{criteria_ws.max_row}"
-        if "component" in self.r.tables:
-            self.component_statistics("component", self.r.tables["component"])
-        elif "component_trend" in self.r.tables:
-            self.component_statistics("component_trend", self.r.tables["component_trend"])
         if "fault_detail" in self.r.tables:
             self.fault_details(self.r.tables["fault_detail"])
         # A clean current report only: no obsolete sheets from previous versions.
         order = {name: i for i, name in enumerate(SHEETS.values())}
         self.wb._sheets.sort(key=lambda ws: order.get(ws.title, 999))
+        department = str(
+            self.r.config_snapshot.get("final_report", {}).get("department", "")
+        ).strip()
+        apply_workbook_layout(
+            self.wb, self.cache, author=department or "확인 필요", exclude_sheets=LOCKED_SHEETS
+        )
+        apply_locked_template(self)
         self.wb.active = 0
         progress(80, K["exporting"])
         return self.wb
@@ -1609,8 +1657,8 @@ def export_report(
     result: AnalysisResult, path: str | Path, progress: Progress = noop_progress
 ) -> Path:
     p = Path(path).expanduser().resolve()
-    if p.suffix.casefold() != ".xlsx":
-        p = p.with_suffix(".xlsx")
+    if p.suffix.casefold() not in (".xlsx", ".xlsm"):
+        p = p.with_suffix(".xlsm")
     if p == result.loaded.path.resolve():
         raise UserError(
             "\uc6d0\ubcf8 \ud30c\uc77c\uc740 \ub36e\uc5b4\uc4f8 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4. \ub2e4\ub978 \uc774\ub984\uc744 \uc0ac\uc6a9\ud558\uc138\uc694."
@@ -1621,6 +1669,11 @@ def export_report(
             wb = builder.build(progress)
             wb.save(temp)
             builder.cache.patch(temp)
+            restore_template_charts(temp, builder)
+            if p.suffix.casefold() == ".xlsm":
+                from report.search_project import embed_search_project
+
+                embed_search_project(temp)
     except PermissionError as e:
         raise UserError(
             "\ubcf4\uace0\uc11c\uac00 Excel\uc5d0\uc11c \uc5f4\ub824 \uc788\uac70\ub098 \uc800\uc7a5 \uad8c\ud55c\uc774 \uc5c6\uc2b5\ub2c8\ub2e4. \ub2e4\ub978 \uc774\ub984/\ud3f4\ub354\ub85c \uc800\uc7a5\ud558\uc138\uc694."

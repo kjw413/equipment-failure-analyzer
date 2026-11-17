@@ -91,14 +91,14 @@ def test_unresolved_classification_exports_with_compact_review(store, input_file
     assert not list(tmp_path.glob(".efa_export_*"))
     with closing(load_workbook(files.excel, data_only=True)) as wb:
         review = wb[SHEETS["review"]]
-        assert review.max_column == len(REVIEW_COLS)
+        assert review.max_column == len(REVIEW_COLS) + 1
         expected = result.tables["review"].set_index("source_row")
         for row in range(7, 7 + len(expected)):
-            record = expected.loc[review.cell(row, 1).value]
+            record = expected.loc[review.cell(row, 2).value]
             for name in ("raw_description", "candidates", "status"):
-                assert review.cell(row, REVIEW_COLS.index(name) + 1).value == (record[name] or None)
+                assert review.cell(row, REVIEW_COLS.index(name) + 2).value == (record[name] or None)
         assert review.max_row == max(7, 6 + len(expected))
-        assert wb[SHEETS["summary"]]["A7"].value == result.metrics["selected_rows"]
+        assert wb["_report_metrics"]["A2"].value == result.metrics["selected_rows"]
     assert len(result.tables["fault_detail"]) == len(
         result.selected.loc[result.selected.kind.eq("고장")]
     )

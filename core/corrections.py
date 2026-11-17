@@ -12,6 +12,7 @@ from core.fault_components import CATEGORY_FIELDS as CLASSIFICATION
 from core.fault_components import COMPONENT_OVERRIDE as COMPONENT_FIELD
 from core.fault_components import parse_components
 from core.i18n import UNMATCHED, K
+from core.known_classification import known_fields
 from core.models import UserError
 from core.public_taxonomy import parse_repair_actions
 
@@ -79,6 +80,8 @@ def initial_values(record: dict, existing: dict) -> dict[str, str]:
     ):
         for key in CLASSIFICATION:
             values[key] = ""
+        if not saved_components and not any(existing.get(key) for key in CLASSIFICATION):
+            values.update(known_fields(record))
     values.update(
         work_date=shown(existing.get("work_date")), minutes=shown(existing.get("minutes"))
     )

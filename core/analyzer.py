@@ -19,7 +19,7 @@ from core.aggregation import (
     trend as trend,
 )
 from core.classification_policy import unresolved_classifications
-from core.component_analysis import component_tables
+from core.component_analysis import component_tables, detailed_equipment_table
 from core.failure_modes import UNKNOWN_EQUIPMENT, UNKNOWN_PART
 from core.i18n import UNMATCHED, K
 from core.models import AnalysisOptions, AnalysisResult, LoadedData
@@ -70,6 +70,7 @@ def analyze(
         "long_stops": descending(d, "minutes").head(options.top_n).copy(),
     }
     tables.update(component_tables(d))
+    tables["detailed_equipment"] = detailed_equipment_table(d)
     component_counts = pd.to_numeric(
         d.get("component_count", pd.Series(0, index=d.index)), errors="coerce"
     ).fillna(0)

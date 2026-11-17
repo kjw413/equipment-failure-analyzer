@@ -1,0 +1,654 @@
+"""Populate the user's fixed report design and retain its native Excel graphics.
+
+Only cell contents and chart data are replaced. The original drawing/chart XML
+is restored after saving because an openpyxl round trip discards Excel extensions.
+"""
+
+from __future__ import annotations
+
+import math
+import posixpath
+import re
+from copy import copy, deepcopy
+from numbers import Real
+from pathlib import Path
+from xml.etree import ElementTree as ET
+from xml.sax.saxutils import escape
+from zipfile import ZIP_DEFLATED, ZipFile
+
+from openpyxl import load_workbook
+from openpyxl.cell.cell import MergedCell
+from openpyxl.formula import Tokenizer
+from openpyxl.utils.cell import get_column_letter, range_boundaries
+
+from core.config import resource_root
+from report.workbook_layout import INCREASE_FORMAT, INCREASE_INT_FORMAT
+from version import VERSION
+
+LOCKED_SHEETS = (
+    "01.종합현황",
+    "02.주요이슈_팀별",
+    "03.비교",
+    "04.고장추이",
+)
+ALIASES = (
+    (LOCKED_SHEETS[0], "01_종합현황"),
+    (LOCKED_SHEETS[1], "주요이슈_팀별", "공장팀_주요이슈"),
+    (LOCKED_SHEETS[2], "동일설비사례_비교"),
+    (LOCKED_SHEETS[3], "고장사례_추이"),
+)
+METRICS_SHEET = "_report_metrics"
+NS = {
+    "s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+    "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+    "p": "http://schemas.openxmlformats.org/package/2006/relationships",
+    "c": "http://schemas.openxmlformats.org/drawingml/2006/chart",
+    "xdr": "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing",
+}
+CELL = re.compile(r"^(\$?)([A-Z]{1,3})(\$?)([1-9][0-9]*)$")
+
+
+def template_path():
+    return resource_root() / "config" / "report_template.xlsx"
+
+
+def _style(source, target):
+    for name in ("font", "fill", "border", "alignment", "protection"):
+        setattr(target, name, copy(getattr(source, name)))
+    target.number_format = source.number_format
+
+
+def _copy_sheet(source, book):
+    target = book.create_sheet(source.title)
+    for row in source:
+        for cell in row:
+            dest = target.cell(cell.row, cell.column)
+            _style(cell, dest)
+            dest.value = cell.value
+            dest.data_type = cell.data_type
+    for key, dimension in source.row_dimensions.items():
+        target.row_dimensions[key] = copy(dimension)
+        target.row_dimensions[key].parent = target
+        _style(dimension, target.row_dimensions[key])
+    for key, dimension in source.column_dimensions.items():
+        target.column_dimensions[key] = copy(dimension)
+        target.column_dimensions[key].parent = target
+        _style(dimension, target.column_dimensions[key])
+    for name in (
+        "sheet_format",
+        "sheet_properties",
+        "views",
+        "page_setup",
+        "page_margins",
+        "print_options",
+        "protection",
+        "auto_filter",
+        "data_validations",
+        "conditional_formatting",
+        "HeaderFooter",
+    ):
+        setattr(target, name, deepcopy(getattr(source, name)))
+    for merged in source.merged_cells.ranges:
+        target.merge_cells(str(merged))
+    target.print_area = str(source.print_area)
+    target.print_title_rows = source.print_title_rows
+    target.print_title_cols = source.print_title_cols
+    target._charts = deepcopy(source._charts)
+    target._images = deepcopy(source._images)
+    return target
+
+
+def _map_cell(address, mapping):
+    match = CELL.fullmatch(address)
+    if not match:
+        return address
+    a, col, b, row = match.groups()
+    mapped = mapping.get(col + row)
+    if mapped is None:
+        return address
+    dest = CELL.fullmatch(mapped)
+    if not dest:
+        return mapped
+    return a + dest[2] + b + dest[4]
+
+
+def _formula(formula, owner, maps, names):
+    if not isinstance(formula, str) or not formula.startswith("="):
+        return formula
+    result = []
+    for token in Tokenizer(formula).items:
+        value = token.value
+        if token.type == "OPERAND" and token.subtype == "RANGE":
+            sheet, separator, addresses = value.rpartition("!")
+            referenced = sheet.strip("'").replace("''", "'") if separator else owner
+            if referenced in maps:
+                addresses = addresses if separator else value
+                addresses = ":".join(_map_cell(x, maps[referenced]) for x in addresses.split(":"))
+                target_name = names[referenced]
+                if separator or target_name != owner:
+                    value = "'" + target_name.replace("'", "''") + "'!" + addresses
+                else:
+                    value = addresses
+        result.append(value)
+    return "=" + "".join(result)
+
+
+def _row_map(mapping, first, count, offset, width):
+    for row in range(first, first + count):
+        for col in range(1, width + 1):
+            letter = get_column_letter(col)
+            mapping[f"{letter}{row}"] = f"{letter}{row + offset}"
+
+
+def _input(target, source, address, span=1, label=None):
+    """Reuse existing input/label formatting for the user's approved merges."""
+    cell = target[address]
+    row, col = cell.row, cell.column
+    for merged in list(target.merged_cells.ranges):
+        if merged.min_row <= row <= merged.max_row and not (
+            merged.max_col < col or merged.min_col > col + span - 1
+        ):
+            target.unmerge_cells(str(merged))
+    for column in range(col, col + span):
+        dest = target.cell(row, column)
+        _style(source, dest)
+        dest.value = None
+    if label is not None:
+        dest = target.cell(row, col - 1)
+        _style(label, dest)
+        dest.value = label.value
+    if span > 1:
+        target.merge_cells(start_row=row, end_row=row, start_column=col, end_column=col + span - 1)
+
+
+def _approved_inputs(target, design, index):
+    if index == 0:
+        target.merge_cells("A35:L35")
+    elif index in (1, 3):
+        for address in ("G5", "H5", "I5", "J5"):
+            target[address] = None
+        _input(target, design["F5"], "F5", 3)
+        _input(target, design["H5"], "K5", 2, design["G5"])
+        if index == 3:
+            _input(target, design["J5"], "B6", 11, design["I5"])
+    elif index == 2:
+        for merged in ("B5:C5", "E5:F5", "F6:H6"):
+            target.unmerge_cells(merged)
+        for address in ("D5", "E5", "F5", "C6", "D6", "E6", "F6", "G6", "H6"):
+            target[address] = None
+        _input(target, design["B5"], "B5", 3)
+        _input(target, design["E5"], "G5", 3, design["D5"])
+        _input(target, design["B6"], "B6", 3)
+        _input(target, design["D6"], "G6", 4, design["C6"])
+        _input(target, design["F6"], "B7", 9, design["E6"])
+
+
+def _approved_dimensions(target, index, actual=0):
+    # These two geometry overrides were explicitly selected by the user.
+    for dimension in list(target.column_dimensions.values()):
+        if dimension.min <= 12:
+            if dimension.max > 12:
+                tail = copy(dimension)
+                tail.min, tail.index = 13, "M"
+                target.column_dimensions["M"] = tail
+                dimension.max = 12
+            dimension.width = 13
+    body = (
+        [5, 6, 35]
+        if index == 0
+        else [5, 6, *range(8, 14)]
+        if index == 1
+        else [5, 6, 7, *range(8, max(15, 8 + actual) + 1)]
+        if index == 2
+        else [5, 6, *range(7, max(18, 7 + actual) + 1)]
+    )
+    for row in body:
+        target.row_dimensions[row].height = 27.95
+
+
+def _extend(target, start, capacity, actual):
+    extra = max(0, actual - capacity)
+    if not extra:
+        return 0
+    old_end = start + capacity - 1
+    for row in range(old_end + 1, old_end + extra + 1):
+        for col in range(1, target.max_column + 1):
+            _style(target.cell(old_end, col), target.cell(row, col))
+        target.row_dimensions[row] = copy(target.row_dimensions[old_end])
+        target.row_dimensions[row].index = row
+    # Keep all observations; charts move down only when the data table grows.
+    for chart in target._charts:
+        chart.anchor._from.row += extra
+        if hasattr(chart.anchor, "to"):
+            chart.anchor.to.row += extra
+    bounds = range_boundaries(str(target.print_area).split("!")[-1])
+    target.print_area = (
+        f"{get_column_letter(bounds[0])}{bounds[1]}:"
+        f"{get_column_letter(bounds[2])}{bounds[3] + extra}"
+    )
+    return extra
+
+
+def _image_bytes(image):
+    if hasattr(image.ref, "getvalue"):
+        return image.ref.getvalue()
+    return image._data()
+
+
+def apply_locked_template(builder):
+    """Replace scratch front sheets with the template, retaining live formulas."""
+    book, cache = builder.wb, builder.cache
+    design = load_workbook(template_path())
+    sources = [
+        next((book[n] for n in aliases if n in book.sheetnames), None) for aliases in ALIASES
+    ]
+    maps, names = {}, {}
+    states = {}
+    old_cache = dict(cache.values)
+    runtime_images = [_image_bytes(x) for x in sources[0]._images] if sources[0] else []
+    for index, source in enumerate(sources):
+        if source is None:
+            continue
+        mapping = {}
+        if index == 0:
+            mapping.update({"A1": "A1", "A3": "A4", "A7": "A6", "A37": "A35"})
+        elif index == 1:
+            mapping.update(
+                {
+                    "B6": "B5",
+                    "D6": "D5",
+                    "F6": "F5",
+                    "K6": "K5",
+                    "B7": "B6",
+                    "D7": "D6",
+                    "F7": "F6",
+                    "H7": "H6",
+                }
+            )
+            _row_map(mapping, 10, 5, -1, 12)
+        elif index == 2:
+            mapping.update({"B6": "B5", "G6": "G5", "B7": "B6", "G7": "G6", "B8": "B7"})
+            # The issue source excludes planned stops and can contain fewer organizations.
+            count = sum(
+                source.cell(row, 1).value is not None
+                for row in range(11, source.max_row + 1)
+                if source.cell(row, 3).data_type == "f"
+            )
+            _row_map(mapping, 11, count, -2, 10)
+            states[LOCKED_SHEETS[index]] = {"actual": count, "capacity": 7, "start": 9}
+        else:
+            mapping.update({"B6": "B5", "D6": "D5", "F6": "F5", "K6": "K5", "B7": "B6"})
+            count = sum(
+                source.cell(row, 2).data_type == "f" for row in range(10, source.max_row + 1)
+            )
+            _row_map(mapping, 10, count, -2, 11)
+            states[LOCKED_SHEETS[index]] = {"actual": count, "capacity": 11, "start": 8}
+        maps[source.title], names[source.title] = mapping, LOCKED_SHEETS[index]
+    metrics = None
+    if sources[0]:
+        if METRICS_SHEET in book:
+            book.remove(book[METRICS_SHEET])
+        metrics = book.create_sheet(METRICS_SHEET)
+        metrics["A1"] = "metric"
+        metrics.sheet_state = "hidden"
+        for address, source_cell, label in (
+            ("A2", "A6", "count"),
+            ("A3", "E6", "total_minutes"),
+            ("A4", "I6", "mean_minutes"),
+        ):
+            source = sources[0]
+            cell = source[source_cell]
+            metrics[address] = _formula(cell.value, source.title, maps, names)
+            metrics[address].number_format = "#,##0" if address == "A2" else "#,##0.0"
+            metrics.cell(int(address[1:]), 2, label)
+            cache.values[(METRICS_SHEET, address)] = old_cache.get((source.title, source_cell), "")
+    for source in sources:
+        if source is not None:
+            book.remove(source)
+    targets, style_map = {}, {}
+    for index, source in enumerate(sources):
+        if source is None:
+            continue
+        name = LOCKED_SHEETS[index]
+        target = _copy_sheet(design[name], book)
+        if str(target.oddFooter.right.text).startswith("EFA "):
+            target.oddFooter.right.text = f"EFA {VERSION}"
+        _approved_inputs(target, design[name], index)
+        targets[name] = target
+        for row in design[name]:
+            for cell in row:
+                style_map[cell.style_id] = target.cell(cell.row, cell.column).style_id
+        for key, dim in design[name].column_dimensions.items():
+            style_map[dim.style_id] = target.column_dimensions[key].style_id
+        for key, dim in design[name].row_dimensions.items():
+            style_map[dim.style_id] = target.row_dimensions[key].style_id
+        state = states.get(name, {})
+        state["extra"] = (
+            _extend(target, state.get("start", 1), state.get("capacity", 0), state.get("actual", 0))
+            if state
+            else 0
+        )
+        _approved_dimensions(target, index, state.get("actual", 0))
+        states[name] = state
+        # Controls come from the current report logic, never stale template lists.
+        target.data_validations = deepcopy(source.data_validations)
+        for validation in target.data_validations.dataValidation:
+            validation.sqref = " ".join(
+                _map_cell(address, maps[source.title]) for address in str(validation.sqref).split()
+            )
+        for old, new in maps[source.title].items():
+            cell, dest = source[old], target[new]
+            if isinstance(dest, MergedCell):
+                continue
+            if cell.data_type == "f":
+                cache.set(
+                    target,
+                    new,
+                    _formula(cell.value, source.title, maps, names),
+                    old_cache.get((source.title, old), ""),
+                )
+            else:
+                dest.value = cell.value
+                if isinstance(dest.value, str):
+                    dest.data_type = "s"
+        if index == 0:
+            target["A4"] = "집계기간: " + str(builder.r.metrics["period"])
+            count = old_cache.get((source.title, "A6"), "")
+            total = old_cache.get((source.title, "E6"), "")
+            mean = old_cache.get((source.title, "I6"), "")
+
+            def display(value, digits=0):
+                return (
+                    format(float(value), f",.{digits}f") + "분"
+                    if isinstance(value, Real) and math.isfinite(float(value))
+                    else "확인 필요"
+                )
+
+            text = f"총 기록 건수 {int(count):,}건  |  정지시간 합계 {display(total)}  |  평균 정지시간 {display(mean, 1)}"
+            formula = (
+                '="총 기록 건수 "&TEXT(\'_report_metrics\'!A2,"#,##0")&"건  |  정지시간 합계 "&'
+                'IF(ISNUMBER(\'_report_metrics\'!A3),TEXT(\'_report_metrics\'!A3,"#,##0")&"분","확인 필요")&'
+                '"  |  평균 정지시간 "&IF(ISNUMBER(\'_report_metrics\'!A4),TEXT(\'_report_metrics\'!A4,"#,##0.0")&"분","확인 필요")'
+            )
+            cache.set(target, "A5", formula, text)
+        _report_content(target, index, state.get("actual", 0), builder.r.options.top_n)
+    # Rewrite references in hidden rank helpers and the rest of the report once.
+    source_names = set(maps)
+    for sheet in book:
+        if sheet.title in targets or sheet.title == METRICS_SHEET:
+            continue
+        for row in sheet:
+            for cell in row:
+                if cell.data_type == "f":
+                    cell.value = _formula(cell.value, sheet.title, maps, names)
+    # Drop stale source cache entries; retain only newly populated destination cells.
+    populated = {
+        (name, cell.coordinate)
+        for name, ws in targets.items()
+        for row in ws
+        for cell in row
+        if cell.data_type == "f"
+    }
+    cache.values = {
+        key: value
+        for key, value in cache.values.items()
+        if key[0] not in source_names or key in populated
+    }
+    book._sheets = [targets[n] for n in LOCKED_SHEETS if n in targets] + [
+        ws for ws in book if ws.title not in targets
+    ]
+    book.loaded_theme = design.loaded_theme
+    builder._locked_template = {"sheets": states, "styles": style_map, "images": runtime_images}
+    design.close()
+
+
+def _report_content(target, index, actual, top_n):
+    """Approved terminology and comparison-only value colors; retain other styling."""
+    for row in target:
+        for cell in row:
+            if cell.data_type == "s" and isinstance(cell.value, str):
+                cell.value = (
+                    cell.value.replace("실제 설비", "라인")
+                    .replace("고장사례", "상세설비·세부부품")
+                    .replace("고장 사례", "상세설비·세부부품")
+                )
+    if index == 1:
+        target["A1"] = "공장·팀·라인의 주요 고장이슈"
+        target["B8"] = target["H8"] = "상세설비 / 세부부품"
+    elif index == 2:
+        target["A1"] = "동일 상세설비·세부부품의 공장·팀 비교"
+        target["A6"], target["A7"] = "라인", "세부부품"
+    elif index == 3:
+        target["A1"] = "세부부품의 월별 건수·정지시간"
+        target["A6"] = "세부부품"
+    elif index == 0:
+        target["G8"] = f"○ 발생 건수 TOP {top_n} _ 상세설비·세부부품"
+        target["G21"] = f"○ 정지시간 TOP {top_n} _ 상세설비·세부부품"
+        for address in ("A8", "A21"):
+            target[address] = re.sub(r"TOP\s*\d+", f"TOP {top_n}", str(target[address].value))
+    first, last = (
+        (5, 6)
+        if index == 0
+        else (9, 13)
+        if index == 1
+        else (9, 8 + actual)
+        if index == 2
+        else (8, 7 + actual)
+    )
+    for row in target.iter_rows(min_row=first, max_row=max(first, last), max_col=12):
+        for cell in row:
+            if isinstance(cell, MergedCell):
+                continue
+            font = copy(cell.font)
+            font.color = "222222"
+            cell.font = font
+            cell.number_format = re.sub(r"\[(?:Red|Blue)\]", "", cell.number_format, flags=re.I)
+            if cell.data_type == "f" and index == 2 and cell.column in (6, 7):
+                cell.number_format = INCREASE_INT_FORMAT if cell.column == 6 else INCREASE_FORMAT
+            elif cell.data_type == "f" and index == 3 and cell.column in (7, 8, 9, 10):
+                cell.number_format = (
+                    INCREASE_INT_FORMAT if cell.column in (7, 9) else INCREASE_FORMAT
+                )
+
+
+def _resolve(base, target):
+    return (
+        target.lstrip("/")
+        if target.startswith("/")
+        else posixpath.normpath(posixpath.join(posixpath.dirname(base), target))
+    )
+
+
+def _rels_path(part):
+    return posixpath.dirname(part) + "/_rels/" + posixpath.basename(part) + ".rels"
+
+
+def _relationships(archive, part):
+    path = _rels_path(part)
+    if path not in archive.namelist():
+        return {}
+    return {
+        item.get("Id"): (_resolve(part, item.get("Target")), item.get("Type"))
+        for item in ET.fromstring(archive.read(path))
+    }
+
+
+def _sheet_parts(archive):
+    rels = _relationships(archive, "xl/workbook.xml")
+    book = ET.fromstring(archive.read("xl/workbook.xml"))
+    return {
+        item.get("name"): rels[item.get("{" + NS["r"] + "}id")][0]
+        for item in book.find("s:sheets", NS)
+    }
+
+
+def _cache_value(builder, name, address):
+    cell = builder.wb[name][address]
+    return builder.cache.values.get((name, address), "") if cell.data_type == "f" else cell.value
+
+
+def _chart_data(raw, builder, name, extra):
+    # Patch only data-bearing XML substrings. Serializing the full native chart
+    # would rename namespaces and can invalidate Excel's extension declarations.
+    def replace_reference(match):
+        kind, inner = match[2], match[3]
+        text = re.search(r"<c:f>(.*?)</c:f>", inner, flags=re.DOTALL)
+        formula = ET.fromstring("<f>" + text[1] + "</f>").text
+        sheet, _, address = formula.rpartition("!")
+        if extra and ":" in address:
+            first, last = address.split(":")
+            match = CELL.fullmatch(last)
+            address = first + ":" + match[1] + match[2] + match[3] + str(int(match[4]) + extra)
+            formula = sheet + "!" + address
+        sheet = sheet.strip("'").replace("''", "'")
+        bounds = range_boundaries(address)
+        values = [
+            _cache_value(builder, sheet, f"{get_column_letter(col)}{row}")
+            for row in range(bounds[1], bounds[3] + 1)
+            for col in range(bounds[0], bounds[2] + 1)
+        ]
+        numeric = kind == "numRef"
+        cache_tag = "numCache" if numeric else "strCache"
+        cache = [f"<c:{cache_tag}>"]
+        if numeric:
+            cache.append(
+                "<c:formatCode>"
+                + escape(builder.wb[sheet].cell(bounds[1], bounds[0]).number_format)
+                + "</c:formatCode>"
+            )
+        cache.append(f'<c:ptCount val="{len(values)}"/>')
+        for index, value in enumerate(values):
+            if numeric and (
+                value is None
+                or value == ""
+                or not isinstance(value, Real)
+                or not math.isfinite(float(value))
+            ):
+                continue
+            value = format(float(value), ".15g") if numeric else "" if value is None else str(value)
+            cache.append(f'<c:pt idx="{index}"><c:v>{escape(value)}</c:v></c:pt>')
+        cache.append(f"</c:{cache_tag}>")
+        inner = re.sub(
+            r"<c:f>.*?</c:f>", "<c:f>" + escape(formula) + "</c:f>", inner, count=1, flags=re.DOTALL
+        )
+        inner = re.sub(
+            r"<c:(?:strCache|numCache)\b[^>]*>.*?</c:(?:strCache|numCache)>",
+            "",
+            inner,
+            flags=re.DOTALL,
+        )
+        return f"<c:{kind}>" + inner + "".join(cache) + f"</c:{kind}>"
+
+    return re.sub(
+        r"(<c:(strRef|numRef)\b[^>]*>)(.*?)(</c:\2>)",
+        replace_reference,
+        raw.decode("utf-8"),
+        flags=re.DOTALL,
+    ).encode("utf-8")
+
+
+def _replace_node(raw, tag, node):
+    ET.register_namespace("", NS["s"])
+    replacement = ET.tostring(node, encoding="unicode") if node is not None else ""
+    pattern = rf"<(?:\w+:)?{tag}(?:\s[^>]*)?(?:/>|>.*?</(?:\w+:)?{tag}>)"
+    if re.search(pattern, raw, flags=re.DOTALL):
+        return re.sub(pattern, lambda _: replacement, raw, count=1, flags=re.DOTALL)
+    return raw
+
+
+def restore_template_charts(path, builder):
+    """Restore original native graphics and sheet geometry after cache patching."""
+    state = getattr(builder, "_locked_template", None)
+    if not state:
+        return
+    path = Path(path)
+    replacements = {}
+    with ZipFile(template_path()) as design, ZipFile(path) as output:
+        src_sheets, dst_sheets = _sheet_parts(design), _sheet_parts(output)
+        for name, sheet_state in state["sheets"].items():
+            src, dst = src_sheets[name], dst_sheets[name]
+            original_raw = design.read(src).decode("utf-8")
+            original = ET.fromstring(original_raw)
+            generated = ET.fromstring(output.read(dst))
+            for tag in (
+                "sheetData",
+                "cols",
+                "mergeCells",
+                "dataValidations",
+                "dimension",
+                "headerFooter",
+            ):
+                original_raw = _replace_node(original_raw, tag, generated.find("s:" + tag, NS))
+            src_rels, dst_rels = _relationships(design, src), _relationships(output, dst)
+            sd = original.find("s:drawing", NS)
+            dd = generated.find("s:drawing", NS)
+            if sd is not None and dd is not None:
+                src_drawing = src_rels[sd.get("{" + NS["r"] + "}id")][0]
+                dst_drawing = dst_rels[dd.get("{" + NS["r"] + "}id")][0]
+                original_raw = _replace_node(original_raw, "drawing", dd)
+                source_tree = ET.fromstring(design.read(src_drawing))
+                target_tree = ET.fromstring(output.read(dst_drawing))
+                sr, dr = _relationships(design, src_drawing), _relationships(output, dst_drawing)
+                relationship_root = ET.Element("Relationships", xmlns=NS["p"])
+                image_index = 0
+                for source_anchor, dest_anchor in zip(source_tree, target_tree, strict=True):
+                    source_ref = source_anchor.find(".//c:chart", NS)
+                    dest_ref = dest_anchor.find(".//c:chart", NS)
+                    chart = source_ref is not None
+                    if not chart:
+                        source_ref = next(
+                            x for x in source_anchor.iter() if x.tag.endswith("}blip")
+                        )
+                        dest_ref = next(x for x in dest_anchor.iter() if x.tag.endswith("}blip"))
+                    attribute = "id" if chart else "embed"
+                    source_id = source_ref.get("{" + NS["r"] + "}" + attribute)
+                    dest_id = dest_ref.get("{" + NS["r"] + "}" + attribute)
+                    source_part, kind = sr[source_id]
+                    dest_part, _ = dr[dest_id]
+                    ET.SubElement(
+                        relationship_root,
+                        "Relationship",
+                        {
+                            "Id": source_id,
+                            "Type": kind,
+                            "Target": posixpath.relpath(dest_part, posixpath.dirname(dst_drawing)),
+                        },
+                    )
+                    if chart:
+                        extra = sheet_state.get("extra", 0)
+                        replacements[dest_part] = _chart_data(
+                            design.read(source_part), builder, name, extra
+                        )
+                        if extra:
+                            for marker in ("xdr:from/xdr:row", "xdr:to/xdr:row"):
+                                node = source_anchor.find(marker, NS)
+                                if node is not None:
+                                    node.text = str(int(node.text) + extra)
+                    elif image_index < len(state["images"]):
+                        replacements[dest_part] = state["images"][image_index]
+                        image_index += 1
+                drawing_raw = design.read(src_drawing).decode("utf-8")
+                if sheet_state.get("extra", 0):
+                    extra = sheet_state["extra"]
+                    drawing_raw = re.sub(
+                        r"<xdr:row>([0-9]+)</xdr:row>",
+                        lambda m: "<xdr:row>" + str(int(m[1]) + extra) + "</xdr:row>",
+                        drawing_raw,
+                    )
+                replacements[dst_drawing] = drawing_raw.encode("utf-8")
+                replacements[_rels_path(dst_drawing)] = ET.tostring(
+                    relationship_root, encoding="utf-8", xml_declaration=True
+                )
+            replacements[dst] = original_raw.encode("utf-8")
+        data = [
+            (item, replacements.get(item.filename, output.read(item.filename)))
+            for item in output.infolist()
+        ]
+    temporary = path.with_suffix(path.suffix + ".template.tmp")
+    try:
+        with ZipFile(temporary, "w", ZIP_DEFLATED) as target:
+            for item, content in data:
+                target.writestr(item, content)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)

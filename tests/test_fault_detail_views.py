@@ -57,7 +57,7 @@ def test_excel_has_one_detail_row_per_fault_including_pending_classifications(
     assert split_result.metrics["total_minutes"] == 95
     workbook = load_workbook(export_report(split_result, tmp_path / "split.xlsx"), data_only=True)
     try:
-        assert len(workbook.sheetnames) == 12
+        assert len([ws for ws in workbook if ws.sheet_state == "visible"]) == 12
         sheet = workbook[SHEETS["fault_detail"]]
         headers = [cell.value for cell in sheet[6]]
         assert DISPLAY["middle"] in headers and DISPLAY["minor"] in headers
@@ -87,10 +87,22 @@ def test_excel_has_one_detail_row_per_fault_including_pending_classifications(
 
 def test_pdf_explains_single_classification_and_preserves_pending_evidence(split_result, tmp_path):
     pypdf = pytest.importorskip("pypdf")
+    from dataclasses import replace
+
+    split_result = replace(
+        split_result,
+        config_snapshot={
+            **split_result.config_snapshot,
+            "final_report": {
+                **split_result.config_snapshot["final_report"],
+                "include_record_appendix": True,
+            },
+        },
+    )
     reader = pypdf.PdfReader(export_pdf(split_result, tmp_path / "split.pdf"))
     compact = "".join("".join(page.extract_text() or "" for page in reader.pages).split())
     for expected in (
-        "상세설비·세부부품분류",
+        "부록C개별분류이력",
         "한고장이력은한행",
         "고장분야/상세설비·모듈/세부부품/고장현상",
         "실린더",

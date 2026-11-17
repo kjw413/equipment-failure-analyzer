@@ -444,6 +444,8 @@ def test_fresh_profile_records_catalog_installation_once(tmp_path, approved_cata
         ("온도·냉각", "냉동·냉각장치", "냉각수 공급부(세부 부품 미상)"),
         ("공압·진공", "진공·석션", "석션기·블로워(세부 부품 미상)"),
         ("기계", "충진·분사기구", "익스트랙터 바(세부 부품 미상)"),
+        ("전기·제어", "센서·검출", "아이마크 센서"),
+        ("기계", "인계·정렬기구", "이송 플레이트"),
     }
     assert ConfigStore(root).merge_summary == {}
 

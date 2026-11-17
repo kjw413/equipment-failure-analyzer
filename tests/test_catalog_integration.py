@@ -4,12 +4,17 @@ from hashlib import sha256
 
 from conftest import analyze_file
 from openpyxl import load_workbook
+from openpyxl.utils import column_index_from_string, get_column_letter
 
 from core.failure_modes import UNKNOWN_PART
 from core.fault_components import parse_components
 from core.i18n import K
 from core.public_taxonomy import default_taxonomy
 from report.excel_report import SHEETS, D, export_report
+
+OUTPUT_D = {
+    key: get_column_letter(column_index_from_string(column) + 1) for key, column in D.items()
+}
 
 
 def test_current_catalog_types_and_ranked_candidates_survive_report_export(
@@ -75,41 +80,44 @@ def test_current_catalog_types_and_ranked_candidates_survive_report_export(
 
     workbook = load_workbook(export_report(result, tmp_path / "catalog.xlsx"), data_only=True)
     try:
-        assert workbook[SHEETS["summary"]]["A7"].value == 4
-        assert workbook[SHEETS["summary"]]["E7"].value == 95
+        assert workbook["_report_metrics"]["A2"].value == 4
+        assert workbook["_report_metrics"]["A3"].value == 95
         detail = workbook[SHEETS["detail"]]
         representative_row = next(
             row
             for row in range(7, detail.max_row + 1)
-            if detail[f"{D['source_row']}{row}"].value == 4
+            if detail[f"{OUTPUT_D['source_row']}{row}"].value == 4
         )
         assert (
             "1순위 대표 자동선택"
-            in detail[f"{D['classification_reason']}{representative_row}"].value
+            in detail[f"{OUTPUT_D['classification_reason']}{representative_row}"].value
         )
         assert (
-            parse_components(detail[f"{D['classification_candidates']}{representative_row}"].value)
+            parse_components(
+                detail[f"{OUTPUT_D['classification_candidates']}{representative_row}"].value
+            )
             == candidates
         )
         assert (
-            parse_components(detail[f"{D['component_details']}{representative_row}"].value)
+            parse_components(detail[f"{OUTPUT_D['component_details']}{representative_row}"].value)
             == selected
         )
         for row in range(7, detail.max_row + 1):
-            for member in parse_components(detail[f"{D['component_details']}{row}"].value):
+            for member in parse_components(detail[f"{OUTPUT_D['component_details']}{row}"].value):
                 assert (
                     member["middle"] == UNKNOWN_PART or member["middle"] in default_taxonomy().names
                 )
                 assert member["part_group"] == default_taxonomy().group(member["middle"])
         component_labels = {
-            " / ".join(member[key] for key in ("major", "detail_equipment", "middle"))
+            member["middle"]
             for value in result.selected.component_details
             for member in parse_components(value)
         }
-        component = workbook[SHEETS["component"]]
-        assert {
-            component.cell(row, 1).value for row in range(7, 7 + len(result.tables["component"]))
-        } <= component_labels
+        assert "별첨. 부품별분석" not in workbook.sheetnames
+        facts = workbook["_issue_facts"]
+        part_column = [c.value for c in facts[1]].index("part") + 1
+        parts = {facts.cell(row, part_column).value for row in range(2, facts.max_row + 1)}
+        assert (parts - {"세부 부품 미기재"}) <= component_labels
         assert all(cell.data_type != "e" for sheet in workbook for row in sheet for cell in row)
     finally:
         workbook.close()

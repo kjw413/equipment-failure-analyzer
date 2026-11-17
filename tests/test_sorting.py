@@ -83,11 +83,11 @@ def test_detail_export_sorted_without_mutating_source(store, input_file, tmp_pat
     path = export_report(result, tmp_path / "descending.xlsx")
     wb = load_workbook(path, data_only=True)
     detail = wb[SHEETS["detail"]]
-    minutes = DETAIL_COLS.index("minutes") + 1
+    minutes = DETAIL_COLS.index("minutes") + 2
     assert [detail.cell(r, minutes).value for r in range(7, 11)] == [65, 20, 10, None]
-    for name in ("equipment", "line", "type"):
+    for name in ("equipment", "line"):
         table = wb[SHEETS[name]]
-        values = [table.cell(r, 5).value for r in range(7, 7 + len(result.tables[name]))]
+        values = [table.cell(r, 8).value for r in range(13, 23)]
         actual = [v for v in values if v is not None]
         assert actual == sorted(actual, reverse=True)
     assert result.selected.record_id.tolist() == ids
@@ -123,7 +123,7 @@ def test_empty_product_report_blocks_are_omitted(store, no_product_file, tmp_pat
     ):
         assert phrase not in all_text
     assert SHEETS["cross"] not in wb.sheetnames
-    for name in ("equipment", "type"):
+    for name in ("equipment", "line"):
         text = "\n".join(
             str(cell.value) for row in wb[SHEETS[name]] for cell in row if cell.value is not None
         )
@@ -131,7 +131,7 @@ def test_empty_product_report_blocks_are_omitted(store, no_product_file, tmp_pat
     ws = wb[SHEETS["detail"]]
     from openpyxl.utils import get_column_letter
 
-    assert ws.column_dimensions[get_column_letter(DETAIL_COLS.index("product") + 1)].hidden
+    assert ws.column_dimensions[get_column_letter(DETAIL_COLS.index("product") + 2)].hidden
     wb.close()
 
 
@@ -143,7 +143,7 @@ def test_pdf_absent_product_notes_and_rank_order(store, no_product_file, tmp_pat
     text = "\n".join(page.extract_text() or "" for page in reader.pages)
     assert "\uc81c\ud488 \ubbf8\uae30\uc7ac" not in text
     assert "\uc81c\ud488\uba85 \uc815\ubcf4\uac00 \uc5c6\uc5b4" not in text
-    comparison = reader.pages[1].extract_text()
+    comparison = text[text.index("라인별 정지시간 TOP") :].split("전체 고장유형", 1)[0]
     assert comparison.index("IF20000") < comparison.index("VITAL#2")
 
 

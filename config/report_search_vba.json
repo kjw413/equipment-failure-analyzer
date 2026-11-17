@@ -1,0 +1,9 @@
+{
+  "workbook_codename": "ThisWorkbook",
+  "project_sha256": "b30bd5dccf78010abe342eecdee35c00ff98791e6bee8a86be5b3af5bb91b9a2",
+  "source_sha256": {
+    "ThisWorkbook.cls": "94244b7dd4192ceff9dd980740ff5cc21b1c8dc9281b17493a99f6eb4a64d4ca",
+    "EFASearch.bas": "f839bb75fc6af44605f5f3d7d335e10cca7d3dec7961b541251b3e6aa6b08001",
+    "EFAPicker.vba": "ed1c85bfc49ea2e3d265b96afbeac166ac8914c376469f3c5db69df3bc0f6965"
+  }
+}

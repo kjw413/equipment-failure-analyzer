@@ -93,7 +93,9 @@ def classification_patch(
     initial = initial_values(record, existing)
     values = dict(initial)
     unchanged = all(single.get(key, "") == initial.get(key, "") for key in FIELDS)
-    if record.get("status") == "부분분류" and unchanged:
+    if (
+        record.get("status") == "부분분류" or record.get("classification_known_fields")
+    ) and unchanged:
         if repair_actions is None or repair_actions == initial.get("repair_actions", ""):
             return {}
         return field_patch(record, existing, "repair_actions", repair_actions)
@@ -145,11 +147,15 @@ class ClassificationCellEditor(QDialog):
         outer.addWidget(self.text_comparison)
         initial = initial_values(record, self.existing)
         self.initial_classification = {key: initial.get(key, "") for key in FIELDS}
-        if record.get("classification_mode") in (
-            "multiple",
-            "pending",
-            "ambiguous",
-        ) or self.existing.get(COMPONENT_FIELD):
+        if not record.get("classification_known_fields") and (
+            record.get("classification_mode")
+            in (
+                "multiple",
+                "pending",
+                "ambiguous",
+            )
+            or self.existing.get(COMPONENT_FIELD)
+        ):
             initial = {**initial, **dict.fromkeys(FIELDS, "")}
         self.single_picker = ClassificationPicker(categories, initial)
         self.candidate_picker = CandidateListPicker(record_candidates(record, self.existing))
@@ -160,6 +166,13 @@ class ClassificationCellEditor(QDialog):
             QLabel("직접 선택 · 설비 → 부품 → 고장 현상 → 분야 확인 / 각 항목 독립 선택")
         )
         outer.addWidget(self.single_picker)
+        if record.get("classification_known_fields"):
+            note = QLabel(
+                "검토 중에도 확인된 항목은 유지됩니다. 빈 항목과 의심·대안 후보를 확인하세요. "
+                "확인된 상세설비는 상세설비별 고장이력에 포함하며, 부품 후보를 확정 고장으로 집계하지 않습니다."
+            )
+            note.setWordWrap(True)
+            outer.addWidget(note)
         if record.get("status") == "부분분류":
             note = QLabel(
                 "부분분류 · 확인된 항목은 유지됩니다. 원문에 없는 현상·분야를 추측해 입력할 필요가 없습니다. "
@@ -266,8 +279,9 @@ class ClassificationCellEditor(QDialog):
         try:
             single = self.single_picker.value()
             keep_partial = (
-                self.record.get("status") == "부분분류" and single == self.initial_classification
-            )
+                self.record.get("status") == "부분분류"
+                or self.record.get("classification_known_fields")
+            ) and single == self.initial_classification
             if not keep_partial:
                 single = self.single_picker.validate_path()
             patch = classification_patch(

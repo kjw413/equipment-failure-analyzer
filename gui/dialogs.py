@@ -616,11 +616,15 @@ class CorrectionDialog(QDialog):
         super().__init__(parent)
         self.existing = {k: v for k, v in (existing or {}).items() if k != "saved_at"}
         self.initial = initial_values(record, self.existing)
-        if record.get("classification_mode") in (
-            "multiple",
-            "pending",
-            "ambiguous",
-        ) or self.existing.get(COMPONENT_FIELD):
+        if not record.get("classification_known_fields") and (
+            record.get("classification_mode")
+            in (
+                "multiple",
+                "pending",
+                "ambiguous",
+            )
+            or self.existing.get(COMPONENT_FIELD)
+        ):
             self.initial.update(dict.fromkeys(FIELDS, ""))
         self.categories = ClassificationPathIndex(
             fault_catalog_categories(rules or [], equipment_types)

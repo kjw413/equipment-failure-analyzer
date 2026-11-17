@@ -33,7 +33,9 @@ LOOSE = "풀림|풀려|풀어|풀리면|풀리며|풀리고|이탈|빠짐|빠져
 ELEC = "단선|소손|단락|쇼트|short|합선|누전|과부하|과전류|접촉불량|접촉|타버|나감|발열"
 LEAK = "누설|누수|누출|리크|leak|누유"
 JAM = "걸림|걸리|끼임|끼어|끼여|막힘|막혀|고착|적체|정체|충돌|간섭"
-POSITION_FAILURE = "(?:원점|타이밍|위치|정렬|텐션)(?:이|가)?(?:틀어짐|틀어|틀려|이상|불량)"
+POSITION_FAILURE = (
+    "(?:원점|타이밍|위치|정렬|텐션)(?:이|가)?(?:틀어짐|틀어|틀려|이상|불량|밀림|밀려)"
+)
 TEMPERATURE_FAILURE = "온도(?:저하|상승|이상|불량|불안정|안올|안내)|과열"
 ACT = (
     "교체|교환|수리(?!크)|정비|조정|재조정|조절|점검|청소|보수|가공|용접|체결|고정|재조임|세팅|리셋|reset|재부팅|"
@@ -191,6 +193,12 @@ def _alias_pattern(alias: str, category: dict) -> str:
         )
     if alias == "석션" and category.get("match_policy") == "wholebody":
         pattern = r"석션(?!" + SUCTION_COMPONENT_SUFFIX + ")"
+    if alias == "아이마크":
+        pattern = r"아이마크(?=센서|감지|검출)"
+    if alias == "제품" and minor == "자재 불량":
+        pattern = r"제품(?=(?:이|가)?(?:걸려|걸리며)?(?:터짐|터져|파손|깨짐|부러짐))"
+    if alias == "충전부" and minor == "호퍼":
+        pattern = r"충전부(?=(?:초코|초콜릿|믹스|시럽|액체)(?:막힘|막혀))"
     if alias == "병":
         pattern = r"병(?=(?:이|가)?(?:걸림|걸리|끼임|끼어|끼여|막힘|막혀|고착|적체|정체|충돌|간섭))"
     if alias == "축":

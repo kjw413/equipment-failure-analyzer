@@ -46,6 +46,10 @@ def normalize(value: Any, replacements: dict[str, str] | None = None) -> str:
 CLAUSE_END = r"(?=\s*(?:$|[\n\r/;|*()\[\]→,]|->|=>|>>|\.(?!\d)|\s-\s))"
 # Real words that end in '교'; never expanded to '…교체'.
 ENDING_STOPWORDS = {"비교", "학교", "종교", "외교", "선교", "설교"}
+CLIPPED_CONTEXTS = {
+    "불": r"(?:감지|검출|작동|동작|이송|날인|인쇄|통신|충진|충전|부착|접착|절단|계량|토출|공급)$",
+    "터": r"(?:제품|호스|튜브|배관|파이프|벨로즈|자바라|패킹|씰|고무)$",
+}
 
 
 def expand_endings(value: str, endings: dict[str, str] | None) -> str:
@@ -62,6 +66,10 @@ def expand_endings(value: str, endings: dict[str, str] | None) -> str:
         # A truncated operating statement can mean 정지, not 정비. Preserve
         # the original syllable instead of creating evidence of a repair.
         prefix = value[: match.start()].rstrip()
+        if ending in CLIPPED_CONTEXTS and not re.search(
+            CLIPPED_CONTEXTS[ending], re.sub(r"\s+", "", prefix)
+        ):
+            return match.group(0)
         if ending == "정" and re.search(r"(?:설비|가동|운전|라인|생산|기계)$", prefix):
             return match.group(0)
         return endings[ending]
@@ -79,16 +87,25 @@ def expand_endings(value: str, endings: dict[str, str] | None) -> str:
             result,
             flags=re.M,
         )
+    for ending, context in CLIPPED_CONTEXTS.items():
+        if ending in endings:
+            result = re.sub(
+                rf"({context.removesuffix('$')}){ending}{CLAUSE_END}",
+                lambda match: match.group(1) + endings[ending],
+                result,
+                flags=re.M,
+            )
     return result
 
 
 def prepare_text(value: Any, normalization: dict | None) -> str:
     """Normalized, classification-ready text; the raw source text is kept separately."""
     settings = normalization or {}
-    return expand_endings(
+    prepared = expand_endings(
         normalize(value, settings.get("replacements", {})),
         settings.get("clause_end_expansions", {}),
     )
+    return re.sub(r"\s+", " ", normalize(prepared, settings.get("replacements", {}))).strip()
 
 
 def parse_date(value: Any) -> pd.Timestamp:

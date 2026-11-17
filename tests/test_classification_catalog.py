@@ -42,7 +42,7 @@ def test_bundled_catalog_covers_every_approved_full_path(approved_catalog_paths)
 
     rules = read_rules(resource_root() / "config" / "classification_config.xlsx")
     paths = catalog_categories(rules)
-    assert len(paths) == 246
+    assert len(paths) == 248
     assert len({path[0] for path in paths}) == 6
     assert len({path[:2] for path in paths}) == 59
     assert set(paths) == approved_catalog_paths | {
@@ -52,6 +52,8 @@ def test_bundled_catalog_covers_every_approved_full_path(approved_catalog_paths)
         ("온도·냉각", "냉동·냉각장치", "냉각수 공급부(세부 부품 미상)"),
         ("공압·진공", "진공·석션", "석션기·블로워(세부 부품 미상)"),
         ("기계", "충진·분사기구", "익스트랙터 바(세부 부품 미상)"),
+        ("전기·제어", "센서·검출", "아이마크 센서"),
+        ("기계", "인계·정렬기구", "이송 플레이트"),
     }
     assert set(paths) == {
         (row["major"], row["middle"], row["minor"]) for row in rules if row["enabled"]

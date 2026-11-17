@@ -10,5 +10,7 @@
   "include_monthly": true,
   "include_equipment_details": true,
   "include_review": true,
+  "include_record_appendix": false,
+  "focus_case": "",
   "equipment_table_top_n": 5
 }

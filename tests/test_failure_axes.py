@@ -45,12 +45,13 @@ def recommendation_pairs(result):
     return {(member["middle"], member["minor"]) for member in recommendations(result)}
 
 
-def assert_pending(result):
+def assert_pending(result, *, known_symptom=""):
     assert result["status"] == K["review"]
     assert result["classification_mode"] == "ambiguous"
     assert result["part_count"] == result["component_count"] == 0
     assert classifications(result) == []
-    assert all(result[key] == "" for key in ("major", "middle", "minor"))
+    assert result["major"] == result["middle"] == ""
+    assert result["minor"] == known_symptom
 
 
 def assert_partial(result, *missing):
@@ -248,7 +249,7 @@ def test_negated_shared_replacement_does_not_confirm_either_part(classify_fault)
 @pytest.mark.parametrize("source", ["실린더 또는 베어링 손상", "실린더 및 베어링 손상 의심"])
 def test_alternative_or_suspected_parts_are_not_automatically_confirmed(classify_fault, source):
     result = classify_fault(source)
-    assert_pending(result)
+    assert_pending(result, known_symptom="손상·파손" if "또는" in source else "")
     assert {item["middle"] for item in recommendations(result)} == {
         "실린더(종류 미상)",
         "베어링(종류 미상)",

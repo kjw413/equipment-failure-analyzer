@@ -82,7 +82,8 @@ def test_all_equal_priority_rule_alternatives_survive_without_a_final_selection(
     assert result["classification_mode"] == "ambiguous"
     assert parse_components(result["component_details"]) == []
     assert {item["middle"] for item in candidates(result)} == {"가부품", "하부품"}
-    assert all(result[field] == "" for field in ("major", "middle", "minor"))
+    assert result["middle"] == ""
+    assert (result["major"], result["minor"]) == ("기계", "손상·파손")
     assert result["component_count"] == result["part_count"] == 0
 
 

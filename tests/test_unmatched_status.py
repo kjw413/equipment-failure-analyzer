@@ -48,8 +48,9 @@ def test_unmatched_faults_are_labelled_by_source_downtime_codes(store, unmatched
     unmatched = records.loc["unique unknown problem 2"]
     assert missing["status"] == K["code_missing"]
     assert unmatched["status"] == K["rule_unmatched"]
-    for record in (missing, unmatched):
-        assert [record[key] for key in ("major", "detail_equipment", "middle", "minor")] == [""] * 4
+    assert [missing[key] for key in ("major", "detail_equipment", "middle", "minor")] == [""] * 4
+    assert unmatched["detail_equipment"] == "필러·충진기"
+    assert all(unmatched[key] == "" for key in ("major", "middle", "minor"))
     assert "비가동코드" in missing["classification_reason"]
     # Blank source codes never discard a description that a rule does match.
     replaced = records.loc["센서 교체"]
@@ -96,7 +97,7 @@ def test_quality_sheet_counts_each_unmatched_label(store, unmatched_file, tmp_pa
     out = export_report(result, tmp_path / "report.xlsx")
     quality = load_workbook(out, data_only=True)[SHEETS["criteria"]]
     counts = {
-        quality.cell(row, 1).value: quality.cell(row, 2).value
+        quality.cell(row, 2).value: quality.cell(row, 3).value
         for row in range(1, quality.max_row + 1)
     }
     assert counts[K["code_missing"]] == 1

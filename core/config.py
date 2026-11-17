@@ -359,15 +359,25 @@ class ConfigStore:
         atomic_json(self.config_dir / "equipment_names.json", value)
         return value
 
-    def save_report_settings(self, fields: dict[str, str]) -> None:
+    def save_report_settings(self, fields: dict[str, str | bool]) -> None:
         value = self.read("final_report.json")
-        limits = {"title": 100, "department": 120, "prepared_by": 80, "closing_note": 1600}
+        limits = {
+            "title": 100,
+            "department": 120,
+            "prepared_by": 80,
+            "closing_note": 1600,
+            "focus_case": 500,
+        }
         for key, limit in limits.items():
             if key in fields:
                 text = str(fields[key]).strip()
                 if len(text) > limit:
                     raise UserError(f"{key}: maximum {limit} characters")
                 value[key] = text
+        if "include_record_appendix" in fields:
+            if not isinstance(fields["include_record_appendix"], bool):
+                raise UserError("include_record_appendix: boolean required")
+            value["include_record_appendix"] = fields["include_record_appendix"]
         atomic_json(self.config_dir / "final_report.json", value)
 
     def save_review_colors(self, colors: dict[str, str]) -> dict[str, str]:

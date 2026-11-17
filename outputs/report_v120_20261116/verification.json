@@ -1,0 +1,25 @@
+{
+  "xlsx": "E:\\equipment-failure-analyzer\\outputs\\report_v120_20261116\\2026년_고장이력_리뉴얼보고서.xlsx",
+  "rows": 1001,
+  "minutes": 38802,
+  "average": 38.7632367632368,
+  "classification_and_normalization_preserved": 1001,
+  "visible_sheets": [
+    "01_종합현황",
+    "주요이슈_팀별",
+    "동일설비사례_비교",
+    "고장사례_추이",
+    "02_설비별분석",
+    "03_라인별분석",
+    "04_유형별분석",
+    "05_기간별추이",
+    "06_부품별분석",
+    "07_고장이력",
+    "08_부품증상상세",
+    "09_검토품질",
+    "10_원본데이터",
+    "11_기준정보"
+  ],
+  "native_charts": 6,
+  "real_excel_columnwidth_reopen_verified": false
+}

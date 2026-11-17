@@ -87,13 +87,14 @@ def test_workbook_names_formulas_and_report_code_conversion(store, input_file, t
     formulas = load_workbook(out, data_only=False)
     values = load_workbook(out, data_only=True)
     equipment = values[SHEETS["equipment"]]
-    assert "VITAL#2" in [equipment.cell(row, 1).value for row in range(7, equipment.max_row + 1)]
-    assert values[SHEETS["summary"]]["A7"].value == 4
-    assert values[SHEETS["summary"]]["E7"].value == 95
-    assert formulas[SHEETS["summary"]]["E7"].data_type == "f"
+    assert equipment["C7"].value == "(전체)"
+    assert "VITAL#2" in [cell.value for cell in values["_issue_lists"]["C"]]
+    assert values["_report_metrics"]["A2"].value == 4
+    assert values["_report_metrics"]["A3"].value == 95
+    assert formulas["_report_metrics"]["A3"].data_type == "f"
     detail = values[SHEETS["detail"]]
-    code_col = DETAIL_COLS.index("equipment_code") + 1
-    name_col = DETAIL_COLS.index("report_equipment") + 1
+    code_col = DETAIL_COLS.index("equipment_code") + 2
+    name_col = DETAIL_COLS.index("report_equipment") + 2
     named_row = next(
         row for row in range(7, detail.max_row + 1) if detail.cell(row, code_col).value == "VITAL#2"
     )
@@ -101,10 +102,9 @@ def test_workbook_names_formulas_and_report_code_conversion(store, input_file, t
     assert result.selected.iloc[0]["equipment_code"] == "IF18115"
     assert "product" not in SHEETS
     assert not any("\uc81c\ud488\ubcc4\ubd84\uc11d" in name for name in values.sheetnames)
-    assert [int(name[:2]) for name in values.sheetnames if not name.startswith("_")] == list(
-        range(1, 13)
-    )
-    assert len(values[SHEETS["equipment"]]._images) == result.metrics["equipment_count"] + 2
+    assert [int(name[:2]) for name in values.sheetnames if name[:2].isdigit()] == [1, 2, 3, 4]
+    assert not values[SHEETS["equipment"]]._images
+    assert len(values[SHEETS["equipment"]]._charts) == 1
     for sheet in values:
         for row in sheet.iter_rows():
             for cell in row:
@@ -125,7 +125,7 @@ def test_workbook_names_formulas_and_report_code_conversion(store, input_file, t
                 if cell.data_type == "f":
                     assert "#REF!" not in cell.value
                     assert values[sheet.title][cell.coordinate].data_type != "e"
-    assert len(values[SHEETS["summary"]]._images) == 2
+    assert len(values[SHEETS["summary"]]._images) == 4
     values.close()
     formulas.close()
 
@@ -136,8 +136,8 @@ def test_empty_fault_report(store, input_file, tmp_path):
     assert result.metrics["total_minutes"] is None
     out = export_report(result, tmp_path / "empty.xlsx")
     book = load_workbook(out, data_only=True)
-    assert book[SHEETS["summary"]]["A7"].value == 0
-    assert book[SHEETS["summary"]]["E7"].value in (None, "")
+    assert book["_report_metrics"]["A2"].value == 0
+    assert book["_report_metrics"]["A3"].value in (None, "")
     book.close()
 
 
@@ -284,12 +284,11 @@ def test_breakdown_total_cached_and_formulas(store, input_file, tmp_path):
     path = export_report(result, tmp_path / "ranked.xlsx")
     wb = load_workbook(path, data_only=True)
     ws = wb[SHEETS["equipment"]]
-    totals = [r for r in range(1, ws.max_row + 1) if ws.cell(r, 1).value == "\ud569\uacc4"]
-    assert len(totals) == 2
-    assert sum(ws.cell(r, 2).value for r in totals) == 4
-    assert sum(ws.cell(r, 5).value or 0 for r in totals) == 95
-    assert all(ws.cell(r, 3).value == 1 for r in totals)
-    assert all(ws.cell(r, 6).value == 1 for r in totals)
+    assert ws["C9"].value == 4 and ws["F9"].value == 95
+    assert sum(ws.cell(r, 8).value or 0 for r in range(13, 24)) == 4
+    assert sum(ws.cell(r, 9).value or 0 for r in range(13, 24)) == 95
+    assert sum(ws.cell(r, 11).value or 0 for r in range(13, 24)) == 1
+    assert sum(ws.cell(r, 12).value or 0 for r in range(13, 24)) == 1
     wb.close()
 
 
@@ -299,7 +298,7 @@ def test_name_with_wildcards_and_formula_like_text(store, input_file, tmp_path):
     path = export_report(result, tmp_path / "safe_names.xlsx")
     wb = load_workbook(path, data_only=False)
     detail = wb[SHEETS["detail"]]
-    column = DETAIL_COLS.index("report_equipment") + 1
+    column = DETAIL_COLS.index("report_equipment") + 2
     row = next(
         row for row in range(7, detail.max_row + 1) if detail.cell(row, column).value == "=LINE*?#2"
     )
@@ -307,7 +306,7 @@ def test_name_with_wildcards_and_formula_like_text(store, input_file, tmp_path):
     assert cell.value == "=LINE*?#2"
     assert cell.data_type == "s"
     vals = load_workbook(path, data_only=True)
-    assert vals[SHEETS["summary"]]["A7"].value == 4
+    assert vals["_report_metrics"]["A2"].value == 4
     for sheet in vals:
         for row in sheet.iter_rows():
             assert not any(c.data_type == "e" for c in row)

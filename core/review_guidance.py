@@ -123,6 +123,8 @@ def guidance(record, target_review: bool = True):
         effect = "확인된 항목과 미기재 항목을 구분하여 전체 이력·정지시간에 한 건으로 포함합니다. 미기재 부품은 실제 부품 건수에 포함하지 않습니다."
     else:
         effect = "기본 건수에 포함될 수 있으나 시간·날짜·설비별 집계의 정확도에 영향이 있습니다."
+    if record.get("classification_known_fields"):
+        effect += " 확인된 분류 항목은 보존하며, 확인된 상세설비는 라인·상세설비별 통계에 포함합니다. 미확정 후보 부품은 확정 건수로 합산하지 않습니다."
     if record.get("minutes") is None or str(record.get("minutes")).lower() == "nan":
         effect += " 정지시간 미집계 가능."
     return " / ".join(explanations), " / ".join(dict.fromkeys(actions)), effect

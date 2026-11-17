@@ -10,6 +10,7 @@ import pandas as pd
 from matplotlib import font_manager
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
+from matplotlib.text import Text
 
 from core.i18n import K
 from core.sorting import descending
@@ -41,8 +42,6 @@ def chart_font() -> str:
 
 def tidy_label(value: str, width: int = 23) -> str:
     s = str(value)
-    if s.startswith("[") and "]" in s:
-        s = s.split("]", 1)[1]
     if s.startswith("복수 고장 / "):
         members = s.split(" / ", 2)[-1].split(" + ")
         labels = [member.split(" / ", 2)[-1] for member in members]
@@ -54,8 +53,9 @@ def tidy_label(value: str, width: int = 23) -> str:
             label if len(label) <= budget else label[: budget - 1] + "…" for label in labels[:2]
         ]
         s = "복수: " + " + ".join(shown) + extra
-    elif s.count(" / ") >= 2:
-        s = " / ".join(s.split(" / ")[-2:])
+    elif s.count(" / ") >= 3:
+        # Four independent axes: retain the affected module as well as part/symptom.
+        s = " / ".join(s.split(" / ")[-3:])
     lines = textwrap.wrap(s, width=width, break_long_words=True)
     if len(lines) > 2:
         lines = [lines[0], lines[1][:-1] + "…"]
@@ -166,9 +166,29 @@ def figure_for(
 
 
 def chart_png(
-    table: pd.DataFrame, key: str, metric: str = "total_minutes", kind: str = "bar", top_n: int = 10
+    table: pd.DataFrame,
+    key: str,
+    metric: str = "total_minutes",
+    kind: str = "bar",
+    top_n: int = 10,
+    *,
+    company_style: bool = False,
 ) -> BytesIO:
-    return _figure_png(figure_for(table, key, metric, kind, top_n))
+    figure = figure_for(table, key, metric, kind, top_n)
+    if company_style:
+        company_chart_style(figure)
+        figure.tight_layout(pad=1.7)
+    return _figure_png(figure)
+
+
+def company_chart_style(figure: Figure) -> None:
+    """Apply the report's 14/11pt hierarchy to embedded Excel chart images."""
+    for text in figure.findobj(Text):
+        text.set_fontsize(11)
+    for axis in figure.axes:
+        axis.title.set_fontsize(14)
+    if figure.texts:
+        figure.texts[0].set_fontsize(14)
 
 
 def _figure_png(fig: Figure) -> BytesIO:
@@ -276,6 +296,14 @@ def donut_figure(
 
 
 def donut_png(
-    table: pd.DataFrame, equipment: str, top_n: int = 5, metric: str = "count"
+    table: pd.DataFrame,
+    equipment: str,
+    top_n: int = 5,
+    metric: str = "count",
+    *,
+    company_style: bool = False,
 ) -> BytesIO:
-    return _figure_png(donut_figure(table, equipment, top_n, metric))
+    figure = donut_figure(table, equipment, top_n, metric)
+    if company_style:
+        company_chart_style(figure)
+    return _figure_png(figure)

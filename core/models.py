@@ -21,6 +21,7 @@ CLASSIFICATION_COMPONENT_COLUMNS = (
     "part_group",
     "repair_actions",
     "classification_missing_fields",
+    "classification_known_fields",
 )
 
 Progress = Callable[[int, str], None]

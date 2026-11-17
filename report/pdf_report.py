@@ -14,12 +14,15 @@ import pandas as pd
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import Image, PageBreak, SimpleDocTemplate, Table, TableStyle
 
+from core.aggregation import grouped
 from core.equipment_breakdown import donut_slices, type_breakdown
 from core.equipment_names import active_name_mapping
 from core.i18n import K
+from core.issue_analysis import issue_summary
 from core.models import AnalysisResult, Progress, UserError, noop_progress
 from core.preprocessing import review_target
 from core.report_view import ReportNames
+from core.sorting import descending
 from report.charts import chart_png
 from report.classification import (
     classification_principles,
@@ -29,6 +32,7 @@ from report.classification import (
     evidence_excerpt,
 )
 from report.formatting import bounded_int, number, percent
+from report.issue_pdf import IssuePdf
 from report.output import atomic_output
 from report.pdf_layout import MUTED, RULE, Donut, Layout, Swatch, load_fonts
 from version import VERSION
@@ -37,9 +41,9 @@ from version import VERSION
 def brief_type(value: str) -> str:
     if str(value).startswith("복수 고장 / ") or " + " in str(value):
         return str(value)
-    parts = str(value).split(" / ", 2)
-    if len(parts) == 3:
-        return parts[2] if parts[1] in parts[2] else " / ".join(parts[1:])
+    parts = str(value).split(" / ")
+    if len(parts) >= 4:
+        return " / ".join(parts[-3:])
     return str(value)
 
 
@@ -98,6 +102,15 @@ def summary_findings(result: AnalysisResult) -> list[tuple[str, str]]:
     return rows
 
 
+class ReportDocument(SimpleDocTemplate):
+    def afterFlowable(self, flowable):
+        marker = getattr(flowable, "efa_outline", None)
+        if marker:
+            title, key = marker
+            self.canv.bookmarkPage(key)
+            self.canv.addOutlineEntry(title, key, level=0, closed=False)
+
+
 class FinalReport:
     def __init__(self, result: AnalysisResult):
         self.result = classification_result(result)
@@ -124,14 +137,75 @@ class FinalReport:
         self.title = self.names.text(self.settings.get("title", "").strip() or default)
         self.top_n = bounded_int(self.settings.get("summary_top_n"), 5, 10)
         self.donut_n = bounded_int(result.config_snapshot["settings"].get("donut_top_n"), 5, 5)
+        self.issues = IssuePdf(self)
+        self.asset_records = self.result.selected.copy(deep=True)
+        if "report_equipment" in self.asset_records:
+            values = self.asset_records["report_equipment"].fillna("")
+            self.asset_records["equipment"] = values.where(
+                values.ne(""), self.asset_records["equipment"]
+            )
+        case_labels = self.issues.facts.set_index("record_id")["case"]
+        self.asset_records["type"] = (
+            self.asset_records["record_id"].map(case_labels).fillna(self.asset_records["type"])
+        )
+        self.outline_index = 0
 
     def p(self, text, style="body"):
         return self.layout.p(self.names.text(text), style)
 
-    def page(self, title):
+    def page(self, title, bookmark_title=None):
         if self.story:
             self.story.append(PageBreak())
-        self.story.append(self.layout.heading(self.names.text(title)))
+        self.outline_index += 1
+        heading = self.layout.heading(self.names.text(title))
+        heading.efa_outline = (
+            self.names.text(bookmark_title or title),
+            f"section_{self.outline_index}",
+        )
+        self.story.append(heading)
+
+    def navigation(self):
+        self.page("보고서 찾아보기")
+        self.story.append(
+            self.layout.table(
+                ["확인할 질문", "PDF 구역", "Excel 선택형 분석"],
+                [
+                    [
+                        "특정 공장·팀의 주요 이슈",
+                        "02 건수·정지시간 순위 / 03 공장·팀별 주요 이슈",
+                        "공장팀_주요이슈",
+                    ],
+                    [
+                        "특정 설비의 주요 이슈",
+                        "03 조직별 주요 이슈 / 부록 A 설비별 상세",
+                        "02.주요이슈_팀별에서 라인·상세설비 선택",
+                    ],
+                    [
+                        "동일 설비·사례의 조직 간 차이",
+                        "04 동일 설비·사례의 조직 간 비교",
+                        "동일설비사례_비교",
+                    ],
+                    ["특정 고장사례의 변화", "05 고장사례별 월간 변화", "고장사례_추이"],
+                ],
+                [145, 180, self.width - 325],
+            )
+        )
+        self.story.append(
+            self.p(
+                "PDF 책갈피에서 원하는 구역·설비로 바로 이동할 수 있습니다. Excel의 파란 선택칸은 해당 시트의 표·차트에 연동됩니다. 기존 07_고장이력의 행 필터는 종합현황을 다시 집계하는 기능이 아닙니다.",
+                "muted",
+            )
+        )
+        self.story.append(
+            self.p(
+                "비교·추이 대상: "
+                + (
+                    str(self.settings.get("focus_case", "")).strip()
+                    or "주요 사례 자동선정 (건수·정지시간)"
+                ),
+                "body",
+            )
+        )
 
     def header_footer(self, canvas, doc):
         canvas.saveState()
@@ -226,7 +300,7 @@ class FinalReport:
         table = self.result.tables.get("component")
         if table is None or table.empty:
             return
-        self.page("03-1  부품별 발생 참고")
+        self.page("부록 B  부품별 발생 참고")
         for principle in component_principles():
             self.story.append(self.p(principle, "muted"))
         self.story.append(self.p(f"최종 단일 부품 고장기록 TOP {self.top_n}", "h2"))
@@ -251,7 +325,7 @@ class FinalReport:
         )
         self.story.append(
             self.p(
-                "미확정 후보·부품 미기재·제품·자재 대상은 실제 부품 건수에 포함하지 않습니다. 부품 건수·월별 추이는 Excel 06_부품별분석, 한 이력당 하나의 분류와 별도 조치는 08_부품증상상세에서 확인합니다.",
+                "미확정 후보·부품 미기재·제품·자재 대상은 실제 부품 건수에 포함하지 않습니다. 부품별 건수·정지시간은 Excel 라인별분석·상세설비별분석의 필터로, 개별 분류와 조치는 별첨. 부품증상상세에서 확인합니다.",
                 "small",
             )
         )
@@ -260,7 +334,7 @@ class FinalReport:
         table = self.result.tables.get("fault_detail")
         if table is None or table.empty:
             return
-        self.page("03-2  상세설비·세부 부품 분류")
+        self.page("부록 C  개별 분류 이력")
         self.story.append(
             self.p(
                 "한 고장이력은 한 행과 최종 분류 하나를 갖습니다. 고장 분야 / 상세설비·모듈 / 부품군·세부 부품 / 고장 현상을 표시하며 조치는 별도 열에 보존합니다. "
@@ -309,57 +383,54 @@ class FinalReport:
     def comparisons(self):
         r = self.result
         layout = self.layout
-        self.page("03  설비·고장유형 종합 비교")
-        self.story.append(self.p("설비별 정지시간 순위", "h2"))
-        self.story.append(
-            self.p("유효 정지시간 합계 내림차순. 시간 정보가 없는 설비는 하단 표시.", "muted")
-        )
-        rows = []
-        for i, row in enumerate(r.tables["equipment"].to_dict("records"), 1):
-            rows.append(
+        self.page("02  주요 이슈 · 건수·정지시간 순위")
+        for metric, label in (("count", "발생 건수"), ("total_minutes", "정지시간")):
+            self.story.append(self.p(f"라인별 {label} TOP {self.top_n}", "h2"))
+            ranked = descending(r.tables["equipment"], metric)
+            if metric == "total_minutes":
+                ranked = ranked.loc[ranked.valid_count.gt(0)]
+            rows = [
                 [
                     str(i),
                     row["equipment"],
                     number(row["count"]),
                     number(row["total_minutes"], 1),
                     percent(row["time_share"]),
-                    number(row["mean_minutes"], 1),
                 ]
+                for i, row in enumerate(ranked.head(self.top_n).to_dict("records"), 1)
+            ]
+            self.story.append(
+                layout.table(
+                    ["순위", "설비", "건수", "정지(분)", "시간 비중"],
+                    rows,
+                    [38, self.width - 270, 50, 100, 82],
+                    (0, 2, 3, 4),
+                )
             )
-        self.story.append(
-            layout.table(
-                ["순위", "설비", "건수", "정지(분)", "시간 비중", "평균(분)"],
-                rows,
-                [38, 148, 47, 91, 86, self.width - 410],
-                (0, 2, 3, 4, 5),
-            )
-        )
-        self.story.append(self.p(f"전체 표준 고장유형 TOP {self.top_n}", "h2"))
-        self.story.append(
-            self.p(
-                "정지시간 기준. 유형명은 입력 문장의 표준화 결과이며 고장 원인을 확정한 결과가 아닙니다.",
-                "muted",
-            )
-        )
-        rows = []
-        for i, row in enumerate(r.tables["type"].head(self.top_n).to_dict("records"), 1):
-            rows.append(
+        issue_types = issue_summary(self.issues.facts, ["case"]).rename(columns={"case": "type"})
+        for metric, label in (("count", "발생 건수"), ("total_minutes", "정지시간")):
+            self.story.append(self.p(f"전체 고장유형 · {label} TOP {self.top_n}", "h2"))
+            ranked = descending(issue_types, metric)
+            if metric == "total_minutes":
+                ranked = ranked.loc[ranked["valid_count"].gt(0)]
+            rows = [
                 [
                     str(i),
-                    brief_type(row["type"]),
+                    row["type"],
                     number(row["count"]),
                     number(row["total_minutes"], 1),
                     percent(row["time_share"]),
                 ]
+                for i, row in enumerate(ranked.head(self.top_n).to_dict("records"), 1)
+            ]
+            self.story.append(
+                layout.table(
+                    ["순위", "표준 고장유형", "건수", "정지(분)", "시간 비중"],
+                    rows,
+                    [38, 232, 47, 94, self.width - 411],
+                    (0, 2, 3, 4),
+                )
             )
-        self.story.append(
-            layout.table(
-                ["순위", "표준 고장유형", "건수", "정지(분)", "시간 비중"],
-                rows,
-                [38, 232, 47, 94, self.width - 411],
-                (0, 2, 3, 4),
-            )
-        )
         self.story.append(
             layout.callout(
                 "검토 관점: 기록 건수가 많은 항목과 장시간 정지를 동반한 항목을 구분해 보아야 합니다. 가동시간·생산량이 다른 설비의 본질적 성능 차이로 해석하지 않습니다."
@@ -369,13 +440,16 @@ class FinalReport:
     def monthly(self):
         r = self.result
         layout = self.layout
-        table = r.tables["trend_month"]
-        self.page("04  월별 발생 추이")
-        self.story.append(self.p("월별 유효 정지시간 합계", "h2"))
+        table = r.tables["trend_month"].sort_values("period", kind="stable")
+        self.page("06  전체 월별 발생 추이")
+        self.story.append(self.p("월별 발생 건수·유효 정지시간 합계", "h2"))
         if not table.empty:
-            buffer = chart_png(table, "period", "total_minutes", "trend")
-            self.buffers.append(buffer)
-            self.story.append(Image(buffer, width=self.width, height=self.width * 4.1 / 7.4))
+            images = []
+            for metric in ("count", "total_minutes"):
+                buffer = chart_png(table, "period", metric, "trend")
+                self.buffers.append(buffer)
+                images.append(Image(buffer, width=self.width / 2 - 5, height=150))
+            self.story.append(Table([images], colWidths=[self.width / 2] * 2))
         rows = [
             [
                 row["period"],
@@ -386,7 +460,12 @@ class FinalReport:
             ]
             for row in table.to_dict("records")
         ]
-        self.story.append(self.p("표: 정지시간 합계 내림차순 | 추이 그래프: 날짜순", "small"))
+        self.story.append(
+            self.p(
+                "표·추이 그래프 모두 날짜순입니다. 특정 사례의 변화는 앞의 고장사례별 월간 변화를 확인하세요.",
+                "small",
+            )
+        )
         monthly_table = layout.table(
             ["월", "기록(건)", "정지(분)", "평균(분)", "시간 유효(건)"],
             rows,
@@ -412,12 +491,17 @@ class FinalReport:
         )
 
     def equipment(self, name: str, index: int, total_groups: int):
-        r = self.result
         layout = self.layout
-        table = type_breakdown(r.selected, name)
-        selected = r.selected.loc[r.selected["equipment"].eq(name)]
-        self.page(f"05  설비별 상세 분석  |  {index}/{total_groups}")
+        table = type_breakdown(self.asset_records, name)
+        selected = self.asset_records.loc[self.asset_records["equipment"].eq(name)]
+        self.page(
+            f"부록 A  라인별 상세 분석  |  {index}/{total_groups}",
+            bookmark_title=f"설비 {name} · 상세 분석 {index}/{total_groups}",
+        )
         self.story.append(self.p(name, "title"))
+        self.story.append(
+            self.p("라인명 기준 · 상세설비 / 세부 부품 / 고장현상으로 사례를 구분합니다.", "small")
+        )
         total = selected["minutes"].sum(min_count=1)
         self.story.append(
             layout.kpis(
@@ -480,12 +564,25 @@ class FinalReport:
                 "small",
             )
         )
-        self.story.append(self.p("유형별 주요 순위", "h2"))
+        self.equipment_ranking(table, selected, total, "발생 건수")
+        self.equipment_ranking(
+            type_breakdown(self.asset_records, name, "total_minutes"), selected, total, "정지시간"
+        )
+
+    def equipment_ranking(self, table, selected, total, label):
+        layout = self.layout
+        self.story.append(self.p(f"유형별 주요 순위 · {label}", "h2"))
+        if label == "정지시간" and not table["valid_count"].gt(0).any():
+            self.story.append(
+                self.p("시간 유효값이 없어 정지시간 순위를 선정하지 않았습니다.", "muted")
+            )
+            return
         rows = []
         limit = bounded_int(self.settings.get("equipment_table_top_n"), 5, 10)
-        display = table.head(limit).to_dict("records")
-        if len(table) > limit:
-            remaining = table.iloc[limit:]
+        leaders = (table.loc[table.valid_count.gt(0)] if label == "정지시간" else table).head(limit)
+        display = leaders.to_dict("records")
+        remaining = table.loc[~table["type"].isin(leaders["type"])]
+        if len(remaining):
             time = remaining["total_minutes"].sum(min_count=1)
             display.append(
                 {
@@ -528,7 +625,7 @@ class FinalReport:
         )
         self.story.append(
             self.p(
-                f"PDF는 상위 {limit}개 + 기타를 표시하며, 전체 유형은 Excel에 수록. 순위: 건수 내림차순, 동일 건수는 정지시간·유형명 순. 시간 %의 분모는 해당 설비의 유효 정지시간 합계.",
+                f"{label} 내림차순 상위 {limit}개 + 기타. 전체 유형은 Excel에 수록. 두 순위는 같은 이력을 서로 다른 기준으로 본 것이므로 합산하지 않습니다. 시간 %의 분모는 해당 설비의 유효 정지시간 합계.",
                 "small",
             )
         )
@@ -537,7 +634,7 @@ class FinalReport:
         r = self.result
         layout = self.layout
         m = r.metrics
-        self.page("06  관리 검토사항")
+        self.page("07  관리 검토사항")
         self.story.append(self.p("정지시간 기준 우선 확인 대상", "h2"))
         self.story.append(
             self.p(
@@ -735,20 +832,25 @@ class FinalReport:
     def build(self, path: Path, progress: Progress = noop_progress):
         try:
             self.overview()
+            self.navigation()
             self.comparisons()
-            self.components()
-            self.fault_details()
+            self.issues.organization()
+            self.issues.comparisons()
+            self.issues.trends()
             progress(20, "PDF 종합 분석 작성")
             if self.settings.get("include_monthly", True):
                 self.monthly()
-            equipment = self.result.tables["equipment"]["equipment"].tolist()
+            self.actions()
+            equipment = grouped(self.asset_records, ["equipment"])["equipment"].tolist()
             if self.settings.get("include_equipment_details", True):
                 for index, name in enumerate(equipment, 1):
                     self.equipment(name, index, len(equipment))
                     progress(20 + int(50 * index / max(1, len(equipment))), "PDF 설비별 분석 작성")
-            self.actions()
+            self.components()
+            if self.settings.get("include_record_appendix", False):
+                self.fault_details()
             progress(80, "PDF 페이지 생성")
-            doc = SimpleDocTemplate(
+            doc = ReportDocument(
                 str(path),
                 pagesize=A4,
                 rightMargin=44,

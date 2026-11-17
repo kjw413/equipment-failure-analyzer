@@ -21,12 +21,12 @@ def test_missing_time_excel_summary_does_not_name_a_time_leader(store, input_fil
     workbook = load_workbook(path, data_only=True)
     try:
         summary = workbook[excel.SHEETS["summary"]]
-        assert summary["E7"].value in (None, "")
+        assert workbook["_report_metrics"]["A3"].value in (None, "")
         text = "\n".join(
             str(cell.value) for row in summary for cell in row if cell.value is not None
         )
         assert "nan" not in text.lower()
-        assert "시간 기준 최다 설비를 선정하지 않았습니다" in text
+        assert summary["A35"].value == "정지시간 기재 없음: 시간 기준 순위 확인 필요"
         assert "최다 설비:" not in text
     finally:
         workbook.close()
@@ -43,23 +43,19 @@ def test_equipment_charts_share_rendering_and_describe_configured_limit(
     monkeypatch.setattr(excel, "donut_png", render)
     monkeypatch.setattr(excel, "type_breakdown", breakdown)
     path = excel.export_report(result, tmp_path / "shared.xlsx")
-    assert render.call_count == result.metrics["equipment_count"]
-    assert breakdown.call_count == result.metrics["equipment_count"]
-    assert all(call.kwargs["top_n"] == 3 for call in render.call_args_list)
+    assert render.call_count == 0 and breakdown.call_count == 0
     workbook = load_workbook(path, data_only=True)
     try:
-        assert (
-            len(workbook[excel.SHEETS["equipment"]]._images)
-            == result.metrics["equipment_count"] + 2
-        )
+        assert not workbook[excel.SHEETS["equipment"]]._images
+        assert len(workbook[excel.SHEETS["equipment"]]._charts) == 1
         overview = "\n".join(
             str(cell.value) for row in workbook[excel.SHEETS["equipment"]] for cell in row
         )
         quality = "\n".join(
             str(cell.value) for row in workbook[excel.SHEETS["criteria"]] for cell in row
         )
-        assert "상위 3개 유형 + 기타" in overview
-        assert "상위 3개 외 유형 합산" in quality
+        assert "상위 10개와 기타" in overview
+        assert "상위 10개 외 항목은 기타로 합산" in quality
     finally:
         workbook.close()
 

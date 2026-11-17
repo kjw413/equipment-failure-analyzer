@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 from conftest import analyze_file
 from openpyxl import load_workbook
+from openpyxl.utils import column_index_from_string, get_column_letter
 
 from core.i18n import DISPLAY, K
 from report.classification import (
@@ -18,6 +19,10 @@ from report.classification import (
 )
 from report.excel_report import DETAIL_COLS, SHEETS, D, export_report
 from report.pdf_report import export_pdf
+
+OUTPUT_D = {
+    key: get_column_letter(column_index_from_string(column) + 1) for key, column in D.items()
+}
 
 
 @pytest.fixture
@@ -53,7 +58,7 @@ def workbook_text(workbook):
 
 
 def test_decision_columns_preserve_existing_formula_column_positions():
-    assert len(DETAIL_COLS) == 61
+    assert len(DETAIL_COLS) == 62
     assert len(DETAIL_COLS) == len(set(DETAIL_COLS))
     assert DETAIL_COLS[:12] == [
         "record_id",
@@ -67,9 +72,10 @@ def test_decision_columns_preserve_existing_formula_column_positions():
         "minutes",
         "type",
         "status",
-        "raw_description",
+        "normalized",
     ]
-    assert DETAIL_COLS[12:18] == [
+    assert DETAIL_COLS[12] == "raw_description"
+    assert DETAIL_COLS[13:19] == [
         "major",
         "detail_equipment",
         "part_group",
@@ -88,11 +94,18 @@ def test_decision_columns_preserve_existing_formula_column_positions():
     assert DETAIL_COLS[46:55] == [
         field
         for field in COMPONENT_FIELDS
-        if field not in ("classification_schema", "part_group", "repair_actions")
+        if field
+        not in (
+            "classification_schema",
+            "part_group",
+            "repair_actions",
+            "classification_known_fields",
+        )
     ]
     assert DETAIL_COLS[55:58] == ["line_code", "raw_line_name", "equipment_group"]
     assert DETAIL_COLS[58:60] == ["factory", "team"]
     assert DETAIL_COLS[60] == "classification_candidates"
+    assert DETAIL_COLS[61] == "classification_known_fields"
     assert "classification_schema" not in DETAIL_COLS
     assert D["record_id"] == "A" and D["minutes"] == "I" and D["type"] == "J"
     assert not set(LEGACY_SCORE_FIELDS).intersection(DETAIL_COLS)
@@ -111,10 +124,10 @@ def test_excel_detail_and_review_expose_rule_decisions(decision_result, tmp_path
                 assert any(sheet.cell(row, column).value for row in range(7, sheet.max_row + 1))
             assert not any(DISPLAY.get(field, field) in headers for field in LEGACY_SCORE_FIELDS)
         quality_counts = {
-            row[0].value: row[1].value for row in workbook[SHEETS["criteria"]] if len(row) >= 2
+            row[1].value: row[2].value for row in workbook[SHEETS["criteria"]] if len(row) >= 3
         }
         assert quality_counts[K["review"]] == 1
-        assert workbook[SHEETS["summary"]]["E7"].value == decision_result.metrics["total_minutes"]
+        assert workbook["_report_metrics"]["A3"].value == decision_result.metrics["total_minutes"]
         text = workbook_text(workbook)
         assert "판정 사유와 후보별 근거를 기록합니다" in text
         assert "1순위 대표 자동선택" in text
@@ -193,20 +206,20 @@ def test_older_results_ignore_scores_without_mutating_input(decision_result, tmp
             '"score":',
         ):
             assert obsolete not in text
-        assert workbook[SHEETS["summary"]]["E7"].value == result.metrics["total_minutes"]
+        assert workbook["_report_metrics"]["A3"].value == result.metrics["total_minutes"]
         detail = workbook[SHEETS["detail"]]
         legacy_rows = [
             row
             for row in range(7, detail.max_row + 1)
-            if detail[f"{D['status']}{row}"].value == LEGACY_STATUS
+            if detail[f"{OUTPUT_D['status']}{row}"].value == LEGACY_STATUS
         ]
         assert legacy_rows
         assert all(
-            detail[f"{D['classification_reason']}{row}"].value == LEGACY_REASON
+            detail[f"{OUTPUT_D['classification_reason']}{row}"].value == LEGACY_REASON
             for row in legacy_rows
         )
         counts = {
-            row[0].value: row[1].value for row in workbook[SHEETS["criteria"]] if len(row) >= 2
+            row[1].value: row[2].value for row in workbook[SHEETS["criteria"]] if len(row) >= 3
         }
         assert counts[K["auto"]] == 0
         assert counts["이전 분석결과(재분석 필요)"] == len(legacy_rows)

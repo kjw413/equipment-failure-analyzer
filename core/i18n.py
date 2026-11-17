@@ -306,6 +306,7 @@ FAULT_AXIS_LABELS = {
     "part_group": "부품군",
     "repair_actions": "조치 내역",
     "classification_missing_fields": "미기재 분류 항목",
+    "classification_known_fields": "검토 중 보존된 확인 항목(JSON)",
     "partial": "부분분류",
     "partial_rows": "부분분류",
     "auto_processed_rows": "자동 처리 합계",
@@ -336,6 +337,20 @@ EQUIPMENT_NAME_LABELS = {
 }
 K.update(EQUIPMENT_NAME_LABELS)
 DISPLAY.update(EQUIPMENT_NAME_LABELS)
+
+# MES calls a complete production line an equipment; keep raw source labels intact.
+K.update(
+    {
+        "equipment": "분석 라인",
+        "equipment_tab": "라인별 분석",
+        "line_tab": "상세설비별 분석",
+        "module_part": "상세설비·세부부품",
+        "report_equipment": "보고서 라인명",
+    }
+)
+DISPLAY.update(
+    {"equipment": "분석 라인", "report_equipment": "보고서 라인명", "normalized": "표준화 후 내용"}
+)
 
 # Fault records that no classification rule matched. Source downtime codes decide
 # the label: both 비가동코드(중·소) blank -> code_missing, otherwise rule_unmatched.

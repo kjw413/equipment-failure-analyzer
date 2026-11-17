@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 from conftest import analyze_file
 from openpyxl import load_workbook
+from openpyxl.utils import column_index_from_string, get_column_letter
 
 from core.aggregation import grouped
 from core.component_analysis import component_tables
@@ -17,6 +18,10 @@ from report.charts import figure_for, tidy_label
 from report.classification import COMPONENT_FIELDS, classification_result
 from report.excel_report import SHEETS, D, export_report
 from report.pdf_report import export_pdf
+
+OUTPUT_D = {
+    key: get_column_letter(column_index_from_string(column) + 1) for key, column in D.items()
+}
 
 
 def test_type_chart_labels_keep_part_and_symptom_instead_of_collapsing_to_symptom():
@@ -82,30 +87,31 @@ def test_excel_single_final_counts_exclude_pending_candidates(component_result, 
     values = load_workbook(path, data_only=True)
     formulas = load_workbook(path, data_only=False)
     try:
-        assert values.sheetnames == list(SHEETS.values())
-        assert values[SHEETS["summary"]]["A7"].value == 4
-        assert values[SHEETS["summary"]]["E7"].value == 95
-        component = values[SHEETS["component"]]
-        assert [component.cell(7, column).value for column in (2, 3, 4, 5)] == [2, 1, 0, 0.5]
-        assert "미확정 후보는 집계하지 않" in component["A5"].value
-        monthly = next(
-            row for row in range(7, component.max_row + 1) if component.cell(row, 6).value == "월"
-        )
-        assert component.cell(monthly + 1, 2).value == 2
-        assert component.cell(monthly + 1, 5).value == 0.5
-        assert component.cell(monthly + 1, 6).value == "2026-01"
+        assert [ws.title for ws in values if ws.sheet_state == "visible"] == list(SHEETS.values())
+        assert values["_report_metrics"]["A2"].value == 4
+        assert values["_report_metrics"]["A3"].value == 95
+        assert "별첨. 부품별분석" not in values.sheetnames
+        facts = values["_issue_facts"]
+        headers = [cell.value for cell in facts[1]]
+        parts = [facts.cell(row, headers.index("part") + 1).value for row in range(2, 6)]
+        assert parts.count("모터*?#1") == 2
+        assert "센서*?#10" not in parts
+        assert len(parts) == 4  # Pending records remain, without adopting candidate parts.
         detail = values[SHEETS["detail"]]
-        rows = {detail[f"{D['record_id']}{row}"].value: row for row in range(7, 11)}
+        rows = {detail[f"{OUTPUT_D['record_id']}{row}"].value: row for row in range(7, 11)}
         for record in original.to_dict("records"):
             row = rows[record["record_id"]]
-            members = json.loads(detail[f"{D['component_details']}{row}"].value)
+            members = json.loads(detail[f"{OUTPUT_D['component_details']}{row}"].value)
             assert len(members) <= 1
             if record["status"] == K["review"]:
                 assert members == []
-                assert len(json.loads(detail[f"{D['classification_candidates']}{row}"].value)) == 2
+                assert (
+                    len(json.loads(detail[f"{OUTPUT_D['classification_candidates']}{row}"].value))
+                    == 2
+                )
         faults = values[SHEETS["fault_detail"]]
         assert faults.max_row == 10
-        assert len({faults.cell(row, 1).value for row in range(7, 11)}) == 4
+        assert len({faults.cell(row, 2).value for row in range(7, 11)}) == 4
         headers = [cell.value for cell in faults[6]]
         from core.i18n import DISPLAY
 
@@ -126,10 +132,10 @@ def test_excel_single_final_counts_exclude_pending_candidates(component_result, 
         manual_row = next(
             row
             for row in range(7, values[SHEETS["criteria"]].max_row + 1)
-            if values[SHEETS["criteria"]].cell(row, 1).value == K["manual"]
+            if values[SHEETS["criteria"]].cell(row, 2).value == K["manual"]
         )
-        assert values[SHEETS["criteria"]].cell(manual_row, 2).value == 1
-        assert "COUNTIF" in formulas[SHEETS["criteria"]].cell(manual_row, 2).value
+        assert values[SHEETS["criteria"]].cell(manual_row, 3).value == 1
+        assert "COUNTIF" in formulas[SHEETS["criteria"]].cell(manual_row, 3).value
     finally:
         values.close()
         formulas.close()
@@ -168,9 +174,9 @@ def test_legacy_report_without_component_fields_or_tables_still_exports(
     )
     workbook = load_workbook(export_report(result, tmp_path / "legacy.xlsx"), data_only=True)
     try:
-        assert len(workbook.sheetnames) == 10
-        assert SHEETS["component"] not in workbook.sheetnames
-        assert workbook[SHEETS["detail"]][f"{D['component_count']}7"].value is None
+        assert len([ws for ws in workbook if ws.sheet_state == "visible"]) == 11
+        assert "별첨. 부품별분석" not in workbook.sheetnames
+        assert workbook[SHEETS["detail"]][f"{OUTPUT_D['component_count']}7"].value is None
     finally:
         workbook.close()
 
@@ -203,14 +209,14 @@ def test_legacy_multiple_classification_is_candidates_only_and_one_detail_row(
         row = next(
             row
             for row in range(7, 11)
-            if detail[f"{D['record_id']}{row}"].value == pending.record_id
+            if detail[f"{OUTPUT_D['record_id']}{row}"].value == pending.record_id
         )
-        candidates = json.loads(detail[f"{D['classification_candidates']}{row}"].value)
+        candidates = json.loads(detail[f"{OUTPUT_D['classification_candidates']}{row}"].value)
         assert {member["middle"] for member in candidates} == {
             member["middle"] for member in members
         }
-        assert detail[f"{D['component_details']}{row}"].value == "[]"
-        assert workbook[SHEETS["summary"]]["E7"].value == 95
+        assert detail[f"{OUTPUT_D['component_details']}{row}"].value == "[]"
+        assert workbook["_report_metrics"]["A3"].value == 95
     finally:
         workbook.close()
     assert len(json.loads(result.selected.iloc[0].component_details)) == 40
