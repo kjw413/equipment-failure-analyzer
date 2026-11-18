@@ -57,7 +57,7 @@ def test_excel_has_one_detail_row_per_fault_including_pending_classifications(
     assert split_result.metrics["total_minutes"] == 95
     workbook = load_workbook(export_report(split_result, tmp_path / "split.xlsx"), data_only=True)
     try:
-        assert len([ws for ws in workbook if ws.sheet_state == "visible"]) == 12
+        assert len([ws for ws in workbook if ws.sheet_state == "visible"]) == 10
         sheet = workbook[SHEETS["fault_detail"]]
         headers = [cell.value for cell in sheet[6]]
         assert DISPLAY["middle"] in headers and DISPLAY["minor"] in headers

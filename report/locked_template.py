@@ -31,7 +31,7 @@ LOCKED_SHEETS = (
     "01.종합현황",
     "02.팀별 주요이슈",
     "03.팀간 비교",
-    "04.고장추이",
+    "04.월별 주요이슈",
 )
 ALIASES = (
     (LOCKED_SHEETS[0], "01_종합현황"),
@@ -533,6 +533,38 @@ def _cache_value(builder, name, address):
 def _chart_data(raw, builder, name, extra):
     # Patch only data-bearing XML substrings. Serializing the full native chart
     # would rename namespaces and can invalidate Excel's extension declarations.
+    state = builder._locked_template["sheets"][name]
+    raw_text = raw.decode("utf-8")
+    metric_match = re.search(r"<c:numRef><c:f>[^<]*!\$([A-Z]+)\$[0-9]+:", raw_text)
+    metric = metric_match[1] if metric_match else None
+    period = state.get("period_chart_ranges")
+    if period and metric in ("B", "C"):
+        title_cell = "B7" if metric == "B" else "B8"
+        raw_text = re.sub(
+            r"(<c:title>.*?)<c:tx>.*?</c:tx>",
+            lambda m: (
+                m[1]
+                + f"<c:tx><c:strRef><c:f>'_period_state'!${title_cell[0]}${title_cell[1:]}</c:f></c:strRef></c:tx>"
+            ),
+            raw_text,
+            count=1,
+            flags=re.DOTALL,
+        )
+        raw_text = re.sub(
+            r"<c:catAx\b.*?</c:catAx>",
+            lambda axis: re.sub(
+                r"(<c:title>.*?)<c:tx>.*?</c:tx>",
+                lambda title: (
+                    title[1] + "<c:tx><c:strRef><c:f>'_period_state'!$B$9</c:f></c:strRef></c:tx>"
+                ),
+                axis[0],
+                count=1,
+                flags=re.DOTALL,
+            ),
+            raw_text,
+            flags=re.DOTALL,
+        )
+
     def replace_reference(match):
         kind, inner = match[2], match[3]
         text = re.search(r"<c:f>(.*?)</c:f>", inner, flags=re.DOTALL)
@@ -545,7 +577,6 @@ def _chart_data(raw, builder, name, extra):
             match = CELL.fullmatch(last)
             address = first + ":" + match[1] + match[2] + match[3] + str(int(match[4]) + extra)
             formula = sheet + "!" + address
-        state = builder._locked_template["sheets"][name]
         if state.get("rank_row_shift"):
             mapping = {}
             for row in range(11, 21):
@@ -557,6 +588,16 @@ def _chart_data(raw, builder, name, extra):
         if mapping:
             formula = _formula("=" + formula, name, {name: mapping}, {name: name})[1:]
             sheet, _, address = formula.rpartition("!")
+        cache_formula = formula
+        if ":" in address:
+            ranks = state.get("comparison_chart_ranges", {}).get(metric)
+            if ranks:
+                formula = ranks["category" if kind == "strRef" else "value"]
+                cache_formula = formula
+            elif period and metric in ("B", "C"):
+                key = "category" if kind == "strRef" else metric
+                formula, cache_formula = period[key], period["cache_" + key]
+        sheet, _, address = cache_formula.rpartition("!")
         sheet = sheet.strip("'").replace("''", "'")
         bounds = range_boundaries(address)
         values = [
@@ -599,7 +640,7 @@ def _chart_data(raw, builder, name, extra):
     result = re.sub(
         r"(<c:(strRef|numRef)\b[^>]*>)(.*?)(</c:\2>)",
         replace_reference,
-        raw.decode("utf-8"),
+        raw_text,
         flags=re.DOTALL,
     )
     # Preserve the native design while changing only display precision and order.

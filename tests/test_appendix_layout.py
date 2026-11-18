@@ -17,12 +17,10 @@ def test_appendix_images_use_left_edge_above_tabular_data(store, input_file, tmp
             for image in book[name]._images:
                 assert image.anchor._from.col == 1  # B: shared appendix left margin
                 assert image.anchor._from.row >= 6
-        sheet = book[SHEETS["line"]]
-        chart_row = sheet._charts[0].anchor._from.row + 1
-        assert chart_row < 32
-        assert all(chart.anchor._from.col == 1 for chart in sheet._charts)
-        trend = book[SHEETS["trend"]]
-        assert trend._images[0].anchor._from.row + 1 < 26
-        assert trend["B26"].value == "기간"
+        sheet = book[SHEETS["module_compare"]]
+        # Count and time bars side by side above the full line table (row 28).
+        assert [chart.anchor._from.row + 1 for chart in sheet._charts] == [12, 12]
+        assert [chart.anchor._from.col for chart in sheet._charts] == [1, 7]
+        assert sheet["B28"].value == "순위"
     finally:
         book.close()

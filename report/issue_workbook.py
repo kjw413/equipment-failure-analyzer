@@ -22,7 +22,7 @@ from report.formatting import bounded_int
 ISSUE_SHEETS = {
     "organization_issues": "02.팀별 주요이슈",
     "issue_comparison": "03.팀간 비교",
-    "issue_trends": "04.고장추이",
+    "issue_trends": "04.월별 주요이슈",
 }
 
 
@@ -549,6 +549,7 @@ class IssueWorkbook:
         cached = case_months(self.facts, calendar["period"])
         filters = self.filters(ws, fields)
         dates = self.facts.date.dropna()
+        self.b.period_filter_range = self.filter_scope(filters)
         partial = set()
         if len(dates):
             first = (

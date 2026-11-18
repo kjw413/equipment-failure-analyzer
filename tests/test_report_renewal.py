@@ -27,7 +27,7 @@ def test_renewal_summary_uses_correct_average_and_configured_department(
         assert "4건" in summary["A5"].value and "95분" in summary["A5"].value
         assert "32분" in summary["A5"].value
         assert formulas[SHEETS["summary"]]["A5"].data_type == "f"
-        appendix = values[SHEETS["equipment"]]
+        appendix = values[SHEETS["module_compare"]]
         assert appendix["B3"].value == f"{datetime.now():%Y.%m.%d} 생산기술팀 작성"
         assert appendix["B3"].alignment.horizontal == "right"
         assert "AVERAGE(" in formulas["_report_metrics"]["A4"].value
@@ -38,7 +38,7 @@ def test_renewal_summary_uses_correct_average_and_configured_department(
             "01.종합현황",
             "02.팀별 주요이슈",
             "03.팀간 비교",
-            "04.고장추이",
+            "04.월별 주요이슈",
         ]
         for sheet in values:
             if sheet.sheet_state != "visible" or sheet.title in values.sheetnames[:4]:

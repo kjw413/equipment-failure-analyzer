@@ -24,15 +24,18 @@ def test_excel_filter_values_start_at_first_list_item(store, input_file, tmp_pat
             for validation in sheet.data_validations.dataValidation:
                 assert validation.type == "list"
                 name = validation.formula1.removeprefix("=")
-                destinations = list(workbook.defined_names[name].destinations)
-                assert len(destinations) == 1
-                source_sheet, source_range = destinations[0]
-                first_choice = workbook[source_sheet][source_range][0][0].value
+                if name.startswith('"'):
+                    first_choice = name.strip('"').split(",")[0]
+                else:
+                    destinations = list(workbook.defined_names[name].destinations)
+                    assert len(destinations) == 1
+                    source_sheet, source_range = destinations[0]
+                    first_choice = workbook[source_sheet][source_range][0][0].value
                 for target_range in validation.sqref.ranges:
                     value = sheet.cell(target_range.min_row, target_range.min_col).value
                     assert value in (ALL, first_choice), (sheet_name, str(target_range), value)
                     checked += 1
-        assert checked == 13
+        assert checked == 15
         assert result.config_snapshot == original_config
         assert store.read("final_report.json")["focus_case"] == saved_case
     finally:

@@ -24,7 +24,7 @@ def test_line_rankings_and_repaired_controls(organization_result, tmp_path):
         expected = {
             "02.팀별 주요이슈": {"B5", "D5", "G5", "K5", "K6"},
             "03.팀간 비교": {"B5", "E5", "I5"},
-            "04.고장추이": {"B5", "D5", "F5", "J5", "J6"},
+            "04.월별 주요이슈": {"B5", "D5", "F5", "J5", "J6", "B7", "F7"},
         }
         for name, positions in expected.items():
             assert {

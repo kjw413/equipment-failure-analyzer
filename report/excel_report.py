@@ -47,6 +47,7 @@ from report.classification import (
 from report.formatting import bounded_int
 from report.issue_workbook import ISSUE_SHEETS, IssueWorkbook, report_issue_facts
 from report.locked_template import LOCKED_SHEETS, apply_locked_template, restore_template_charts
+from report.module_comparison import SHEET as MODULE_COMPARE_SHEET
 from report.output import atomic_output
 from report.workbook_layout import apply_workbook_layout
 from version import VERSION
@@ -54,9 +55,7 @@ from version import VERSION
 SHEETS = {
     "summary": "01.종합현황",
     **ISSUE_SHEETS,
-    "equipment": "별첨. 라인별분석",
-    "line": "별첨. 상세설비별분석",
-    "trend": "별첨. 기간별추이",
+    "module_compare": MODULE_COMPARE_SHEET,
     "detail": "별첨. 고장이력",
     "fault_detail": "별첨. 부품증상상세",
     "review": "별첨. 검토품질",
@@ -260,7 +259,7 @@ class ReportBuilder:
             if old in self.sections:
                 self.sections.update(destinations)
         self.sections.difference_update(("type", "component", "component_trend", "raw"))
-        self.sections.update(("summary", "detail", "review", "criteria", "equipment", "line"))
+        self.sections.update(("summary", "detail", "review", "criteria", "module_compare"))
         self.start = 7
         self.end = max(7, 6 + len(self.data))
         self.raw_helpers = {}
@@ -855,8 +854,8 @@ class ReportBuilder:
             *classification_principles(),
             *component_principles(),
             "\ubcf4\uace0\uc11c \uc804\uccb4\uc758 \ub4f1\ub85d \uc124\ube44 \ucf54\ub4dc\ub294 \uc9c0\uc815\ud55c \uc774\ub984\uc73c\ub85c \ubcc0\ud658\ud568. \uc5c5\ub85c\ub4dc\ud55c \uc6d0\ubcf8 \ud30c\uc77c\uc740 \ubcc0\uacbd \uc5c6\uc74c.",
-            "선택형 별첨의 구성비는 현재 공장·팀·라인·상세설비 범위의 전체 건수 또는 정지시간=100%. 상위 10개 외 항목은 기타로 합산하며 미기재 항목도 분모에 포함.",
-            "02~04와 라인별·상세설비별 별첨은 입력칸 변경 시 표·차트 갱신. 01의 이미지와 기간별 차트는 생성 시점 자료이며 분류·표준화 규칙 변경 후에는 재생성 필요.",
+            "동일 상세설비 비교 별첨의 비중은 현재 선택한 상세설비·세부부품·공장·팀 범위의 전체 건수 또는 정지시간=100%. 차트는 상위 10개 라인만 표시하고 기타로 합산하지 않으며, 나머지 라인은 아래 표에서 개별 확인. 미기재 항목도 분모에 포함.",
+            "02~04와 동일 상세설비 비교 별첨은 입력칸 변경 시 표·차트 갱신. 01의 이미지와 기간별 차트는 생성 시점 자료이며 분류·표준화 규칙 변경 후에는 재생성 필요.",
         ]:
             ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
             self.put(ws, row, 1, note, role="review")
@@ -1058,36 +1057,6 @@ class ReportBuilder:
         ws.print_area = "A1:H41"
         ws.page_setup.orientation = "portrait"
         ws.page_setup.fitToHeight = 1
-
-    def trends(self):
-        ws = self.new_sheet("trend", K["trend_tab"], span=9)
-        row = 6
-        for freq in ("month", "week", "day", "year"):
-            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=9)
-            self.put(
-                ws,
-                row,
-                1,
-                {"month": K["monthly"], "week": K["week"], "day": K["day"], "year": K["year"]}[
-                    freq
-                ],
-                role="title",
-            ).font = Font(name=FONT, size=14, bold=True, color=DARK)
-            if freq == "month":
-                self.add_image(
-                    ws,
-                    f"A{row + 1}",
-                    self.r.tables["trend_month"],
-                    "period",
-                    kind="trend",
-                    width=660,
-                    height=365,
-                )
-                row += 19
-            row = self.stats(
-                ws, self.r.tables["trend_" + freq], ["period"], row + 1, False, period_freq=freq
-            )
-        ws.print_area = f"A1:L{row}"
 
     def pareto(self, ws, key, row):
         row = self.section(ws, row, "개선 우선순위 · 건수와 정지시간의 누적 기여도")
@@ -1570,11 +1539,9 @@ class ReportBuilder:
             self.summary()
         issues = IssueWorkbook(self)
         issues.build()
-        from report.interactive_appendices import build_appendices
+        from report.module_comparison import build_module_comparison
 
-        build_appendices(issues)
-        if "trend" in self.sections:
-            self.trends()
+        build_module_comparison(issues)
         progress(55, K["exporting"])
         if "cross" in self.sections and self.r.metrics["product_count"]:
             self.crosses()
@@ -1602,6 +1569,9 @@ class ReportBuilder:
         from report.rank_layout import apply_rank_layout
 
         apply_rank_layout(self)
+        from report.period_drilldown import install_period_view
+
+        install_period_view(self)
         self.wb.active = 0
         progress(80, K["exporting"])
         return self.wb

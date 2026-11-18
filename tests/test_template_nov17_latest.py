@@ -22,7 +22,7 @@ def test_edited_template_preserves_tables_styles_and_merged_headers(organization
         for name, addresses in {
             main.title: ("A1", "A11", "A26", "G26", "A27", "D27", "G27", "K27", "D28", "K28"),
             "03.팀간 비교": ("A1", "A20", "F20", "A22", "C22"),
-            "04.고장추이": ("A1", "A21", "H21", "A23", "B23"),
+            "04.월별 주요이슈": ("A1", "A21", "H21", "A23", "B23"),
         }.items():
             sheet, design = result[name], source[name]
             for address in addresses:
@@ -35,7 +35,9 @@ def test_edited_template_preserves_tables_styles_and_merged_headers(organization
             for chart, original in zip(sheet._charts, design._charts, strict=True):
                 assert chart.anchor == original.anchor
         assert {"A20:A21", "J20:J21"} <= set(map(str, result["03.팀간 비교"].merged_cells.ranges))
-        assert {"A21:A22", "K21:K22"} <= set(map(str, result["04.고장추이"].merged_cells.ranges))
+        assert {"A21:A22", "K21:K22"} <= set(
+            map(str, result["04.월별 주요이슈"].merged_cells.ranges)
+        )
         with ZipFile(path) as archive:
             assert all(
                 b"#REF!" not in archive.read(name)

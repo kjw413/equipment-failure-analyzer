@@ -81,8 +81,13 @@ def test_line_names_and_groups_reach_excel_and_pdf(store, line_file, tmp_path):
     book = load_workbook(path, data_only=True)
     assert book["_report_metrics"]["A2"].value == 3
     assert book["_report_metrics"]["A3"].value == 60
-    assert book[SHEETS["equipment"]]["C9"].value == 3
-    assert book[SHEETS["equipment"]]["F9"].value == 60
+    compare = book[SHEETS["module_compare"]]
+    assert compare["C9"].value == sum(
+        compare.cell(row, 8).value or 0 for row in range(29, compare.max_row + 1)
+    )
+    assert compare["F9"].value == sum(
+        compare.cell(row, 9).value or 0 for row in range(29, compare.max_row + 1)
+    )
     names = book[SHEETS["criteria"]]
     assert names.max_row > 8  # Classification settings follow the name mappings.
     assert [names.cell(row, 4).value for row in (7, 8)] == ["A#1(1호기)", "A#2"]

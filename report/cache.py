@@ -11,6 +11,7 @@ import math
 import os
 import posixpath
 import tempfile
+import time
 from pathlib import Path
 from xml.etree import ElementTree as ET
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -75,6 +76,15 @@ class FormulaCache:
                                 v.text = format(float(value), ".15g")
                         data = ET.tostring(root, encoding="utf-8", xml_declaration=True)
                     dst.writestr(info, data)
-            os.replace(tmp, path)
+            # Windows scanners can briefly retain a just-written ZIP handle.
+            # Keep replacement atomic and surface persistent denial unchanged.
+            for attempt in range(6):
+                try:
+                    os.replace(tmp, path)
+                    break
+                except PermissionError:
+                    if os.name != "nt" or attempt == 5:
+                        raise
+                    time.sleep(0.05 * (attempt + 1))
         finally:
             Path(tmp).unlink(missing_ok=True)

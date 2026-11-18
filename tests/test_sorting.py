@@ -85,11 +85,10 @@ def test_detail_export_sorted_without_mutating_source(store, input_file, tmp_pat
     detail = wb[SHEETS["detail"]]
     minutes = DETAIL_COLS.index("minutes") + 2
     assert [detail.cell(r, minutes).value for r in range(7, 11)] == [65, 20, 10, None]
-    for name in ("equipment", "line"):
-        table = wb[SHEETS[name]]
-        values = [table.cell(r, 8).value for r in range(13, 23)]
-        actual = [v for v in values if v is not None]
-        assert actual == sorted(actual, reverse=True)
+    table = wb[SHEETS["module_compare"]]
+    values = [table.cell(r, 8).value for r in range(29, table.max_row + 1)]
+    actual = [v for v in values if v not in (None, "")]
+    assert actual and actual == sorted(actual, reverse=True)
     assert result.selected.record_id.tolist() == ids
     wb.close()
 
@@ -123,11 +122,13 @@ def test_empty_product_report_blocks_are_omitted(store, no_product_file, tmp_pat
     ):
         assert phrase not in all_text
     assert SHEETS["cross"] not in wb.sheetnames
-    for name in ("equipment", "line"):
-        text = "\n".join(
-            str(cell.value) for row in wb[SHEETS[name]] for cell in row if cell.value is not None
-        )
-        assert "\uc81c\ud488" not in text
+    text = "\n".join(
+        str(cell.value)
+        for row in wb[SHEETS["module_compare"]]
+        for cell in row
+        if cell.value is not None
+    )
+    assert "\uc81c\ud488" not in text
     ws = wb[SHEETS["detail"]]
     from openpyxl.utils import get_column_letter
 

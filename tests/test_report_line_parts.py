@@ -40,32 +40,33 @@ def test_selectable_appendices_and_part_controls_preserve_original_rows(
     values, formulas = load_workbook(path, data_only=True), load_workbook(path)
     try:
         visible = [sheet.title for sheet in values if sheet.sheet_state == "visible"]
-        assert "별첨. 라인별분석" in visible and "별첨. 상세설비별분석" in visible
+        assert "별첨. 동일 상세설비 비교" in visible
+        assert "별첨. 라인별분석" not in visible and "별첨. 상세설비별분석" not in visible
         assert not any(
             word in name for name in visible for word in ("유형별분석", "부품별분석", "원본데이터")
         )
         assert values["_source_quality"].sheet_state == "hidden"
         assert values["_source_quality"].max_column == 2
         assert values["03.팀간 비교"]["D5"].value == "라인"
-        assert values["04.고장추이"]["I6"].value == "세부부품"
+        assert values["04.월별 주요이슈"]["I6"].value == "세부부품"
         validation = next(
             v
-            for v in formulas["04.고장추이"].data_validations.dataValidation
+            for v in formulas["04.월별 주요이슈"].data_validations.dataValidation
             if str(v.sqref) == "J6"
         )
         assert validation.formula1 == "=_Issue_part"
         assert validation.showErrorMessage and validation.showInputMessage
         assert len(formulas["03.팀간 비교"].data_validations.dataValidation) == 3
-        for key in ("equipment", "line"):
-            sheet = values[SHEETS[key]]
-            # Common appendix layout adds one column; B9 -> C9, E9 -> F9.
-            assert sheet["C9"].value == 6 and sheet["F9"].value == 144
-            assert sum(sheet.cell(row, 8).value or 0 for row in range(33, sheet.max_row + 1)) == 6
-            assert sum(sheet.cell(row, 9).value or 0 for row in range(33, sheet.max_row + 1)) == 144
-            assert len(sheet._charts) == 1 and not sheet._images
-            assert [chart.anchor._from.col for chart in sheet._charts] == [1]
-            assert sheet._charts[0].anchor._from.row + 1 < 32
-            assert formulas[SHEETS[key]]["B33"].data_type == "f"
+        sheet = values[SHEETS["module_compare"]]
+        # Common appendix layout adds one column; B9 -> C9, E9 -> F9. Default: 펌프 only.
+        assert sheet["C6"].value == "펌프"
+        assert sheet["C9"].value == 5 and sheet["F9"].value == 135
+        assert sum(sheet.cell(row, 8).value or 0 for row in range(29, sheet.max_row + 1)) == 5
+        assert sum(sheet.cell(row, 9).value or 0 for row in range(29, sheet.max_row + 1)) == 135
+        assert len(sheet._charts) == 2 and not sheet._images
+        assert [chart.anchor._from.col for chart in sheet._charts] == [1, 7]
+        assert all(chart.anchor._from.row + 1 < 28 for chart in sheet._charts)
+        assert formulas[SHEETS["module_compare"]]["H29"].data_type == "f"
         assert DETAIL_COLS.index("normalized") < DETAIL_COLS.index("raw_description")
         detail = values[SHEETS["detail"]]
         assert detail.cell(6, DETAIL_COLS.index("normalized") + 2).value == "고장내용(표준화 후)"
@@ -78,7 +79,7 @@ def test_selectable_appendices_and_part_controls_preserve_original_rows(
         for name, cells in (
             ("02.팀별 주요이슈", ("D28", "E28", "F28")),
             ("03.팀간 비교", ("C23", "D23", "E23")),
-            ("04.고장추이", ("B23", "C23", "D23")),
+            ("04.월별 주요이슈", ("B23", "C23", "D23")),
         ):
             for cell in cells:
                 target = formulas[name][cell]
@@ -86,7 +87,7 @@ def test_selectable_appendices_and_part_controls_preserve_original_rows(
                 if target.font.color.type == "rgb":
                     assert not target.font.color.rgb.endswith(("FF0000", "0000FF"))
         assert "[Red]" in formulas["03.팀간 비교"]["F23"].number_format
-        assert "[Blue]" in formulas["04.고장추이"]["G25"].number_format
+        assert "[Blue]" in formulas["04.월별 주요이슈"]["G25"].number_format
         for sheet in formulas:
             for row in sheet:
                 for cell in row:

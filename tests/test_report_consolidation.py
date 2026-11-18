@@ -22,10 +22,8 @@ EXPECTED_SHEETS = [
     "01.종합현황",
     "02.팀별 주요이슈",
     "03.팀간 비교",
-    "04.고장추이",
-    "별첨. 라인별분석",
-    "별첨. 상세설비별분석",
-    "별첨. 기간별추이",
+    "04.월별 주요이슈",
+    "별첨. 동일 상세설비 비교",
     "별첨. 고장이력",
     "별첨. 부품증상상세",
     "별첨. 검토품질",
@@ -144,7 +142,7 @@ def test_consolidated_report_keeps_manager_tables_and_audit_contract(
     try:
         assert list(SHEETS.values()) == EXPECTED_SHEETS
         assert [ws.title for ws in values if ws.sheet_state == "visible"] == EXPECTED_SHEETS[
-            : 12 if has_products else 11
+            : 10 if has_products else 9
         ]
         assert all(
             values[name].sheet_state == "hidden"
@@ -153,18 +151,18 @@ def test_consolidated_report_keeps_manager_tables_and_audit_contract(
         assert_cached_formulas(formulas, values)
 
         # The overview retains the global denominator and the full local rankings.
-        equipment = values[SHEETS["equipment"]]
-        assert equipment["C9"].value == 4 and equipment["F9"].value == 95
-        assert (
-            sum(equipment.cell(row, 8).value or 0 for row in range(33, equipment.max_row + 1)) == 4
+        # The module comparison table reconciles with its own selected scope.
+        compare = values[SHEETS["module_compare"]]
+        assert compare["C9"].value == sum(
+            compare.cell(row, 8).value or 0 for row in range(29, compare.max_row + 1)
         )
-        assert (
-            sum(equipment.cell(row, 9).value or 0 for row in range(33, equipment.max_row + 1)) == 95
+        assert compare["F9"].value == sum(
+            compare.cell(row, 9).value or 0 for row in range(29, compare.max_row + 1)
         )
-        assert len(equipment._charts) == 1 and not equipment._images
-        assert formulas[SHEETS["equipment"]]["B33"].data_type == "f"
-        assert formulas["_breakdown_equipment"]["B2"].data_type == "f"
-        assert "COUNTIFS(" in formulas["_breakdown_equipment"]["B2"].value
+        assert len(compare._charts) == 2 and not compare._images
+        assert formulas[SHEETS["module_compare"]]["H29"].data_type == "f"
+        assert formulas["_module_compare"]["E2"].data_type == "f"
+        assert "COUNTIFS(" in formulas["_module_compare"]["E2"].value
 
         # One history owns all formula references, and only the requested TOP is marked.
         detail = values[SHEETS["detail"]]
@@ -277,9 +275,9 @@ def test_saved_legacy_section_names_route_to_consolidated_sheets(store, input_fi
         export_report(result, tmp_path / "legacy_sections.xlsx"), data_only=True
     )
     try:
-        assert SHEETS["equipment"] in workbook.sheetnames
+        assert SHEETS["module_compare"] in workbook.sheetnames
         assert "별첨. 유형별분석" not in workbook.sheetnames
-        assert SHEETS["line"] in workbook.sheetnames
+        assert "별첨. 라인별분석" not in workbook.sheetnames
         assert SHEETS["review"] in workbook.sheetnames
         assert SHEETS["criteria"] in workbook.sheetnames
         # Older Pareto choices also retain the product Pareto after consolidation.
@@ -303,16 +301,20 @@ def test_period_tables_show_calendar_order_even_when_downtime_ranking_differs(
     result = analyze_file(store, input_file)
     workbook = load_workbook(export_report(result, tmp_path / "calendar.xlsx"), data_only=True)
     try:
-        sheet = workbook[SHEETS["trend"]]
-        header = find_header(sheet, [DISPLAY["period"], DISPLAY["count"]])
-        rows = range(header + 1, header + 1 + len(result.tables["trend_month"]))
-        assert [sheet.cell(row, 2).value for row in rows] == ["2026-01", "2026-02", "2026-03"]
-        assert [sheet.cell(row, 6).value for row in rows] == [10, 65, 20]
+        # The former period appendix now lives in 04's month/week/year/day view.
+        assert "별첨. 기간별추이" not in workbook.sheetnames
+        sheet = workbook["04.월별 주요이슈"]
+        assert [sheet.cell(row, 1).value for row in range(23, 26)] == [
+            "2026-01",
+            "2026-02",
+            "2026-03",
+        ]
+        assert [sheet.cell(row, 3).value for row in range(23, 26)] == [10, 65, 20]
     finally:
         workbook.close()
 
 
-def test_legacy_result_without_memberships_or_products_uses_nine_sheets(
+def test_legacy_result_without_memberships_or_products_uses_seven_sheets(
     store, input_file, tmp_path
 ):
     source = load_workbook(input_file)
@@ -333,7 +335,7 @@ def test_legacy_result_without_memberships_or_products_uses_nine_sheets(
         export_report(result, tmp_path / "legacy_without_products.xlsx"), data_only=True
     )
     try:
-        assert len([ws for ws in workbook if ws.sheet_state == "visible"]) == 10
+        assert len([ws for ws in workbook if ws.sheet_state == "visible"]) == 8
         assert "별첨. 부품별분석" not in workbook.sheetnames
         assert SHEETS["fault_detail"] not in workbook.sheetnames
         assert SHEETS["cross"] not in workbook.sheetnames

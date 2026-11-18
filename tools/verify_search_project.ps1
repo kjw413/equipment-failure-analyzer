@@ -22,6 +22,7 @@ try {
     $probe = $book.VBProject.VBComponents.Add(1)
     $probe.Name = 'NativeSearchQA'
     $probe.CodeModule.AddFromString([IO.File]::ReadAllText((Join-Path $root 'tests/native_excel_search.vba')))
+    $probe.CodeModule.AddFromString([IO.File]::ReadAllText((Join-Path $root 'tests/native_period_search.vba')))
     # QA-only entry point calls the same private handler used by TextBox.KeyDown.
     $formCode = [IO.File]::ReadAllText((Join-Path $root 'report/vba/EFAPicker.vba')).Replace('Query.SetFocus', "Query.SetFocus`r`n    NativeSearchQA.ObservePicker Me")
     $formModule = $book.VBProject.VBComponents.Item('EFAPicker').CodeModule
@@ -35,6 +36,9 @@ try {
     $searchModule = $book.VBProject.VBComponents.Item('EFASearch').CodeModule
     $searchModule.DeleteLines(1, $searchModule.CountOfLines)
     $searchModule.AddFromString($searchCode)
+    $searchModule.AddFromString("`r`nPublic Function ProbeChartBindingCount() As Long`r`nInitialize`r`nProbeChartBindingCount = ChartHandlers.Count`r`nEnd Function")
+    $chartModule = $book.VBProject.VBComponents.Item('EFADrillChart').CodeModule
+    $chartModule.AddFromString("`r`nPublic Sub ProbeMouseUp(ByVal x As Long, ByVal y As Long)`r`nWatched_MouseUp 1, 0, x, y`r`nEnd Sub")
     $excel.CalculateFull()
     if ($PreviewPdf) { $excel.Run("'" + $book.Name + "'!NativeSearchQA.SetPreviewDirectory", (Join-Path $root $EvidenceDirectory)) }
     $result = $excel.Run("'" + $book.Name + "'!NativeSearchQA.VerifySearch")
@@ -43,22 +47,26 @@ try {
     $drill = $excel.Run("'" + $book.Name + "'!NativeSearchQA.VerifyDrilldown")
     Write-Output $drill
     if ($drill -notlike 'PASS;*') { throw "Drilldown verification failed: $drill" }
+    $comparison = $excel.Run("'" + $book.Name + "'!NativeSearchQA.VerifyComparisonSort")
+    Write-Output $comparison
+    if ($comparison -notlike 'PASS;*') { throw "Comparison sort verification failed: $comparison" }
+    $period = $excel.Run("'" + $book.Name + "'!NativeSearchQA.VerifyPeriod")
+    Write-Output $period
+    if ($period -notlike 'PASS;*') { throw "Month/day verification failed: $period" }
     $excel.Visible = $true
     $events = $excel.Run("'" + $book.Name + "'!NativeSearchQA.VerifyWorkbookEvents")
     Write-Output $events
     if ($events -notlike 'PASS;*') { throw "Native workbook event verification failed: $events" }
     if ($PreviewPdf) {
         $book.Worksheets.Item('01.종합현황').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/summary_native.pdf')))
-        $book.Worksheets.Item('04.고장추이').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/trend_native.pdf')))
+        $book.Worksheets.Item('04.월별 주요이슈').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/trend_native.pdf')))
         $book.Worksheets.Item('03.팀간 비교').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/comparison_native.pdf')))
-        $book.Worksheets.Item('별첨. 라인별분석').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/line_appendix_native.pdf')))
-        $book.Worksheets.Item('별첨. 상세설비별분석').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/module_appendix_native.pdf')))
-        $book.Worksheets.Item('별첨. 기간별추이').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/period_native.pdf')))
+        $book.Worksheets.Item('별첨. 동일 상세설비 비교').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/module_compare_native.pdf')))
     }
     $book.Close($false)
     $book = $null
     if ((Get-FileHash -LiteralPath $ReportPath -Algorithm SHA256).Hash -ne $hashBefore) { throw 'Report changed during verification.' }
-    $evidence = [ordered]@{ passed=$true; native_excel_version=$excel.Version; result=$result; drilldown=$drill; workbook_selection_event=$events; source_sha256=$hashBefore; source_unchanged=$true; keyboard_handlers_tested=$true; keyboard_visual_test=$false }
+    $evidence = [ordered]@{ passed=$true; native_excel_version=$excel.Version; result=$result; drilldown=$drill; comparison_sort=$comparison; period_drilldown=$period; workbook_selection_event=$events; source_sha256=$hashBefore; source_unchanged=$true; keyboard_handlers_tested=$true; keyboard_visual_test=$false }
     $evidence | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root ($EvidenceDirectory + '/native_verification.json')) -Encoding utf8
 } finally {
     try {

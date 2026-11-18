@@ -4,17 +4,33 @@ Private Opening As Boolean
 Private Updating As Boolean
 Private ChartHandlers As Collection
 Private Const AllLabel As String = "(전체)"
+Private Const PeriodSheetName As String = "04.월별 주요이슈"
+Private Const MainSheetName As String = "02.팀별 주요이슈"
+Private Const CompareSheetName As String = "별첨. 동일 상세설비 비교"
+Private LastPeriodMode As String
+Private LastPeriodMonth As String
 
 Public Sub Initialize()
     On Error GoTo Done
-    If Not ChartHandlers Is Nothing Then Exit Sub
-    Set ChartHandlers = New Collection
-    Dim item As ChartObject, handler As EFADrillChart
-    For Each item In ThisWorkbook.Worksheets("02.팀별 주요이슈").ChartObjects
-        Set handler = New EFADrillChart
-        Set handler.Watched = item.Chart
-        ChartHandlers.Add handler
-    Next item
+    If ChartHandlers Is Nothing Then
+        Set ChartHandlers = New Collection
+        Dim item As ChartObject, handler As EFADrillChart, key As Variant, sheet As Worksheet
+        For Each key In Array(MainSheetName, PeriodSheetName, CompareSheetName)
+            Set sheet = Nothing
+            On Error Resume Next
+            Set sheet = ThisWorkbook.Worksheets(CStr(key))
+            On Error GoTo Done
+            If Not sheet Is Nothing Then
+                For Each item In sheet.ChartObjects
+                    Set handler = New EFADrillChart
+                    Set handler.Watched = item.Chart
+                    ChartHandlers.Add handler
+                Next item
+            End If
+        Next key
+    End If
+    RememberPeriodState
+    RefreshPeriods
 Done:
 End Sub
 
@@ -70,6 +86,7 @@ End Sub
 
 Public Sub HandleChange(ByVal sheet As Object, ByVal Target As Range)
     If Updating Then Exit Sub
+    If HandlePeriodChange(sheet, Target) Then Exit Sub
     On Error GoTo Done
     Dim metadata As Worksheet, row As Long, cell As Range, incoming As String, events As Boolean, changedEvents As Boolean
     Set metadata = ThisWorkbook.Worksheets("_report_controls")
@@ -249,7 +266,13 @@ Public Function CommitSelection(ByVal Target As Range, ByVal value As String) As
             previous = CStr(Target.Value2)
             ' Preserve names beginning with '=' as literal categories as well.
             Target.Value2 = "'" & value
-            If StrComp(previous, value, vbBinaryCompare) <> 0 Then ResetChildren Target, changed
+            If StrComp(previous, value, vbBinaryCompare) <> 0 Then
+                ResetChildren Target, changed
+                If Target.Parent.Name = PeriodSheetName Then
+                    PeriodCell("_Period_Mode").Value2 = "'월별"
+                    LastPeriodMode = "월별"
+                End If
+            End If
             If changed > 0 Then ThisWorkbook.Worksheets("_report_controls").Cells(changed, 6).Value2 = "'" & value
             CommitSelection = True
 Restore:
@@ -267,8 +290,12 @@ End Function
 Public Sub RefreshTables()
     On Error GoTo Done
     Dim key As Variant, labels As Range, other As Range, row As Long, count As Long, ws As Worksheet
-    For Each key In Array("_Drill_CountLabels", "_Breakdown_equipmentLabels", "_Breakdown_lineLabels")
+    For Each key In Array("_Drill_CountLabels", "_Compare_TableLabels")
+        Set labels = Nothing
+        On Error Resume Next
         Set labels = ThisWorkbook.Names(CStr(key)).RefersToRange
+        On Error GoTo Done
+        If labels Is Nothing Then GoTo NextKey
         Set ws = labels.Parent
         Set other = Nothing
         If CStr(key) = "_Drill_CountLabels" Then Set other = ThisWorkbook.Names("_Drill_TimeLabels").RefersToRange
@@ -283,7 +310,183 @@ Public Sub RefreshTables()
         If count > 0 Then labels.Cells(1, 1).Resize(count, 1).EntireRow.Hidden = False
         ws.PageSetup.PrintArea = "$A$1:$" & IIf(other Is Nothing, "M", "L") & "$" & CStr(labels.Row + IIf(count > 0, count, 1) - 1)
         If other Is Nothing Then ws.PageSetup.FitToPagesTall = IIf(count > 12, 0, 1)
+NextKey:
     Next key
+Done:
+    RefreshPeriods
+End Sub
+
+Private Function PeriodRange(ByVal label As String) As Range
+    Set PeriodRange = ThisWorkbook.Names(label).RefersToRange
+End Function
+
+Private Function PeriodCell(ByVal label As String) As Range
+    Set PeriodCell = PeriodRange(label).Cells(1, 1)
+End Function
+
+Private Function MonthSyntax(ByVal value As String) As Boolean
+    If Not value Like "####-##" Then Exit Function
+    MonthSyntax = Val(Left$(value, 4)) >= 1000 And Val(Right$(value, 2)) >= 1 And Val(Right$(value, 2)) <= 12
+End Function
+
+Private Function ValidPeriodMonth(ByVal value As String) As Boolean
+    If Not MonthSyntax(value) Then Exit Function
+    On Error GoTo Done
+    Dim cell As Range
+    For Each cell In PeriodRange("_Period_Months").Cells
+        If Not IsError(cell.Value2) Then
+            If CStr(cell.Value2) = value Then ValidPeriodMonth = True: Exit Function
+        End If
+    Next cell
+Done:
+End Function
+
+Private Function FirstPeriodMonth() As String
+    On Error GoTo Done
+    Dim cell As Range
+    For Each cell In PeriodRange("_Period_Months").Cells
+        If Not IsError(cell.Value2) Then
+            If MonthSyntax(CStr(cell.Value2)) Then FirstPeriodMonth = CStr(cell.Value2): Exit Function
+        End If
+    Next cell
+Done:
+End Function
+
+Private Function SafePeriodMonth(ByVal value As String) As String
+    If ValidPeriodMonth(value) Then
+        SafePeriodMonth = value
+    ElseIf ValidPeriodMonth(LastPeriodMonth) Then
+        SafePeriodMonth = LastPeriodMonth
+    Else
+        SafePeriodMonth = FirstPeriodMonth
+    End If
+End Function
+
+Private Function ValidPeriodMode(ByVal mode As String) As Boolean
+    ' 주별·연도별 replace the former appendix; 일별 drills from a single month.
+    Select Case mode
+        Case "월별", "주별", "연도별", "일별": ValidPeriodMode = True
+    End Select
+End Function
+
+Private Sub RememberPeriodState()
+    On Error GoTo Done
+    Dim value As String
+    value = CStr(PeriodCell("_Period_Mode").Value2)
+    If ValidPeriodMode(value) Then LastPeriodMode = value
+    LastPeriodMonth = SafePeriodMonth(CStr(PeriodCell("_Period_Month").Value2))
+    If Not ValidPeriodMode(LastPeriodMode) Then LastPeriodMode = "월별"
+Done:
+End Sub
+
+Private Function SetPeriodView(ByVal mode As String, ByVal month As String) As Boolean
+    Dim events As Boolean, changedEvents As Boolean
+    On Error GoTo Restore
+    If Not ValidPeriodMode(mode) Then Exit Function
+    If mode = "일별" And Not ValidPeriodMonth(month) Then Exit Function
+    month = SafePeriodMonth(month)
+    events = Application.EnableEvents
+    changedEvents = True
+    Application.EnableEvents = False
+    Updating = True
+    PeriodCell("_Period_Month").Value2 = "'" & month
+    PeriodCell("_Period_Mode").Value2 = "'" & mode
+    LastPeriodMode = mode
+    LastPeriodMonth = month
+    SetPeriodView = True
+Restore:
+    If changedEvents Then Application.EnableEvents = events
+    Updating = False
+    If SetPeriodView Then
+        Application.Calculate
+        RefreshPeriods
+    End If
+End Function
+
+Private Function HandlePeriodChange(ByVal sheet As Object, ByVal Target As Range) As Boolean
+    On Error GoTo Done
+    If sheet.Name <> PeriodSheetName Then Exit Function
+    Dim modeCell As Range, monthCell As Range, touchesMode As Boolean, touchesMonth As Boolean
+    Dim mode As String, month As String, validMonth As Boolean
+    Set modeCell = PeriodCell("_Period_Mode")
+    Set monthCell = PeriodCell("_Period_Month")
+    touchesMode = Not Application.Intersect(Target, modeCell.MergeArea) Is Nothing
+    touchesMonth = Not Application.Intersect(Target, monthCell.MergeArea) Is Nothing
+    If Not touchesMode And Not touchesMonth Then Exit Function
+    HandlePeriodChange = True
+    mode = LastPeriodMode
+    If Not ValidPeriodMode(mode) Then mode = "월별"
+    If Not IsError(modeCell.Value2) Then
+        If ValidPeriodMode(CStr(modeCell.Value2)) Then mode = CStr(modeCell.Value2)
+    End If
+    month = LastPeriodMonth
+    If Not IsError(monthCell.Value2) Then
+        validMonth = ValidPeriodMonth(CStr(monthCell.Value2))
+        If validMonth Then month = CStr(monthCell.Value2)
+    End If
+    month = SafePeriodMonth(month)
+    If touchesMonth And validMonth Then mode = "일별"
+    If mode = "일별" And Not ValidPeriodMonth(month) Then mode = "월별"
+    SetPeriodView mode, month
+Done:
+End Function
+
+Public Function FollowPeriodMonth(ByVal month As String) As Boolean
+    FollowPeriodMonth = SetPeriodView("일별", month)
+End Function
+
+Public Function BackToMonths() As Boolean
+    On Error GoTo Done
+    BackToMonths = SetPeriodView("월별", CStr(PeriodCell("_Period_Month").Value2))
+Done:
+End Function
+
+Public Function FollowPeriodChart(ByVal point As Long) As Boolean
+    On Error GoTo Done
+    Dim labels As Range, count As Long
+    If CStr(PeriodCell("_Period_Mode").Value2) <> "월별" Then Exit Function
+    Set labels = PeriodRange("_Period_Rows")
+    count = CLng(PeriodCell("_Period_ActiveCount").Value2)
+    If point < 1 Or point > labels.Rows.Count Or point > count Then Exit Function
+    FollowPeriodChart = FollowPeriodMonth(CStr(labels.Cells(point, 1).Value2))
+Done:
+End Function
+
+Public Function FollowPeriodTarget(ByVal Target As Range) As Boolean
+    On Error GoTo Done
+    If Target.Parent.Name <> PeriodSheetName Then Exit Function
+    If Not Application.Intersect(Target, PeriodRange("_Period_Back")) Is Nothing Then
+        FollowPeriodTarget = BackToMonths(): Exit Function
+    End If
+    If Target.CountLarge <> 1 Then Exit Function
+    If CStr(PeriodCell("_Period_Mode").Value2) <> "월별" Then Exit Function
+    If Not Application.Intersect(Target, PeriodRange("_Period_Rows")) Is Nothing Then
+        FollowPeriodTarget = FollowPeriodMonth(CStr(Target.Value2))
+    End If
+Done:
+End Function
+
+Public Sub RefreshPeriods()
+    On Error GoTo Done
+    Dim labels As Range, count As Long, value As Variant, chart As ChartObject
+    Set labels = PeriodRange("_Period_Rows")
+    value = PeriodCell("_Period_ActiveCount").Value2
+    If IsError(value) Then Exit Sub
+    If Not IsNumeric(value) Then Exit Sub
+    count = CLng(value)
+    If count < 0 Then count = 0
+    If count > labels.Rows.Count Then count = labels.Rows.Count
+    labels.EntireRow.Hidden = True
+    If count > 0 Then labels.Cells(1, 1).Resize(count, 1).EntireRow.Hidden = False
+    labels.Parent.PageSetup.PrintArea = "$A$1:$L$" & CStr(labels.Row + IIf(count > 0, count, 1) - 1)
+    ' Months and years fit one page; weeks and days may run onto several.
+    Select Case CStr(PeriodCell("_Period_Mode").Value2)
+        Case "월별", "연도별": labels.Parent.PageSetup.FitToPagesTall = 1
+        Case Else: labels.Parent.PageSetup.FitToPagesTall = 0
+    End Select
+    For Each chart In labels.Parent.ChartObjects
+        chart.Chart.Refresh
+    Next chart
 Done:
 End Sub
 
@@ -300,7 +503,13 @@ End Function
 
 Public Function FollowChart(ByVal chart As Excel.Chart, ByVal point As Long) As Boolean
     Dim labels As Range
-    If chart.Parent.Parent.Name <> "02.팀별 주요이슈" Then Exit Function
+    If chart.Parent.Parent.Name = PeriodSheetName Then
+        FollowChart = FollowPeriodChart(point): Exit Function
+    End If
+    If chart.Parent.Parent.Name = CompareSheetName Then
+        FollowChart = FollowCompareChart(chart, point): Exit Function
+    End If
+    If chart.Parent.Parent.Name <> MainSheetName Then Exit Function
     If chart.Parent.TopLeftCell.Column < 7 Then
         Set labels = ThisWorkbook.Names("_Drill_CountLabels").RefersToRange
     Else
@@ -308,6 +517,65 @@ Public Function FollowChart(ByVal chart As Excel.Chart, ByVal point As Long) As 
     End If
     If point < 1 Or point > labels.Cells.Count Then Exit Function
     FollowChart = DrillValue(CStr(labels.Cells(point, 1).Value2))
+End Function
+
+Private Function FollowCompareChart(ByVal chart As Excel.Chart, ByVal point As Long) As Boolean
+    On Error GoTo Done
+    Dim ranked As Range, key As String
+    ' The count chart is the left one; ranked rows carry factory, team and line.
+    key = "_Compare_TimeRows"
+    If chart.Parent.TopLeftCell.Column < 7 Then key = "_Compare_CountRows"
+    Set ranked = ThisWorkbook.Names(key).RefersToRange
+    If point < 1 Or point > ranked.Rows.Count Then Exit Function
+    FollowCompareChart = FollowCompareRow(ranked.Rows(point))
+Done:
+End Function
+
+Public Function FollowCompareTarget(ByVal Target As Range) As Boolean
+    On Error GoTo Done
+    If Target.Parent.Name <> CompareSheetName Then Exit Function
+    If Target.Areas.Count <> 1 Then Exit Function
+    If Target.Rows.Count <> 1 Then Exit Function
+    Dim table As Range
+    Set table = ThisWorkbook.Names("_Compare_TableRows").RefersToRange
+    If Application.Intersect(Target.Cells(1, 1).EntireRow, table) Is Nothing Then Exit Function
+    FollowCompareTarget = FollowCompareRow(table.Rows(Target.Row - table.Row + 1))
+Done:
+End Function
+
+Private Function FollowCompareRow(ByVal source As Range) As Boolean
+    Dim asset As String
+    asset = CStr(source.Cells(1, 3).Value2)
+    If Len(asset) = 0 Then Exit Function
+    FollowCompareRow = FollowLine(CStr(source.Cells(1, 1).Value2), CStr(source.Cells(1, 2).Value2), asset)
+End Function
+
+Private Function SelectedValue(ByVal sheet As Worksheet, ByVal field As String) As String
+    SelectedValue = CStr(ControlCell(sheet, field).Value2)
+    If Len(SelectedValue) = 0 Then SelectedValue = AllLabel
+End Function
+
+Private Function FollowLine(ByVal factory As String, ByVal team As String, ByVal asset As String) As Boolean
+    ' Hand the compared line to 02: its part ranking, or the history once a part is chosen.
+    On Error GoTo Done
+    Dim compareSheet As Worksheet, main As Worksheet, moduleName As String, part As String
+    Set compareSheet = ThisWorkbook.Worksheets(CompareSheetName)
+    Set main = ThisWorkbook.Worksheets(MainSheetName)
+    moduleName = SelectedValue(compareSheet, "module")
+    part = SelectedValue(compareSheet, "part")
+    If Not CommitSelection(ControlCell(main, "factory"), factory) Then Exit Function
+    If Not CommitSelection(ControlCell(main, "team"), team) Then Exit Function
+    If Not CommitSelection(ControlCell(main, "asset"), asset) Then Exit Function
+    If Not CommitSelection(ControlCell(main, "module"), moduleName) Then Exit Function
+    If Not CommitSelection(ControlCell(main, "part"), part) Then Exit Function
+    FollowLine = True
+    If part <> AllLabel Then
+        ShowHistory
+    Else
+        main.Activate
+        Application.Goto main.Range("A1"), True
+    End If
+Done:
 End Function
 
 Private Function DrillValue(ByVal label As String) As Boolean
@@ -325,10 +593,11 @@ Private Sub ShowHistory()
     Dim data As Variant, included As Variant, ids() As String, i As Long, count As Long
     Dim header As Range, idField As Long, textColumn As Long, key As Variant
     Set main = ThisWorkbook.Worksheets("02.팀별 주요이슈")
-    Set trends = ThisWorkbook.Worksheets("04.고장추이")
+    Set trends = ThisWorkbook.Worksheets(PeriodSheetName)
     For Each key In Array("factory", "team", "asset", "module", "part")
         CommitSelection ControlCell(trends, CStr(key)), CStr(ControlCell(main, CStr(key)).Value2)
     Next key
+    BackToMonths
     Set history = ThisWorkbook.Worksheets("별첨. 고장이력")
     data = ThisWorkbook.Worksheets("_issue_facts").Range("A2:A" & ThisWorkbook.Worksheets("_issue_facts").Cells(Rows.Count, 1).End(xlUp).Row).Value2
     included = ThisWorkbook.Worksheets("_issue_filter_1").Range("A2:A" & ThisWorkbook.Worksheets("_issue_facts").Cells(Rows.Count, 1).End(xlUp).Row).Value2

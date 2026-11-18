@@ -174,7 +174,7 @@ def test_legacy_report_without_component_fields_or_tables_still_exports(
     )
     workbook = load_workbook(export_report(result, tmp_path / "legacy.xlsx"), data_only=True)
     try:
-        assert len([ws for ws in workbook if ws.sheet_state == "visible"]) == 11
+        assert len([ws for ws in workbook if ws.sheet_state == "visible"]) == 9
         assert "별첨. 부품별분석" not in workbook.sheetnames
         assert workbook[SHEETS["detail"]][f"{OUTPUT_D['component_count']}7"].value is None
     finally:

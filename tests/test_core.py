@@ -14,9 +14,12 @@ from core.config import ConfigStore
 from core.equipment_names import code_key, equipment_catalog, resolve_name, validate_names
 from core.excel_loader import validate_path
 from core.i18n import K
+from core.issue_analysis import select_issues
 from core.models import AnalysisOptions, UserError
 from core.preprocessing import normalize, parse_date, parse_duration
 from report.excel_report import DETAIL_COLS, SHEETS, export_report
+from report.issue_workbook import report_issue_facts
+from report.module_comparison import default_module
 
 
 def test_exact_code_matching_and_case():
@@ -86,8 +89,8 @@ def test_workbook_names_formulas_and_report_code_conversion(store, input_file, t
     out = export_report(result, tmp_path / "output.xlsx")
     formulas = load_workbook(out, data_only=False)
     values = load_workbook(out, data_only=True)
-    equipment = values[SHEETS["equipment"]]
-    assert equipment["C7"].value == "(전체)"
+    compare = values[SHEETS["module_compare"]]
+    assert compare["C7"].value == "(전체)"
     assert "VITAL#2" in [cell.value for cell in values["_issue_lists"]["C"]]
     assert values["_report_metrics"]["A2"].value == 4
     assert values["_report_metrics"]["A3"].value == 95
@@ -103,8 +106,8 @@ def test_workbook_names_formulas_and_report_code_conversion(store, input_file, t
     assert "product" not in SHEETS
     assert not any("\uc81c\ud488\ubcc4\ubd84\uc11d" in name for name in values.sheetnames)
     assert [int(name[:2]) for name in values.sheetnames if name[:2].isdigit()] == [1, 2, 3, 4]
-    assert not values[SHEETS["equipment"]]._images
-    assert len(values[SHEETS["equipment"]]._charts) == 1
+    assert not values[SHEETS["module_compare"]]._images
+    assert len(values[SHEETS["module_compare"]]._charts) == 2
     for sheet in values:
         for row in sheet.iter_rows():
             for cell in row:
@@ -284,12 +287,14 @@ def test_breakdown_total_cached_and_formulas(store, input_file, tmp_path):
     result = analyze_file(store, input_file)
     path = export_report(result, tmp_path / "ranked.xlsx")
     wb = load_workbook(path, data_only=True)
-    ws = wb[SHEETS["equipment"]]
-    assert ws["C9"].value == 4 and ws["F9"].value == 95
-    assert sum(ws.cell(r, 8).value or 0 for r in range(33, ws.max_row + 1)) == 4
-    assert sum(ws.cell(r, 9).value or 0 for r in range(33, ws.max_row + 1)) == 95
-    assert sum(ws.cell(r, 11).value or 0 for r in range(33, ws.max_row + 1)) == 1
-    assert sum(ws.cell(r, 12).value or 0 for r in range(33, ws.max_row + 1)) == 1
+    ws = wb[SHEETS["module_compare"]]
+    facts = report_issue_facts(result.selected)
+    scoped = select_issues(facts, module=default_module(facts))
+    assert ws["C9"].value == len(scoped) and ws["F9"].value == scoped.minutes.sum()
+    assert sum(ws.cell(r, 8).value or 0 for r in range(29, ws.max_row + 1)) == len(scoped)
+    assert sum(ws.cell(r, 9).value or 0 for r in range(29, ws.max_row + 1)) == scoped.minutes.sum()
+    assert sum(ws.cell(r, 11).value or 0 for r in range(29, ws.max_row + 1)) == pytest.approx(1)
+    assert sum(ws.cell(r, 12).value or 0 for r in range(29, ws.max_row + 1)) == pytest.approx(1)
     wb.close()
 
 

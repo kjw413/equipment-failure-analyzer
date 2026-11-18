@@ -12,6 +12,13 @@ MAIN_SHEET = "02.팀별 주요이슈"
 FIELDS = ("factory", "team", "asset", "module", "part")
 
 
+def field_order(title):
+    """Cascade order per sheet: parents narrow child lists; changes reset children."""
+    from report.module_comparison import FIELD_ORDER, SHEET
+
+    return FIELD_ORDER if title == SHEET else FIELDS
+
+
 def build_ranks(issues, filters):
     from report.issue_workbook import exact
 
@@ -118,14 +125,16 @@ def install_controls(builder):
                 continue
             for area in validation.sqref.ranges:
                 selected[field] = sheet.cell(area.min_row, area.min_col).coordinate
-        for field in FIELDS:
+        order = field_order(sheet.title)
+        for field in order:
             if field not in selected:
                 continue
             column += 1
             letter = get_column_letter(column)
-            position = FIELDS.index(field)
+            position = order.index(field)
             address = selected[field]
-            controls.append([sheet.title, field, address, position + 1, column, ALL])
+            committed = sheet[address].value
+            controls.append([sheet.title, field, address, position + 1, column, committed or ALL])
             key_index = FACT_COLUMNS.index(field) + 1
             values = [
                 ALL,
@@ -133,11 +142,12 @@ def install_controls(builder):
                     {str(facts.cell(row, key_index).value) for row in range(2, facts.max_row + 1)}
                 ),
             ]
-            source_col = get_column_letter(position + 1)
+            # _issue_lists keeps the canonical FIELDS column order on every sheet.
+            source_col = get_column_letter(FIELDS.index(field) + 1)
             count = len(values)
             source_range = f"'_issue_lists'!${source_col}$1:${source_col}${count}"
             conditions = []
-            for parent in FIELDS[:position]:
+            for parent in order[:position]:
                 if parent not in selected:
                     continue
                 col = get_column_letter(FACT_COLUMNS.index(parent) + 1)

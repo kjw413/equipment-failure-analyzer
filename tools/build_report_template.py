@@ -23,7 +23,7 @@ MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 REL = "http://schemas.openxmlformats.org/package/2006/relationships"
 OFFICE_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 CELL = re.compile(r"<c\b(?P<attrs>[^>]*?)(?:/\s*>|>(?P<body>.*?)</c>)", re.S)
-SHEET_NAMES = ("01.종합현황", "02.팀별 주요이슈", "03.팀간 비교", "04.고장추이")
+SHEET_NAMES = ("01.종합현황", "02.팀별 주요이슈", "03.팀간 비교", "04.월별 주요이슈")
 
 # Only these known generic headings survive. An allowlist prevents an unexpected
 # source cell, new source row or stale formula cache from leaking into a release.
@@ -187,6 +187,7 @@ def clean_sheet(xml: str, index: int, shared_strings: list[str]) -> str:
 
 
 def clean_chart(xml: str) -> str:
+    xml = xml.replace("04.고장추이", SHEET_NAMES[3])
     # Delete cached point values, preserving native chart references, number
     # formats, layout, series formatting and all Excel extension namespaces.
     xml = re.sub(r"<c:(strCache|numCache)\b[^>]*>.*?</c:\1>", "", xml, flags=re.S)
@@ -209,6 +210,7 @@ def clean_chart(xml: str) -> str:
 
 
 def clean_workbook(xml: str) -> str:
+    xml = xml.replace("04.고장추이", SHEET_NAMES[3])
     root = ET.fromstring(xml)
     sheets = root.find(f"{{{MAIN}}}sheets")
     if sheets is None or tuple(sheet.get("name") for sheet in list(sheets)[:4]) != SHEET_NAMES:

@@ -197,7 +197,7 @@ def test_excel_selectors_share_fact_formulas_and_native_charts(organization_resu
         for key, validation_count in (
             ("organization_issues", 5),
             ("issue_comparison", 3),
-            ("issue_trends", 5),
+            ("issue_trends", 7),
         ):
             sheet = formulas[ISSUE_SHEETS[key]]
             assert len(sheet.data_validations.dataValidation) == validation_count

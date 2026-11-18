@@ -182,9 +182,10 @@ def test_current_pipeline_and_report_keep_known_axes_and_equipment_statistics(
     exported = export_report(result, tmp_path / "known.xlsx")
     workbook = load_workbook(exported, data_only=True)
     try:
-        sheet = workbook[SHEETS["line"]]
-        assert sheet["B2"].value == "상세설비별 고장 분포"
-        assert any("필러·충진기" in str(cell.value) for row in sheet for cell in row)
+        sheet = workbook[SHEETS["module_compare"]]
+        assert sheet["B2"].value == "동일 상세설비의 라인별 고장 비교"
+        choices = [cell.value for cell in workbook["_issue_lists"]["D"]]
+        assert "필러·충진기" in choices and "컨베어" in choices
         facts = workbook["_issue_facts"]
         modules = [facts.cell(row, 7).value for row in range(2, facts.max_row + 1)]
         assert "컨베어" in modules and "필러·충진기" in modules
