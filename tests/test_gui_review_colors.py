@@ -95,7 +95,7 @@ def test_review_settings_entry_and_source_output_open(app, tmp_path, monkeypatch
     assert window.review_colors_action in window.settings_button.menu().actions()
     assert window.review_colors_action.text() == "검토필요 색상 설정"
     assert window.review_colors_action.isEnabled()
-    assert not window.source_review_button.isEnabled()
+    assert not hasattr(window, "source_review_button")
     opened, notices = [], []
     monkeypatch.setattr(window, "open_local_path", opened.append)
     monkeypatch.setattr(window, "notice", notices.append)
@@ -103,15 +103,14 @@ def test_review_settings_entry_and_source_output_open(app, tmp_path, monkeypatch
     paths = report_paths(tmp_path / "analysis.xlsx", source_path=tmp_path / "original.xlsm")
     window.report_ready((object(), paths))
     window.update_controls()
-    assert window.source_review_button.isEnabled()
-    window.source_review_button.click()
-    assert opened == [paths.source_review]
-    assert str(paths.source_review) in notices[0]
-    assert "3개" in notices[0]
+    assert not hasattr(window, "source_review_button")
+    window.open_excel()
+    assert opened == [paths.excel]
+    assert "2개" in notices[0] and paths.source_review is None
     window.task = object()
     window.update_controls()
     assert not window.review_colors_action.isEnabled()
-    assert not window.source_review_button.isEnabled()
+    assert not hasattr(window, "source_review_button")
     window.task = None
     window.close()
 
@@ -122,7 +121,7 @@ def test_source_output_collision_participates_in_overwrite_confirmation(app, tmp
     window.loaded = SimpleNamespace(path=source)
     destination = tmp_path / "analysis.xlsx"
     paths = report_paths(destination, source_path=source)
-    paths.source_review.write_text("existing source review", encoding="utf-8")
+    paths.pdf.write_text("existing PDF", encoding="utf-8")
     monkeypatch.setattr(
         QFileDialog, "getSaveFileName", lambda *args, **kwargs: (str(destination), "")
     )
@@ -138,6 +137,6 @@ def test_source_output_collision_participates_in_overwrite_confirmation(app, tmp
     )
     window.save_report()
     assert len(questions) == 1
-    assert str(paths.source_review) in questions[0]
-    assert paths.source_review.read_text(encoding="utf-8") == "existing source review"
+    assert str(paths.pdf) in questions[0]
+    assert paths.pdf.read_text(encoding="utf-8") == "existing PDF"
     window.close()

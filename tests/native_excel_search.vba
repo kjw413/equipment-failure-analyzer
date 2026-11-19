@@ -81,7 +81,8 @@ End Function
 Public Function VerifyComparisonSort() As String
     On Error GoTo Failed
     Dim ws As Worksheet, values As Variant, labels As Variant, i As Long, metric As Long
-    Set ws = ThisWorkbook.Worksheets("03.팀간 비교")
+    Set ws = ThisWorkbook.Worksheets("04.고장비교")
+    VerifyComparisonScope ws
     Check EFASearch.CommitSelection(ws.Range("E5"), "(전체)"), "Comparison line reset"
     Check EFASearch.CommitSelection(ws.Range("I5"), "(전체)"), "Comparison module reset"
     For metric = 1 To 2
@@ -109,6 +110,39 @@ Failed:
     VerifyComparisonSort = "FAIL; " & Err.Description
 End Function
 
+Private Sub VerifyComparisonScope(ByVal sheet As Worksheet)
+    Dim organizations As Worksheet, facts As Worksheet, expected As Object
+    Dim row As Long, r As Long, candidate As Range, firstOrg As String
+    Dim factory As String, team As String, line As String, seen As Long
+    Set organizations = ThisWorkbook.Worksheets("_comparison_organizations")
+    Set facts = ThisWorkbook.Worksheets("_issue_facts")
+    firstOrg = CStr(organizations.Cells(2, 1).Value2)
+    For row = 2 To organizations.Cells(organizations.Rows.Count, 1).End(xlUp).Row
+        Check EFASearch.CommitSelection(sheet.Range("B5"), CStr(organizations.Cells(row, 1).Value2)), "Baseline organization selection"
+        Check sheet.Range("E5").Value2 = "(전체)", "Baseline change resets line"
+        Check sheet.Range("I5").Value2 = "(전체)", "Baseline change resets module"
+        factory = CStr(organizations.Cells(row, 2).Value2)
+        team = CStr(organizations.Cells(row, 3).Value2)
+        Set expected = CreateObject("Scripting.Dictionary")
+        expected.CompareMode = vbBinaryCompare
+        For r = 2 To facts.Cells(facts.Rows.Count, 1).End(xlUp).Row
+            If facts.Cells(r, 3).Value2 = factory And facts.Cells(r, 4).Value2 = team Then expected(CStr(facts.Cells(r, 5).Value2)) = True
+        Next r
+        seen = 0
+        line = ""
+        For Each candidate In EFASearch.SourceRange(sheet.Range("E5")).Cells
+            If CStr(candidate.Value2) <> "(전체)" Then
+                Check expected.Exists(CStr(candidate.Value2)), "Only baseline department lines allowed"
+                seen = seen + 1
+                line = CStr(candidate.Value2)
+            End If
+        Next candidate
+        Check seen = expected.Count, "Every baseline department line is available"
+        If Len(line) > 0 Then Check EFASearch.CommitSelection(sheet.Range("E5"), line), "Scoped line selection"
+    Next row
+    Check EFASearch.CommitSelection(sheet.Range("B5"), firstOrg), "Restore first baseline"
+End Sub
+
 Private Sub Check(ByVal valid As Boolean, ByVal label As String)
     If Not valid Then Err.Raise vbObjectError + 1701, "Search QA", label
 End Sub
@@ -126,7 +160,7 @@ Public Function VerifySearch() As String
     Check EFASearch.MatchScore("모터", "모터") = 10000, "Korean exact score"
     Check EFASearch.MatchScore("컨베어", "컨베어 모터") > EFASearch.MatchScore("컨베어", "상부 컨베어"), "Prefix before contains"
     Check EFASearch.MatchScore("컨베아", "컨베어") > 0, "Typo suggestion"
-    Check EFASearch.MatchScore("AJ1O", "[남양주] AJ-10-1-A") > 0, "Partial typo suggestion"
+    Check EFASearch.MatchScore("AJ1O", "[남양주]AJ10-1-A") > 0, "Partial typo suggestion"
     Check EFASearch.MatchScore("없는문자열xyz", "모터") = 0, "Unrelated candidate excluded"
     Check EFASearch.MatchScore("AJ10 1 A", "AJ10-1-A") = 10000, "Spacing and punctuation"
     Set picker = New EFAPicker
@@ -145,16 +179,16 @@ Public Function VerifySearch() As String
     Check CStr(target.Value2) = original, "Cancel preserves prior selection"
     Set picker = New EFAPicker
     picker.Prepare target
-    picker.Query.Text = "[남양주] AJ-10-1-A"
-    Check picker.Candidates.List(0) = "[남양주] AJ-10-1-A", "Exact match ranks first"
+    picker.Query.Text = "[남양주]AJ10-1-A"
+    Check picker.Candidates.List(0) = "[남양주]AJ10-1-A", "Exact match ranks first"
     Check picker.ProbeKey(vbKeyReturn) = 0, "Enter handled"
     Unload picker
-    Check CStr(target.Value2) = "[남양주] AJ-10-1-A", "Selected candidate committed"
+    Check CStr(target.Value2) = "[남양주]AJ10-1-A", "Selected candidate committed"
     Check sheet.Range("C9").Value2 = 48, "Exact line count"
     Check sheet.Range("E9").Value2 = 1632, "Exact line minutes"
     Check Not EFASearch.CommitSelection(target, "컨베어"), "Wrong field candidate rejected"
     Check Not EFASearch.CommitSelection(target, "AJ10"), "Query cannot become selection"
-    Check CStr(target.Value2) = "[남양주] AJ-10-1-A", "Rejected commit preserves selection"
+    Check CStr(target.Value2) = "[남양주]AJ10-1-A", "Rejected commit preserves selection"
     Check EFASearch.CommitSelection(target, "(전체)"), "Reset selection"
     Check sheet.Range("C9").Value2 = 1001, "All reset count"
     Set sheet = ThisWorkbook.Worksheets("별첨. 동일 상세설비 비교")
@@ -163,14 +197,14 @@ Public Function VerifySearch() As String
     Check sheet.Range("F9").Value2 = 4854, "Module minutes"
     Check Application.Sum(sheet.Range("H29:H" & sheet.UsedRange.Row + sheet.UsedRange.Rows.Count - 1)) = 129, "Line table reconciles with module count"
     Check EFASearch.CommitSelection(sheet.Range("C6"), "(전체)"), "Module reset"
-    Set sheet = ThisWorkbook.Worksheets("03.팀간 비교")
+    Set sheet = ThisWorkbook.Worksheets("04.고장비교")
     Check Application.Sum(sheet.Range("C22:C28")) = 1001, "Comparison total restored"
     Check Application.Sum(sheet.Range("D22:D28")) = 38802, "Comparison time restored"
     Check EFASearch.CommitSelection(sheet.Range("I5"), "컨베어"), "Comparison module selector"
     Check Application.Sum(sheet.Range("C22:C28")) = 129, "Comparison selected module count"
     Check Application.Sum(sheet.Range("D22:D28")) = 4854, "Comparison selected module time"
     Check EFASearch.CommitSelection(sheet.Range("I5"), "(전체)"), "Comparison module reset"
-    Set sheet = ThisWorkbook.Worksheets("04.월별 주요이슈")
+    Set sheet = ThisWorkbook.Worksheets("03.월별 주요이슈")
     Check EFASearch.CommitSelection(sheet.Range("J6"), "센서(종류 미상)"), "Part selector"
     total = 0
     For row = 23 To 33: total = total + sheet.Cells(row, 2).Value2: Next row
@@ -206,7 +240,7 @@ Public Function VerifyDrilldown() As String
     Dim timeLabel As String, timeMinutes As Double, appendix As Worksheet, labels As Range, row As Long
     Dim compareLine As String, partCount As Double
     Set main = ThisWorkbook.Worksheets("02.팀별 주요이슈")
-    Set trends = ThisWorkbook.Worksheets("04.월별 주요이슈")
+    Set trends = ThisWorkbook.Worksheets("03.월별 주요이슈")
     EFASearch.Initialize
     previousEvents = Application.EnableEvents
     Application.EnableEvents = True
@@ -232,7 +266,7 @@ Public Function VerifyDrilldown() As String
     Check Application.Sum(main.Range("D28:D" & main.UsedRange.Rows.Count)) = 270, "Full line table reconciles"
     Check main.Range("E9").NumberFormat = "#,##0" And main.Range("E28").NumberFormat = "#,##0", "Integer minute display"
     Check main.Range("B27").Value2 = "라인", "Line ranking label"
-    Check main.Range("B28").Value2 = "[남양주] AJ-10-B", "Team's leading line"
+    Check main.Range("B28").Value2 = "[남양주]AJ10-B", "Team's leading line"
     Check main.Range("D28").Value2 = 55, "Leading line count"
     If Len(PreviewDirectory) > 0 Then main.ExportAsFixedFormat 0, PreviewDirectory & "\drill_line.pdf"
     timeLabel = CStr(main.Range("H28").Value2): timeMinutes = main.Range("K28").Value2
@@ -240,7 +274,7 @@ Public Function VerifyDrilldown() As String
     Check main.Range("G5").Value2 = timeLabel And main.Range("E9").Value2 = timeMinutes, "Time leader selected exactly"
     Check EFASearch.CommitSelection(main.Range("G5"), "(전체)"), "Line reset after time branch"
     Check EFASearch.FollowChart(main.ChartObjects(1).Chart, 1), "Chart drill into line"
-    Check main.Range("G5").Value2 = "[남양주] AJ-10-B", "Line selected from bar"
+    Check main.Range("G5").Value2 = "[남양주]AJ10-B", "Line selected from bar"
     Check main.Range("B27").Value2 = "상세설비", "Module ranking label"
     Check main.Range("B28").Value2 = "제대기", "Line's leading module"
     Check main.Range("D28").Value2 = 18, "Leading module count"
@@ -257,13 +291,13 @@ Public Function VerifyDrilldown() As String
     Set history = ThisWorkbook.Worksheets("별첨. 고장이력")
     Check ActiveSheet.Name = history.Name, "History activated"
     Check Application.Subtotal(103, history.Range("C7:C1007")) = 8, "Eight matching records visible"
-    Check trends.Range("F5").Value2 = "[남양주] AJ-10-B" And trends.Range("J6").Value2 = "후크", "Trend context synchronized"
+    Check trends.Range("F5").Value2 = "[남양주]AJ10-B" And trends.Range("J6").Value2 = "후크", "Trend context synchronized"
     Check Application.Sum(trends.Range("B23:B33")) = 8, "Linked trend count"
     Check Application.Sum(trends.Range("C23:C33")) = 133, "Linked trend time"
     Check EFASearch.CommitSelection(main.Range("D5"), "생산2팀"), "Parent team change"
     Check main.Range("G5").Value2 = "(전체)" And main.Range("K5").Value2 = "(전체)" And main.Range("K6").Value2 = "(전체)", "Children reset"
     Check main.Range("C9").Value2 = 153, "New team's own total"
-    Check Not EFASearch.CommitSelection(main.Range("G5"), "[남양주] AJ-10-B"), "Old team's line rejected"
+    Check Not EFASearch.CommitSelection(main.Range("G5"), "[남양주]AJ10-B"), "Old team's line rejected"
     previousEvents = Application.EnableEvents
     Application.EnableEvents = True
     main.Range("B5").Value2 = "김해"

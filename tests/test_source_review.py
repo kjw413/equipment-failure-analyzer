@@ -168,9 +168,10 @@ def test_xlsm_extension_and_opaque_macro_part_are_preserved(store, input_file, t
         package.writestr("xl/vbaProject.bin", b"macro fixture")
     result = analyze_file(store, source)
     paths = report_paths(tmp_path / "report.xlsx", source)
-    assert paths.source_review.suffix == ".xlsm"
-    export_source_review(result, paths.source_review)
-    assert archive_parts(paths.source_review)["xl/vbaProject.bin"] == b"macro fixture"
+    assert paths.source_review is None
+    marked = tmp_path / "marked.xlsm"
+    export_source_review(result, marked)
+    assert archive_parts(marked)["xl/vbaProject.bin"] == b"macro fixture"
     assert hashlib.sha256(source.read_bytes()).hexdigest() == result.loaded.file_hash
 
 
@@ -179,7 +180,6 @@ def fake_all_writers(monkeypatch):
     for name, value in (
         ("export_report", b"new Excel"),
         ("export_pdf", b"new PDF"),
-        ("export_source_review", b"new reviewed source"),
     ):
 
         def write(result, path, progress, value=value):
@@ -189,13 +189,14 @@ def fake_all_writers(monkeypatch):
         monkeypatch.setattr(bundle, name, write)
 
 
-def test_third_existing_file_blocks_bundle(store, input_file, tmp_path, fake_all_writers):
+def test_previous_sidecar_is_not_an_output_or_modified(
+    store, input_file, tmp_path, fake_all_writers
+):
     paths = report_paths(tmp_path / "report.xlsx", input_file)
-    paths.source_review.write_bytes(b"keep source output")
-    with pytest.raises(UserError, match="이미 결과 파일"):
-        export_bundle(analyze_file(store, input_file), paths.excel)
-    assert paths.source_review.read_bytes() == b"keep source output"
-    assert not paths.excel.exists() and not paths.pdf.exists()
+    old_sidecar = tmp_path / "report_원본_검토표시.xlsx"
+    old_sidecar.write_bytes(b"keep previous file")
+    export_bundle(analyze_file(store, input_file), paths.excel)
+    assert paths.source_review is None and old_sidecar.read_bytes() == b"keep previous file"
 
 
 @pytest.mark.parametrize("existing", [False, True])
@@ -203,14 +204,14 @@ def test_third_commit_failure_rolls_back_entire_bundle(
     store, input_file, tmp_path, monkeypatch, fake_all_writers, existing
 ):
     paths = report_paths(tmp_path / "report.xlsx", input_file)
-    targets = [paths.excel, paths.pdf, paths.source_review]
+    targets = [paths.excel, paths.pdf]
     if existing:
         for index, path in enumerate(targets):
             path.write_bytes(f"old {index}".encode())
     original_replace = bundle.os.replace
 
     def fail_review(source, target):
-        if Path(target) == paths.source_review:
+        if Path(target) == paths.pdf:
             raise PermissionError("review workbook locked")
         return original_replace(source, target)
 
@@ -225,8 +226,9 @@ def test_third_commit_failure_rolls_back_entire_bundle(
 def test_third_target_cannot_be_original_source(store, input_file, tmp_path, fake_all_writers):
     source = input_file.with_name("report_원본_검토표시.xlsx")
     source.write_bytes(input_file.read_bytes())
-    with pytest.raises(UserError, match="원본 파일을 덮어쓸 수 없습니다"):
-        export_bundle(analyze_file(store, source), tmp_path / "report.xlsx", overwrite=True)
+    before = source.read_bytes()
+    files = export_bundle(analyze_file(store, source), tmp_path / "report.xlsx", overwrite=True)
+    assert files.source_review is None and source.read_bytes() == before
 
 
 @pytest.mark.parametrize("variant", ["absent", "empty_sections"])

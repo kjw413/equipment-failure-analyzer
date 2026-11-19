@@ -38,7 +38,9 @@ try {
     $searchModule.AddFromString($searchCode)
     $searchModule.AddFromString("`r`nPublic Function ProbeChartBindingCount() As Long`r`nInitialize`r`nProbeChartBindingCount = ChartHandlers.Count`r`nEnd Function")
     $chartModule = $book.VBProject.VBComponents.Item('EFADrillChart').CodeModule
-    $chartModule.AddFromString("`r`nPublic Sub ProbeMouseUp(ByVal x As Long, ByVal y As Long)`r`nWatched_MouseUp 1, 0, x, y`r`nEnd Sub")
+    $chartModule.AddFromString("`r`nPublic Function ProbeDoubleClick(ByVal point As Long) As Boolean`r`nDim cancelled As Boolean`r`nWatched_BeforeDoubleClick xlSeries, 1, point, cancelled`r`nProbeDoubleClick = cancelled`r`nEnd Function")
+    # Route a probe through the bound handler so the real BeforeDoubleClick procedure runs.
+    $searchModule.AddFromString("`r`nPublic Function ProbeChartDoubleClick(ByVal sheetName As String, ByVal chartIndex As Long, ByVal point As Long) As Boolean`r`nInitialize`r`nDim handler As EFADrillChart`r`nFor Each handler In ChartHandlers`r`nIf handler.Watched.Parent.Parent.Name = sheetName And handler.Watched.Parent.Index = chartIndex Then ProbeChartDoubleClick = handler.ProbeDoubleClick(point): Exit Function`r`nNext handler`r`nEnd Function")
     $excel.CalculateFull()
     if ($PreviewPdf) { $excel.Run("'" + $book.Name + "'!NativeSearchQA.SetPreviewDirectory", (Join-Path $root $EvidenceDirectory)) }
     $result = $excel.Run("'" + $book.Name + "'!NativeSearchQA.VerifySearch")
@@ -59,8 +61,8 @@ try {
     if ($events -notlike 'PASS;*') { throw "Native workbook event verification failed: $events" }
     if ($PreviewPdf) {
         $book.Worksheets.Item('01.종합현황').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/summary_native.pdf')))
-        $book.Worksheets.Item('04.월별 주요이슈').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/trend_native.pdf')))
-        $book.Worksheets.Item('03.팀간 비교').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/comparison_native.pdf')))
+        $book.Worksheets.Item('03.월별 주요이슈').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/trend_native.pdf')))
+        $book.Worksheets.Item('04.고장비교').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/comparison_native.pdf')))
         $book.Worksheets.Item('별첨. 동일 상세설비 비교').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/module_compare_native.pdf')))
     }
     $book.Close($false)

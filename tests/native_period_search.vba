@@ -4,8 +4,8 @@ Private Sub PeriodCheck(ByVal valid As Boolean, ByVal message As String)
 End Sub
 
 Private Sub VerifyPeriodMouse(ByVal sheet As Worksheet)
-    ' Exercise Excel's real Select event, rather than relying on screen hit-testing
-    ' which returns xlNothing in the automation host without a physical pointer.
+    ' Exercise Excel's real Select event: a single click must only select the point.
+    ' The drill runs on double-click (EFADrillChart.BeforeDoubleClick -> FollowChart).
     Dim chart As Chart, selected As Long, expected As String, previousEvents As Boolean
     PeriodCheck EFASearch.ProbeChartBindingCount() = 6, "Six native chart handlers bound (02, 04, same-module comparison)"
     Application.Visible = True
@@ -18,9 +18,10 @@ Private Sub VerifyPeriodMouse(ByVal sheet As Worksheet)
     Application.EnableEvents = True
     chart.SeriesCollection(1).Points(selected).Select
     Application.EnableEvents = previousEvents
-    PeriodCheck sheet.Range("B7").Value2 = "일별", "Native point selection event changes to daily"
-    PeriodCheck sheet.Range("F7").Value2 = expected, "Point selection commits exactly the selected month"
-    PeriodCheck EFASearch.BackToMonths(), "Restore monthly after native point selection"
+    PeriodCheck sheet.Range("B7").Value2 = "월별", "Single click (Select event) does not drill"
+    PeriodCheck EFASearch.ProbeChartDoubleClick(sheet.Name, 1, selected), "Double-click handler cancels Excel's default and drills"
+    PeriodCheck sheet.Range("B7").Value2 = "일별" And sheet.Range("F7").Value2 = expected, "Drill commits exactly the selected month"
+    PeriodCheck EFASearch.BackToMonths(), "Restore monthly after point drill"
     ' Excel otherwise exports an active selected chart instead of the worksheet.
     sheet.Range("A1").Select
 End Sub
@@ -34,7 +35,7 @@ Public Function VerifyPeriod() As String
     Dim key As Variant, saved(0 To 4) As String, index As Long, point As Long, count As Long
     Dim nMonths As Long, nDays As Long, firstMonth As String, nextMonth As String, scopedMonth As String
     Dim monthCount As Double, monthTime As Variant, scopedCount As Double
-    Set sheet = ThisWorkbook.Worksheets("04.월별 주요이슈")
+    Set sheet = ThisWorkbook.Worksheets("03.월별 주요이슈")
     Set labels = ThisWorkbook.Names("_Period_Rows").RefersToRange
     Set months = ThisWorkbook.Names("_Period_Months").RefersToRange
     Set modeCell = ThisWorkbook.Names("_Period_Mode").RefersToRange.Cells(1, 1)
@@ -131,36 +132,8 @@ Public Function VerifyPeriod() As String
     PeriodCheck EFASearch.FollowPeriodMonth(firstMonth), "Restore default remembered month"
     PeriodCheck EFASearch.BackToMonths(), "Final monthly mode"
 
-    ' Week and year units replace the former period appendix within the same filters.
-    Dim monthTotal As Double, weekTotal As Double, yearTotal As Double, nWeeks As Long, nYears As Long
-    nMonths = CLng(ThisWorkbook.Names("_Period_ActiveCount").RefersToRange.Value2)
-    monthTotal = Application.Sum(sheet.Range(sheet.Cells(labels.Row, 2), sheet.Cells(labels.Row + nMonths - 1, 2)))
-    Application.EnableEvents = True
-    modeCell.Value2 = "주별"
-    nWeeks = CLng(ThisWorkbook.Names("_Period_ActiveCount").RefersToRange.Value2)
-    PeriodCheck modeCell.Value2 = "주별" And nWeeks > nMonths, "Weekly unit selectable"
-    PeriodCheck sheet.ChartObjects(1).Chart.SeriesCollection(1).Points.Count = nWeeks, "Weekly chart point count"
-    PeriodCheck sheet.ChartObjects(1).Chart.Axes(xlCategory).AxisTitle.Text = "주", "Weekly axis unit"
-    PeriodCheck Not labels.Cells(nWeeks, 1).EntireRow.Hidden, "Every week row visible"
-    PeriodCheck Weekday(CDate(labels.Cells(1, 1).Value2), vbMonday) = 1, "Weeks start on Monday"
-    weekTotal = Application.Sum(sheet.Range(sheet.Cells(labels.Row, 2), sheet.Cells(labels.Row + nWeeks - 1, 2)))
-    PeriodCheck weekTotal = monthTotal, "Weekly counts reconcile with months"
-    PeriodCheck Not EFASearch.FollowChart(sheet.ChartObjects(1).Chart, 1), "Weekly point does not drill"
-    modeCell.Value2 = "연도별"
-    nYears = CLng(ThisWorkbook.Names("_Period_ActiveCount").RefersToRange.Value2)
-    PeriodCheck modeCell.Value2 = "연도별" And nYears >= 1, "Yearly unit selectable"
-    yearTotal = Application.Sum(sheet.Range(sheet.Cells(labels.Row, 2), sheet.Cells(labels.Row + nYears - 1, 2)))
-    PeriodCheck yearTotal = monthTotal, "Yearly counts reconcile with months"
-    PeriodCheck sheet.Range("G21").Value2 = "전년 대비 건수", "Yearly comparison header"
-    If Len(PreviewDirectory) > 0 Then sheet.ExportAsFixedFormat 0, PreviewDirectory & "\yearly_native.pdf"
-    modeCell.Value2 = "주별"
-    If Len(PreviewDirectory) > 0 Then sheet.ExportAsFixedFormat 0, PreviewDirectory & "\weekly_native.pdf"
-    PeriodCheck EFASearch.CommitSelection(EFASearch.ControlCell(sheet, "factory"), CStr(EFASearch.SourceRange(EFASearch.ControlCell(sheet, "factory")).Cells(2, 1).Value2)), "Filter while weekly"
-    PeriodCheck modeCell.Value2 = "월별", "Filter change returns to monthly"
-    PeriodCheck EFASearch.CommitSelection(EFASearch.ControlCell(sheet, "factory"), "(전체)"), "Filter reset after weekly"
-    PeriodCheck EFASearch.BackToMonths(), "Monthly after week/year"
     Application.EnableEvents = previousEvents
-    VerifyPeriod = "PASS; month=" & firstMonth & "; monthly_count=" & CStr(monthCount) & "; daily_days=" & CStr(nDays) & "; scoped_count=" & CStr(scopedCount) & "; weeks=" & CStr(nWeeks) & "; years=" & CStr(nYears) & "; week_year_total=" & CStr(weekTotal) & "; categorical_filters=preserved; invalid_input=reverted; back=ok"
+    VerifyPeriod = "PASS; month=" & firstMonth & "; monthly_count=" & CStr(monthCount) & "; daily_days=" & CStr(nDays) & "; scoped_count=" & CStr(scopedCount) & "; single_click=select_only; categorical_filters=preserved; invalid_input=reverted; back=ok"
     Exit Function
 Failed:
     Application.EnableEvents = previousEvents

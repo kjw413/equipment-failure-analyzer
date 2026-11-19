@@ -25,13 +25,14 @@ from openpyxl.utils.indexed_list import IndexedList
 from openpyxl.worksheet.properties import PageSetupProperties
 
 from core.config import resource_root
+from report.chart_numbers import format_chart_numbers
 from version import VERSION
 
 LOCKED_SHEETS = (
     "01.종합현황",
     "02.팀별 주요이슈",
-    "03.팀간 비교",
-    "04.월별 주요이슈",
+    "04.고장비교",
+    "03.월별 주요이슈",
 )
 ALIASES = (
     (LOCKED_SHEETS[0], "01_종합현황"),
@@ -321,11 +322,11 @@ def apply_locked_template(builder):
         elif index == 1:
             mapping.update(
                 {
-                    "B6": "B5",
-                    "D6": "D5",
-                    "F6": "G5",
-                    "K6": "K5",
-                    "K7": "K6",
+                    "B6": "B6",
+                    "D6": "D6",
+                    "F6": "G6",
+                    "K6": "K6",
+                    "K7": "K7",
                     "B7": "C9",
                     "D7": "E9",
                     "F7": "G9",
@@ -333,38 +334,38 @@ def apply_locked_template(builder):
                 }
             )
             count = sum(source.cell(row, 4).data_type == "f" for row in range(10, 20))
-            _row_map(mapping, 10, count, 18, 12)
+            _row_map(mapping, 10, count, 17, 12)
             states[LOCKED_SHEETS[index]] = {
                 "actual": count,
                 "capacity": 5,
-                "start": 28,
+                "start": 27,
                 "chart_row_shift": 0,
             }
         elif index == 2:
-            mapping.update({"B6": "B5", "B7": "E5", "G7": "I5"})
+            mapping.update({"B6": "E6", "B7": "F7", "G7": "I7"})
             # The issue source excludes planned stops and can contain fewer organizations.
             count = sum(
                 source.cell(row, 1).value is not None
                 for row in range(11, source.max_row + 1)
                 if source.cell(row, 3).data_type == "f"
             )
-            _row_map(mapping, 11, count, 11, 10)
+            _row_map(mapping, 11, count, 15, 10)
             states[LOCKED_SHEETS[index]] = {
                 "actual": count,
                 "capacity": 7,
-                "start": 22,
+                "start": 26,
                 "chart_row_shift": 0,
             }
         else:
-            mapping.update({"B6": "B5", "D6": "D5", "F6": "F5", "K6": "J5", "B7": "J6"})
+            mapping.update({"B6": "B6", "D6": "D6", "F6": "F6", "K6": "J6", "B7": "F7"})
             count = sum(
                 source.cell(row, 2).data_type == "f" for row in range(10, source.max_row + 1)
             )
-            _row_map(mapping, 10, count, 13, 11)
+            _row_map(mapping, 10, count, 14, 11)
             states[LOCKED_SHEETS[index]] = {
                 "actual": count,
                 "capacity": 11,
-                "start": 23,
+                "start": 24,
                 "chart_row_shift": 0,
             }
         maps[source.title], names[source.title] = mapping, LOCKED_SHEETS[index]
@@ -486,7 +487,7 @@ def apply_locked_template(builder):
         for key, value in cache.values.items()
         if key[0] not in source_names or key in populated
     }
-    book._sheets = [targets[n] for n in LOCKED_SHEETS if n in targets] + [
+    book._sheets = [targets[n] for n in sorted(LOCKED_SHEETS) if n in targets] + [
         ws for ws in book if ws.title not in targets
     ]
     book.loaded_theme = design.loaded_theme
@@ -537,7 +538,27 @@ def _chart_data(raw, builder, name, extra):
     raw_text = raw.decode("utf-8")
     metric_match = re.search(r"<c:numRef><c:f>[^<]*!\$([A-Z]+)\$[0-9]+:", raw_text)
     metric = metric_match[1] if metric_match else None
+    if name == "04.고장비교":
+        metric = {"H": "C", "J": "D"}.get(metric, metric)
+        raw_text = raw_text.replace("!$C$24", "!$E$24").replace("!$D$24", "!$F$24")
+    if name == "03.월별 주요이슈":
+        if "!_Period_ChartCount" in raw_text:
+            metric = "B"
+        elif "!_Period_ChartMinutes" in raw_text:
+            metric = "C"
     period = state.get("period_chart_ranges")
+    if name == "04.고장비교" and metric in ("C", "D"):
+        title_cell = "B20" if metric == "C" else "B21"
+        raw_text = re.sub(
+            r"(<c:title>.*?)<c:tx>.*?</c:tx>",
+            lambda m: (
+                m[1]
+                + f"<c:tx><c:strRef><c:f>'_fault_state'!${title_cell[0]}${title_cell[1:]}</c:f></c:strRef></c:tx>"
+            ),
+            raw_text,
+            count=1,
+            flags=re.DOTALL,
+        )
     if period and metric in ("B", "C"):
         title_cell = "B7" if metric == "B" else "B8"
         raw_text = re.sub(
@@ -589,11 +610,21 @@ def _chart_data(raw, builder, name, extra):
             formula = _formula("=" + formula, name, {name: mapping}, {name: name})[1:]
             sheet, _, address = formula.rpartition("!")
         cache_formula = formula
-        if ":" in address:
+        if name == "02.팀별 주요이슈" and ":" in address and metric in ("D", "K"):
+            column = (
+                "B" if kind == "strRef" and metric == "D" else "H" if kind == "strRef" else metric
+            )
+            top = int(builder.r.config_snapshot.get("final_report", {}).get("summary_top_n", 5))
+            formula = f"'02.팀별 주요이슈'!${column}$27:${column}${26 + max(5, min(10, top))}"
+            cache_formula = formula
+            address = formula.rpartition("!")[2]
+        if ":" in address or address.startswith(("_Period_", "_Fault_")):
             ranks = state.get("comparison_chart_ranges", {}).get(metric)
             if ranks:
                 formula = ranks["category" if kind == "strRef" else "value"]
-                cache_formula = formula
+                cache_formula = ranks.get(
+                    "cache_category" if kind == "strRef" else "cache_value", formula
+                )
             elif period and metric in ("B", "C"):
                 key = "category" if kind == "strRef" else metric
                 formula, cache_formula = period[key], period["cache_" + key]
@@ -667,6 +698,12 @@ def _replace_node(raw, tag, node):
     pattern = rf"<(?:\w+:)?{tag}(?:\s[^>]*)?(?:/>|>.*?</(?:\w+:)?{tag}>)"
     if re.search(pattern, raw, flags=re.DOTALL):
         return re.sub(pattern, lambda _: replacement, raw, count=1, flags=re.DOTALL)
+    if tag == "autoFilter" and node is not None:
+        return (
+            re.sub(r"(<(?:\w+:)?mergeCells\b)", lambda m: replacement + m[0], raw, count=1)
+            if "mergeCells" in raw
+            else re.sub(r"(<(?:\w+:)?pageMargins\b)", lambda m: replacement + m[0], raw, count=1)
+        )
     return raw
 
 
@@ -686,12 +723,14 @@ def restore_template_charts(path, builder):
             generated = ET.fromstring(output.read(dst))
             for tag in (
                 "sheetPr",
+                "sheetViews",
                 "pageSetup",
                 "sheetData",
                 "cols",
                 "mergeCells",
                 "dataValidations",
                 "dimension",
+                "autoFilter",
                 "headerFooter",
             ):
                 original_raw = _replace_node(original_raw, tag, generated.find("s:" + tag, NS))
@@ -759,6 +798,15 @@ def restore_template_charts(path, builder):
         data = [
             (item, replacements.get(item.filename, output.read(item.filename)))
             for item in output.infolist()
+        ]
+        data = [
+            (
+                item,
+                format_chart_numbers(content)
+                if item.filename.startswith("xl/charts/chart") and item.filename.endswith(".xml")
+                else content,
+            )
+            for item, content in data
         ]
     temporary = path.with_suffix(path.suffix + ".template.tmp")
     try:

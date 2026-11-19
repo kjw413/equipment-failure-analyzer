@@ -47,16 +47,11 @@ def test_equipment_charts_share_rendering_and_describe_configured_limit(
     assert render.call_count == 0 and breakdown.call_count == 0
     workbook = load_workbook(path, data_only=True)
     try:
-        assert not workbook[excel.SHEETS["module_compare"]]._images
-        assert len(workbook[excel.SHEETS["module_compare"]]._charts) == 2
-        overview = "\n".join(
-            str(cell.value) for row in workbook[excel.SHEETS["module_compare"]] for cell in row
-        )
-        quality = "\n".join(
-            str(cell.value) for row in workbook[excel.SHEETS["criteria"]] for cell in row
-        )
-        assert "상위 10개" in overview and "기타" not in overview
-        assert "기타로 합산하지 않으며" in quality
+        assert "별첨. 동일 상세설비 비교" not in workbook
+        assert "별첨. 기준정보" not in workbook
+        assert not workbook["04.고장비교"]._images
+        assert len(workbook["04.고장비교"]._charts) == 2
+        assert workbook[excel.SHEETS["review"]]["C7"].value == len(result.tables["review"])
     finally:
         workbook.close()
 

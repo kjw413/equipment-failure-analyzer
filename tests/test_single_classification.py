@@ -15,7 +15,7 @@ from core.failure_modes import CLASSIFICATION_SCHEMA, LEGACY_CLASSIFICATION_SCHE
 from core.fault_components import CATEGORY_FIELDS, parse_components
 from core.models import AnalysisOptions, UserError
 from report import export_bundle as bundle
-from report.excel_report import REVIEW_COLS, SHEETS
+from report.excel_report import SHEETS
 
 CATEGORIES = [
     {
@@ -86,18 +86,23 @@ def test_unresolved_classification_exports_with_compact_review(store, input_file
     target = tmp_path / "final.xlsx"
     target.write_bytes(b"previous report")
     files = bundle.export_bundle(result, target, overwrite=True)
-    assert all(path.is_file() for path in (files.excel, files.pdf, files.source_review))
+    assert all(path.is_file() for path in (files.excel, files.pdf))
     assert input_file.read_bytes() == source
     assert not list(tmp_path.glob(".efa_export_*"))
     with closing(load_workbook(files.excel, data_only=True)) as wb:
         review = wb[SHEETS["review"]]
-        assert review.max_column == len(REVIEW_COLS) + 1
+        from openpyxl.utils.cell import range_boundaries
+
+        from report.review_overview import FIELDS
+
+        assert review.max_column == len(FIELDS) + 1
         expected = result.tables["review"].set_index("source_row")
-        for row in range(7, 7 + len(expected)):
+        header = range_boundaries(review.auto_filter.ref)[1]
+        for row in range(header + 1, header + 1 + len(expected)):
             record = expected.loc[review.cell(row, 2).value]
             for name in ("raw_description", "candidates", "status"):
-                assert review.cell(row, REVIEW_COLS.index(name) + 2).value == (record[name] or None)
-        assert review.max_row == max(7, 6 + len(expected))
+                assert review.cell(row, FIELDS.index(name) + 2).value == (record[name] or None)
+        assert review.max_row == max(header + 1, header + len(expected))
         assert wb["_report_metrics"]["A2"].value == result.metrics["selected_rows"]
     assert len(result.tables["fault_detail"]) == len(
         result.selected.loc[result.selected.kind.eq("고장")]

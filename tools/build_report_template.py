@@ -23,7 +23,7 @@ MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 REL = "http://schemas.openxmlformats.org/package/2006/relationships"
 OFFICE_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 CELL = re.compile(r"<c\b(?P<attrs>[^>]*?)(?:/\s*>|>(?P<body>.*?)</c>)", re.S)
-SHEET_NAMES = ("01.종합현황", "02.팀별 주요이슈", "03.팀간 비교", "04.월별 주요이슈")
+SHEET_NAMES = ("01.종합현황", "02.팀별 주요이슈", "04.고장비교", "03.월별 주요이슈")
 
 # Only these known generic headings survive. An allowlist prevents an unexpected
 # source cell, new source row or stale formula cache from leaking into a release.
@@ -120,8 +120,26 @@ STATIC_CELLS[2] = {
     "K27",
     "L27",
 }
+STATIC_CELLS[2] = {
+    "A1",
+    "A5",
+    "A6",
+    "C6",
+    "F6",
+    "J6",
+    "J7",
+    "B9",
+    "D9",
+    "F9",
+    "H9",
+    "A25",
+    "G25",
+    *(f"{c}26" for c in "ABCDEFGHIJKL"),
+}
 STATIC_CELLS[3] = {"A1", "A4", "A5", "D5", "H5", *(f"{c}20" for c in "ABCDEFGHIJ")}
-STATIC_CELLS[4] = {"A1", "A4", "A5", "C5", "E5", "I5", "I6", *(f"{c}21" for c in "ABCDEFGHIJK")}
+STATIC_CELLS[3] = {"A1", "A3", "A5", "A6", "A7", "C7", "E7", *(f"{c}24" for c in "ABCDEFGHIJ")}
+STATIC_CELLS[4] = {"A1", "A4", "A5", "C5", "E5", "I5", "I6", *(f"{c}22" for c in "ABCDEFGHIJK")}
+STATIC_CELLS[4].update({"A6", "C6", "E6", "I6", "A7", "C7", "E7"})
 
 
 def png_chunk(kind: bytes, value: bytes) -> bytes:
@@ -187,6 +205,7 @@ def clean_sheet(xml: str, index: int, shared_strings: list[str]) -> str:
 
 
 def clean_chart(xml: str) -> str:
+    xml = xml.replace("03.팀간 비교", SHEET_NAMES[2]).replace("04.월별 주요이슈", SHEET_NAMES[3])
     xml = xml.replace("04.고장추이", SHEET_NAMES[3])
     # Delete cached point values, preserving native chart references, number
     # formats, layout, series formatting and all Excel extension namespaces.
@@ -210,14 +229,23 @@ def clean_chart(xml: str) -> str:
 
 
 def clean_workbook(xml: str) -> str:
+    xml = xml.replace("03.팀간 비교", SHEET_NAMES[2]).replace("04.월별 주요이슈", SHEET_NAMES[3])
     xml = xml.replace("04.고장추이", SHEET_NAMES[3])
     root = ET.fromstring(xml)
     sheets = root.find(f"{{{MAIN}}}sheets")
-    if sheets is None or tuple(sheet.get("name") for sheet in list(sheets)[:4]) != SHEET_NAMES:
-        raise ValueError("The first four sheet names do not match the approved template")
+    if sheets is None or not set(SHEET_NAMES) <= {s.get("name") for s in sheets}:
+        raise ValueError("The approved report sheets are missing")
+    tags = re.findall(r"<sheet\b[^>]*/>", xml)
+    selected = [t for t in tags if re.search(r'\bname="([^"]+)"', t)[1] in SHEET_NAMES]
+    selected.sort(key=lambda t: re.search(r'\bname="([^"]+)"', t)[1])
+    selected_positions = {
+        old: next(i for i, t in enumerate(selected) if t == tag)
+        for old, tag in enumerate(tags)
+        if tag in selected
+    }
     xml = re.sub(
         r"<sheets>.*?</sheets>",
-        lambda _: "<sheets>" + "".join(re.findall(r"<sheet\b[^>]*/>", xml)[:4]) + "</sheets>",
+        lambda _: "<sheets>" + "".join(selected) + "</sheets>",
         xml,
         flags=re.S,
     )
@@ -226,13 +254,17 @@ def clean_workbook(xml: str) -> str:
         text = match.group(0)
         name = re.search(r'\bname="([^"]+)"', text)
         local = re.search(r'\blocalSheetId="([0-9]+)"', text)
-        if local and int(local.group(1)) >= 4:
+        if local and int(local.group(1)) not in selected_positions:
             return ""
         if name and name.group(1).startswith("_Issue_"):
+            return ""
+        if local:
             return re.sub(
-                r">.*?</definedName>", ">'01.종합현황'!$A$3</definedName>", text, flags=re.S
+                r'localSheetId="[0-9]+"',
+                f'localSheetId="{selected_positions[int(local.group(1))]}"',
+                text,
             )
-        return text if local and int(local.group(1)) < 4 else ""
+        return ""
 
     xml = re.sub(r"<definedName\b[^>]*>.*?</definedName>", retain_name, xml, flags=re.S)
     xml = re.sub(r"<mc:AlternateContent\b.*?</mc:AlternateContent>", "", xml, flags=re.S)
@@ -246,6 +278,16 @@ def build_template(source: Path, destination: Path) -> dict:
         raise ValueError("Source and destination must be different files")
     original_hash = hashlib.sha256(source.read_bytes()).hexdigest()
     with ZipFile(source) as archive:
+        workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+        relations = {
+            r.get("Id"): resolved_target("xl/workbook.xml", r.get("Target"))
+            for r in ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+        }
+        selected_parts = {
+            relations[s.get(f"{{{OFFICE_REL}}}id")]: SHEET_NAMES.index(s.get("name")) + 1
+            for s in workbook.find(f"{{{MAIN}}}sheets")
+            if s.get("name") in SHEET_NAMES
+        }
         shared_xml = archive.read("xl/sharedStrings.xml").decode("utf-8")
         shared = re.findall(r"<si\b[^>]*>(.*?)</si>", shared_xml, re.S)
         payload: dict[str, bytes] = {}
@@ -254,8 +296,8 @@ def build_template(source: Path, destination: Path) -> dict:
             if part in payload:
                 return
             raw = archive.read(part)
-            if re.fullmatch(r"xl/worksheets/sheet[1-4]\.xml", part):
-                index = int(re.search(r"sheet([1-4])", part).group(1))
+            if part in selected_parts:
+                index = selected_parts[part]
                 raw = clean_sheet(raw.decode("utf-8"), index, shared).encode("utf-8")
             elif part.startswith("xl/charts/") and part.endswith(".xml"):
                 raw = clean_chart(raw.decode("utf-8")).encode("utf-8")
@@ -285,8 +327,8 @@ def build_template(source: Path, destination: Path) -> dict:
                 rel_xml,
             ).encode("utf-8")
 
-        for index in range(1, 5):
-            copy_part(f"xl/worksheets/sheet{index}.xml")
+        for part in selected_parts:
+            copy_part(part)
         for part in ("xl/styles.xml", "xl/theme/theme1.xml"):
             payload[part] = archive.read(part)
         payload["xl/workbook.xml"] = clean_workbook(

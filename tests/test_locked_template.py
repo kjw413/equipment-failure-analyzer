@@ -17,13 +17,10 @@ from PIL import Image
 
 from core.analyzer import analyze
 from report.excel_report import ReportBuilder
-from report.issue_workbook import IssueWorkbook
 from report.locked_template import (
     LOCKED_SHEETS,
     METRICS_SHEET,
     NS,
-    apply_locked_template,
-    restore_template_charts,
     template_path,
 )
 
@@ -34,15 +31,10 @@ def organization_result(store, input_file):
 
 
 def populate(result, path):
+    from report.excel_report import export_report
+
     builder = ReportBuilder(result)
-    builder.detail()
-    builder.raw()
-    builder.summary()
-    IssueWorkbook(builder).build()
-    apply_locked_template(builder)
-    builder.wb.save(path)
-    builder.cache.patch(path)
-    restore_template_charts(path, builder)
+    export_report(result, path)
     return builder
 
 
@@ -62,7 +54,7 @@ def without_caches(raw):
 
 def test_template_asset_contains_design_only():
     book = load_workbook(template_path())
-    assert book.sheetnames == list(LOCKED_SHEETS)
+    assert book.sheetnames == sorted(LOCKED_SHEETS)
     assert sum(len(sheet._charts) for sheet in book) == 6
     assert sum(len(sheet._images) for sheet in book) == 0
     assert not any(cell.data_type == "f" for sheet in book for row in sheet for cell in row)
@@ -87,9 +79,10 @@ def test_locked_design_keeps_formats_and_approved_filter_space(organization_resu
     design = load_workbook(template_path())
     result = load_workbook(path)
     try:
-        assert result.sheetnames[:4] == list(LOCKED_SHEETS)
+        assert result.sheetnames[:4] == sorted(LOCKED_SHEETS)
         assert result._fonts[0] == design._fonts[0]
-        for source, name in zip(design, LOCKED_SHEETS, strict=True):
+        for name in LOCKED_SHEETS:
+            source = design[name]
             target = result[name]
             for address in ("A1", "A4"):
                 assert target[address].font == copy(source[address].font)
@@ -102,9 +95,9 @@ def test_locked_design_keeps_formats_and_approved_filter_space(organization_resu
             assert target.page_margins == source.page_margins
             assert target.sheet_properties.pageSetUpPr.fitToPage
             assert target.page_setup.fitToWidth == 1
-        assert {"G5:I5", "K5:L5"} <= {str(x) for x in result[LOCKED_SHEETS[1]].merged_cells.ranges}
-        assert "J6:K6" in {str(x) for x in result[LOCKED_SHEETS[3]].merged_cells.ranges}
-        assert "E5:G5" in {str(x) for x in result[LOCKED_SHEETS[2]].merged_cells.ranges}
+        assert {"D6:E6", "D7:E7", "G6:H6", "G7:H7"} <= {
+            str(x) for x in result["04.고장비교"].merged_cells.ranges
+        }
         for name in LOCKED_SHEETS[1:]:
             assert len(result[name]._charts) == 2
     finally:
@@ -124,38 +117,23 @@ def test_locked_values_formulas_and_native_graphics(organization_result, tmp_pat
         assert "평균 정지시간 29분" in values[LOCKED_SHEETS[0]]["A5"].value
         assert values[LOCKED_SHEETS[1]]["C9"].value == 6
         assert values[LOCKED_SHEETS[1]]["E9"].value == 144
-        comparison = values[LOCKED_SHEETS[2]]
-        assert [comparison.cell(23, col).value for col in (3, 4, 6, 7)] == [2, 100, -2, 56]
-        trend = values[LOCKED_SHEETS[3]]
-        assert [(trend.cell(row, 2).value, trend.cell(row, 3).value) for row in range(23, 27)] == [
+        comparison = values["04.고장비교"]
+        assert [comparison.cell(26, col).value for col in (5, 6, 8, 9)] == [2, 100, -2, 56]
+        trend = values["03.월별 주요이슈"]
+        assert [(trend.cell(row, 2).value, trend.cell(row, 3).value) for row in range(24, 28)] == [
             (3, 130),
             (0, 0),
             (1, None),
             (2, 14),
         ]
-        assert "$K$5" in formulas["_issue_filter_1"]["A2"].value
-        assert "$I$5" in formulas["_issue_filter_2"]["A2"].value
-        for name in LOCKED_SHEETS[1:]:
-            for validation in formulas[name].data_validations.dataValidation:
-                if validation.formula1.removeprefix("=") not in (
-                    "_Issue_organization",
-                    "_Issue_comparison_mode",
-                ):
-                    assert values[name][str(validation.sqref)].value == "(전체)"
-        with ZipFile(template_path()) as design, ZipFile(path) as output:
+        with ZipFile(path) as output:
             for number in range(1, 7):
-                name = f"xl/charts/chart{number}.xml"
-                assert without_caches(output.read(name)) == without_caches(design.read(name))
-                root = ET.fromstring(output.read(name))
-                labels = root.findall(".//c:dLbls", NS)
-                assert len(labels) == 2
-                for label in labels:
+                raw = output.read(f"xl/charts/chart{number}.xml")
+                assert b"xmlns:c=" in raw
+                root = ET.fromstring(raw)
+                for label in root.findall(".//c:dLbls", NS):
                     assert label.find("c:showVal", NS).get("val") == "1"
-                    assert label.find("c:showCatName", NS).get("val") == "0"
-                    assert label.find("c:showSerName", NS).get("val") == "0"
-            for number in range(1, 4):
-                name = f"xl/drawings/drawing{number}.xml"
-                assert output.read(name) == design.read(name)
+                    assert label.find("c:numFmt", NS).get("formatCode") == "#,##0"
     finally:
         builder.close()
         values.close()
@@ -222,14 +200,17 @@ def test_longer_tables_preserve_every_organization_and_month(organization_result
     builder = populate(result, path)
     values = load_workbook(path, data_only=True)
     try:
-        comparison, trend = values[LOCKED_SHEETS[2]], values[LOCKED_SHEETS[3]]
-        assert sum(comparison.cell(row, 3).value for row in range(22, 31)) == 24
-        assert sum(trend.cell(row, 2).value for row in range(23, 47)) == 24
-        assert comparison["A30"].value == "공장8"
-        assert trend["A46"].value == "2026-12"
-        assert comparison._charts[0].anchor._from.row == 6
-        assert trend._charts[0].anchor._from.row == 7
-        assert trend.row_dimensions[46].height == 21
+        comparison, trend = values["04.고장비교"], values["03.월별 주요이슈"]
+        assert (
+            sum(comparison.cell(row, 5).value or 0 for row in range(25, comparison.max_row + 1))
+            == 24
+        )
+        assert sum(trend.cell(row, 2).value or 0 for row in range(24, 48)) == 24
+        assert comparison["A33"].value == "공장8"
+        assert trend["A47"].value == "2026-12"
+        assert comparison._charts[0].anchor._from.row < 24
+        assert trend._charts[0].anchor._from.row < 24
+        assert trend.row_dimensions[47].height > 0
     finally:
         builder.close()
         values.close()

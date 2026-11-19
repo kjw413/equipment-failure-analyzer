@@ -18,30 +18,6 @@ DAY_COLUMNS = [
 ]
 
 
-def case_periods(facts: pd.DataFrame, freq: str) -> pd.DataFrame:
-    """Contiguous Monday-start weeks or calendar years, labelled like the old appendix.
-
-    Weeks are labelled by their Monday (YYYY-MM-DD) and years by YYYY. Empty
-    periods keep zero counts; nonempty periods without any duration keep NaN.
-    """
-    if freq not in ("week", "year"):
-        raise ValueError("freq must be 'week' or 'year'")
-    dates = pd.to_datetime(facts["date"], errors="coerce", format="mixed")
-    dated = dates.dropna()
-    if dated.empty:
-        return pd.DataFrame(columns=DAY_COLUMNS)
-    if freq == "week":
-        starts = dates.dt.to_period("W-SUN").dt.start_time
-        labels = starts.dt.strftime("%Y-%m-%d")
-        first = dated.min().to_period("W-SUN").start_time
-        last = dated.max().to_period("W-SUN").start_time
-        periods = pd.date_range(first, last, freq="7D").strftime("%Y-%m-%d").tolist()
-    else:
-        labels = dates.dt.strftime("%Y")
-        periods = [str(year) for year in range(dated.min().year, dated.max().year + 1)]
-    return _summarize(facts, dates, labels, periods)
-
-
 def _summarize(facts, dates, labels, periods):
     source = pd.DataFrame(
         {

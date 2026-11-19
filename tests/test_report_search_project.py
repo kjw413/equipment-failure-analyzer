@@ -19,7 +19,7 @@ def test_report_paths_preserve_explicit_format_and_default_to_search(tmp_path):
     assert report_paths(tmp_path / "report").excel.suffix == ".xlsm"
     assert report_paths(tmp_path / "report.xlsm").excel.suffix == ".xlsm"
     assert report_paths(tmp_path / "report.xlsx").excel.suffix == ".xlsx"
-    assert report_paths(tmp_path / "report.xlsm", "source.xlsx").source_review.suffix == ".xlsx"
+    assert report_paths(tmp_path / "report.xlsm", "source.xlsx").source_review is None
 
 
 def test_embedded_project_matches_reviewable_vba_source():
@@ -72,20 +72,20 @@ def test_macro_report_keeps_values_charts_and_exact_lists(organization_result, t
         assert workbook_type == "application/vnd.ms-excel.sheet.macroEnabled.main+xml"
     book = load_workbook(macro, keep_vba=True, data_only=True)
     try:
-        assert book["02.팀별 주요이슈"]["B5"].value == "(전체)"
+        assert book["02.팀별 주요이슈"]["B6"].value == "(전체)"
         assert book.vba_archive is not None
     finally:
         book.close()
     assert organization_result.loaded.path.read_bytes() == source
 
 
-def test_macro_bundle_keeps_the_separate_source_copy_plain(organization_result, tmp_path):
+def test_macro_bundle_keeps_source_review_inside_one_workbook(organization_result, tmp_path):
     before = organization_result.loaded.path.read_bytes()
     files = export_bundle(organization_result, tmp_path / "bundle.xlsm")
     assert files.excel.suffix == ".xlsm"
     assert files.pdf.read_bytes().startswith(b"%PDF")
-    assert files.source_review.suffix == ".xlsx"
-    with ZipFile(files.excel) as result, ZipFile(files.source_review) as source:
+    assert files.source_review is None
+    with ZipFile(files.excel) as result:
         assert "xl/vbaProject.bin" in result.namelist()
-        assert "xl/vbaProject.bin" not in source.namelist()
+        assert any(n.startswith("xl/source_snapshot/") for n in result.namelist())
     assert organization_result.loaded.path.read_bytes() == before

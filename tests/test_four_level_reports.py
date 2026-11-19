@@ -290,10 +290,10 @@ def test_partial_excel_has_separate_counts_and_retains_missing_field(partial_res
         assert "완전 자동분류" in summary
         assert "검토 대상 0건" in summary
         quality = {
-            row[1].value: row[2].value for row in workbook[SHEETS["criteria"]] if len(row) >= 3
+            row[1].value: row[2].value for row in workbook[SHEETS["review"]] if len(row) >= 3
         }
         assert quality[K["partial"]] == 1
-        assert quality["자동처리 합계(완전+부분)"] == len(partial_result.selected)
+        assert quality.get(K["auto"], 0) + quality.get(K["partial"], 0) == len(partial_result.selected)
     finally:
         workbook.close()
 

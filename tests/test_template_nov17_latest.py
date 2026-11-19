@@ -15,14 +15,13 @@ def test_edited_template_preserves_tables_styles_and_merged_headers(organization
     result, source = load_workbook(path), load_workbook(template_path())
     try:
         main = result["02.팀별 주요이슈"]
-        assert main["A6"].value is None and main["A9"].value is None
-        assert "시트 사용 방법" in main["A11"].value
-        assert main["A26"].value == "○ 고장이력 (건수 내림차순)"
-        assert main["G26"].value == "○ 고장이력 (시간 내림차순)"
+        assert main["A6"].value == "공장" and main["A9"].value is None
+        assert main["A25"].value == "○ 고장이력 (건수 내림차순)"
+        assert main["G25"].value == "○ 고장이력 (시간 내림차순)"
         for name, addresses in {
-            main.title: ("A1", "A11", "A26", "G26", "A27", "D27", "G27", "K27", "D28", "K28"),
-            "03.팀간 비교": ("A1", "A20", "F20", "A22", "C22"),
-            "04.월별 주요이슈": ("A1", "A21", "H21", "A23", "B23"),
+            main.title: ("A1", "A5", "A25", "G25", "A26", "D26", "G26", "K26", "D27", "K27"),
+            "04.고장비교": ("A1", "A5"),
+            "03.월별 주요이슈": ("A1", "A22", "H22", "A24", "B24"),
         }.items():
             sheet, design = result[name], source[name]
             for address in addresses:
@@ -31,12 +30,12 @@ def test_edited_template_preserves_tables_styles_and_merged_headers(organization
                         getattr(design[address], attr)
                     ), (name, address, attr)
             for row in range(1, 24):
-                assert sheet.row_dimensions[row].height == 21
+                assert sheet.row_dimensions[row].height == design.row_dimensions[row].height
             for chart, original in zip(sheet._charts, design._charts, strict=True):
                 assert chart.anchor == original.anchor
-        assert {"A20:A21", "J20:J21"} <= set(map(str, result["03.팀간 비교"].merged_cells.ranges))
-        assert {"A21:A22", "K21:K22"} <= set(
-            map(str, result["04.월별 주요이슈"].merged_cells.ranges)
+        assert result["04.고장비교"].auto_filter.ref.startswith("A24:L")
+        assert {"A22:A23", "K22:K23"} <= set(
+            map(str, result["03.월별 주요이슈"].merged_cells.ranges)
         )
         with ZipFile(path) as archive:
             assert all(

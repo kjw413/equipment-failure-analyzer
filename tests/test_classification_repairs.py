@@ -14,7 +14,8 @@ from core.failure_classification import FaultClassifier
 from core.fault_components import CATEGORY_FIELDS, parse_components
 from core.i18n import K
 from core.preprocessing import event_ids
-from report.excel_report import REVIEW_COLS, SHEETS, export_report
+from report.excel_report import SHEETS, export_report
+from report.review_overview import FIELDS
 
 
 @pytest.fixture
@@ -140,14 +141,19 @@ def test_source_codes_categories_and_legacy_report_projection(store, tmp_path):
     with closing(load_workbook(output, data_only=True)) as report:
         for key in ("detail", "review", "fault_detail"):
             ws = report[SHEETS[key]]
-            headers = {cell.value: cell.column for cell in ws[6]}
+            header_row = (
+                int(__import__("re").search(r"[0-9]+", ws.auto_filter.ref)[0])
+                if key == "review"
+                else 6
+            )
+            headers = {cell.value: cell.column for cell in ws[header_row]}
             for name in ("고장 분야", "상세설비·모듈", "세부 부품", "고장 현상"):
                 assert not any(
                     ws.cell(row, headers[name]).value
                     in {K["review"], K["code_missing"], K["rule_unmatched"]}
-                    for row in range(7, ws.max_row + 1)
+                    for row in range(header_row + 1, ws.max_row + 1)
                 )
-        assert report[SHEETS["review"]].max_column == len(REVIEW_COLS) + 1 == 23
+        assert report[SHEETS["review"]].max_column == len(FIELDS) + 1 == 17
     assert source.read_bytes() == before
     assert result.selected.event_id.tolist() == source_event_ids
     assert result.selected.record_id.is_unique

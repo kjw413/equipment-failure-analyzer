@@ -95,7 +95,7 @@ def test_unmatched_labels_are_explained_and_never_offered_as_categories():
 def test_quality_sheet_counts_each_unmatched_label(store, unmatched_file, tmp_path):
     result = analyze_file(store, unmatched_file)
     out = export_report(result, tmp_path / "report.xlsx")
-    quality = load_workbook(out, data_only=True)[SHEETS["criteria"]]
+    quality = load_workbook(out, data_only=True)[SHEETS["review"]]
     counts = {
         quality.cell(row, 2).value: quality.cell(row, 3).value
         for row in range(1, quality.max_row + 1)

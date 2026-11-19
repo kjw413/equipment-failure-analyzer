@@ -23,14 +23,13 @@ def pdf_text(path):
     return "\n".join(page.extract_text() or "" for page in pypdf.PdfReader(path).pages)
 
 
-def test_bundle_generates_three_files_same_totals_and_name(store, input_file, tmp_path):
+def test_bundle_generates_two_files_same_totals_and_name(store, input_file, tmp_path):
     result = analyze_file(store, input_file)
     original = hashlib.sha256(input_file.read_bytes()).hexdigest()
     files = export_bundle(result, tmp_path / "pair" / "analysis.xlsx")
     assert {p.name for p in files.excel.parent.iterdir()} == {
         files.excel.name,
         files.pdf.name,
-        files.source_review.name,
     }
     text = pdf_text(files.pdf)
     assert "미확정 분류" in text and "검토 중에도 출력 가능" in text
@@ -41,7 +40,8 @@ def test_bundle_generates_three_files_same_totals_and_name(store, input_file, tm
     assert wb["_report_metrics"]["A2"].value == 4
     assert wb["_report_metrics"]["A3"].value == 95
     assert "95분" in wb[SHEETS["summary"]]["A5"].value
-    assert len([ws for ws in wb if ws.sheet_state == "visible"]) == 10 and not any(
+    assert files.source_review is None
+    assert len([ws for ws in wb if ws.sheet_state == "visible"]) == 9 and not any(
         "\uc81c\ud488\ubcc4\ubd84\uc11d" in x for x in wb.sheetnames
     )
     wb.close()

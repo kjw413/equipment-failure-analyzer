@@ -16,6 +16,8 @@ def field_order(title):
     """Cascade order per sheet: parents narrow child lists; changes reset children."""
     from report.module_comparison import FIELD_ORDER, SHEET
 
+    if title == "04.고장비교":
+        return ("organization", "asset", "module")
     return FIELD_ORDER if title == SHEET else FIELDS
 
 
@@ -97,15 +99,15 @@ def install_controls(builder):
     if MAIN_SHEET not in book:
         return
     ws = book[MAIN_SHEET]
-    ws["J6"] = "세부부품"
-    for address in ("B27", "H27"):
+    ws["J7"] = "세부부품"
+    for address in ("B26", "H26"):
         builder.cache.set(ws, address, "='_drill_state'!B3", "라인")
     top_n = bounded_int(
         builder.r.config_snapshot.get("final_report", {}).get("summary_top_n"), 5, 10
     )
     for name, column in (("_Drill_CountLabels", "B"), ("_Drill_TimeLabels", "H")):
         book.defined_names.add(
-            DefinedName(name, attr_text=f"{ref(ws.title)}!${column}$28:${column}${27 + top_n}")
+            DefinedName(name, attr_text=f"{ref(ws.title)}!${column}$27:${column}${26 + top_n}")
         )
 
     controls = book.create_sheet("_report_controls")
@@ -118,16 +120,22 @@ def install_controls(builder):
     last = max(2, facts.max_row)
     column = 0
     for sheet in list(book):
+        if sheet.title == "04.고장비교":
+            continue
         selected = {}
         for validation in sheet.data_validations.dataValidation:
             field = validation.formula1.removeprefix("=_Issue_")
-            if field not in FIELDS:
+            if field not in (*FIELDS, "organization"):
                 continue
             for area in validation.sqref.ranges:
                 selected[field] = sheet.cell(area.min_row, area.min_col).coordinate
         order = field_order(sheet.title)
         for field in order:
             if field not in selected:
+                continue
+            if field == "organization":
+                address = selected[field]
+                controls.append([sheet.title, field, address, 1, 0, sheet[address].value])
                 continue
             column += 1
             letter = get_column_letter(column)
@@ -155,6 +163,8 @@ def install_controls(builder):
                 cell_ref = f"{ref(sheet.title)}!${cell.column_letter}${cell.row}"
                 conditions.extend((f"'_issue_facts'!${col}$2:${col}${last}", criterion(cell_ref)))
             fact_col = get_column_letter(key_index)
+            eligible = None
+            allowed = [v for v in values if eligible is None or v == ALL or v in eligible]
             for row, value in enumerate(values, 1):
                 args = [
                     *conditions,
@@ -162,10 +172,13 @@ def install_controls(builder):
                     exact(value),
                 ]
                 formula = "=1" if row == 1 else f"=IF(COUNTIFS({','.join(args)})>0,1,0)"
-                builder.cache.set(flags, f"{letter}{row}", formula, 1)
+                builder.cache.set(flags, f"{letter}{row}", formula, int(value in allowed))
                 index = f"_xlfn.AGGREGATE(15,6,(ROW({source_range})-ROW('_issue_lists'!${source_col}$1)+1)/('_selector_flags'!${letter}$1:${letter}${count}>0),{row})"
                 builder.cache.set(
-                    lists, f"{letter}{row}", f'=IFERROR(INDEX({source_range},{index}),"")', value
+                    lists,
+                    f"{letter}{row}",
+                    f'=IFERROR(INDEX({source_range},{index}),"")',
+                    allowed[row - 1] if row <= len(allowed) else "",
                 )
             scope = f"'_selector_lists'!${letter}$1:${letter}${count}"
             # COUNTIF ?* excludes formula-empty strings. ALL is always the first item.

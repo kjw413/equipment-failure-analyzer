@@ -4,9 +4,10 @@ Private Opening As Boolean
 Private Updating As Boolean
 Private ChartHandlers As Collection
 Private Const AllLabel As String = "(전체)"
-Private Const PeriodSheetName As String = "04.월별 주요이슈"
+Private Const PeriodSheetName As String = "03.월별 주요이슈"
 Private Const MainSheetName As String = "02.팀별 주요이슈"
 Private Const CompareSheetName As String = "별첨. 동일 상세설비 비교"
+Private Const FaultSheetName As String = "04.고장비교"
 Private LastPeriodMode As String
 Private LastPeriodMonth As String
 
@@ -15,7 +16,7 @@ Public Sub Initialize()
     If ChartHandlers Is Nothing Then
         Set ChartHandlers = New Collection
         Dim item As ChartObject, handler As EFADrillChart, key As Variant, sheet As Worksheet
-        For Each key In Array(MainSheetName, PeriodSheetName, CompareSheetName)
+        For Each key In Array(MainSheetName, PeriodSheetName, CompareSheetName, FaultSheetName)
             Set sheet = Nothing
             On Error Resume Next
             Set sheet = ThisWorkbook.Worksheets(CStr(key))
@@ -31,13 +32,18 @@ Public Sub Initialize()
     End If
     RememberPeriodState
     RefreshPeriods
+    RefreshFaultComparison
 Done:
 End Sub
 
 Public Function SourceRange(ByVal Target As Range) As Range
     ' Worksheet-local names narrow the native dropdown and the search window alike.
-    Dim label As String, scoped As Name
-    label = Mid$(Target.Validation.Formula1, 2)
+    Dim label As String, scoped As Name, faultRow As Long
+    If Target.Parent.Name = FaultSheetName Then
+        faultRow = FaultControlRow(Target)
+        If faultRow > 0 Then label = "_Fault_List_" & CStr(ThisWorkbook.Worksheets("_fault_controls").Cells(faultRow, 1).Value2)
+    End If
+    If Len(label) = 0 Then label = Mid$(Target.Validation.Formula1, 2)
     On Error Resume Next
     Set scoped = ThisWorkbook.Names("'" & Replace(Target.Parent.Name, "'", "''") & "'!" & label)
     On Error GoTo 0
@@ -86,6 +92,7 @@ End Sub
 
 Public Sub HandleChange(ByVal sheet As Object, ByVal Target As Range)
     If Updating Then Exit Sub
+    If HandleFaultChange(sheet, Target) Then Exit Sub
     If HandlePeriodChange(sheet, Target) Then Exit Sub
     On Error GoTo Done
     Dim metadata As Worksheet, row As Long, cell As Range, incoming As String, events As Boolean, changedEvents As Boolean
@@ -126,6 +133,10 @@ Public Function IsSelector(ByVal Target As Range) As Boolean
     If c.HasFormula Then Exit Function
     If c.Validation.Type <> xlValidateList Then Exit Function
     source = c.Validation.Formula1
+    If Left$(source, 13) = "=_Fault_List_" Then
+        IsSelector = True
+        Exit Function
+    End If
     Select Case source
         Case "=_Issue_factory", "=_Issue_team", "=_Issue_asset", _
              "=_Issue_module", "=_Issue_part", "=_Issue_organization"
@@ -251,6 +262,10 @@ Public Function RankedCandidates(ByVal query As String, ByVal source As Range) A
 End Function
 
 Public Function CommitSelection(ByVal Target As Range, ByVal value As String) As Boolean
+    If Target.Parent.Name = FaultSheetName Then
+        CommitSelection = CommitFaultSelection(Target, value)
+        Exit Function
+    End If
     ' Revalidate the exact value against this field's own list before writing.
     Dim source As Range, c As Range, events As Boolean, changed As Long, previous As String
     If Not IsSelector(Target) Then Exit Function
@@ -363,10 +378,8 @@ Private Function SafePeriodMonth(ByVal value As String) As String
 End Function
 
 Private Function ValidPeriodMode(ByVal mode As String) As Boolean
-    ' 주별·연도별 replace the former appendix; 일별 drills from a single month.
-    Select Case mode
-        Case "월별", "주별", "연도별", "일별": ValidPeriodMode = True
-    End Select
+    ' 일별 is reached from a single month and returns with 월별로 돌아가기.
+    ValidPeriodMode = (mode = "월별" Or mode = "일별")
 End Function
 
 Private Sub RememberPeriodState()
@@ -479,11 +492,11 @@ Public Sub RefreshPeriods()
     labels.EntireRow.Hidden = True
     If count > 0 Then labels.Cells(1, 1).Resize(count, 1).EntireRow.Hidden = False
     labels.Parent.PageSetup.PrintArea = "$A$1:$L$" & CStr(labels.Row + IIf(count > 0, count, 1) - 1)
-    ' Months and years fit one page; weeks and days may run onto several.
-    Select Case CStr(PeriodCell("_Period_Mode").Value2)
-        Case "월별", "연도별": labels.Parent.PageSetup.FitToPagesTall = 1
-        Case Else: labels.Parent.PageSetup.FitToPagesTall = 0
-    End Select
+    If CStr(PeriodCell("_Period_Mode").Value2) = "일별" Then
+        labels.Parent.PageSetup.FitToPagesTall = False
+    Else
+        labels.Parent.PageSetup.FitToPagesTall = 1
+    End If
     For Each chart In labels.Parent.ChartObjects
         chart.Chart.Refresh
     Next chart
@@ -624,4 +637,229 @@ Private Sub ShowHistory()
     End If
     history.Activate
     If textColumn > 0 Then Application.Goto history.Cells(6, textColumn), True
+End Sub
+
+Private Function FaultControlRow(ByVal Target As Range) As Long
+    On Error GoTo Done
+    If Target.Parent.Name <> FaultSheetName Then Exit Function
+    Dim metadata As Worksheet, r As Long
+    Set metadata = ThisWorkbook.Worksheets("_fault_controls")
+    For r = 2 To metadata.Cells(metadata.Rows.Count, 1).End(xlUp).Row
+        If metadata.Cells(r, 2).Value2 = Target.Cells(1, 1).Address(False, False) Then FaultControlRow = r: Exit Function
+    Next r
+Done:
+End Function
+
+Private Sub ResetFaultControl(ByVal key As String, Optional ByVal value As String = "(전체)")
+    Dim metadata As Worksheet, r As Long, sheet As Worksheet
+    Set metadata = ThisWorkbook.Worksheets("_fault_controls")
+    Set sheet = ThisWorkbook.Worksheets(FaultSheetName)
+    For r = 2 To metadata.Cells(metadata.Rows.Count, 1).End(xlUp).Row
+        If metadata.Cells(r, 1).Value2 = key Then
+            sheet.Range(metadata.Cells(r, 2).Value2).Value2 = "'" & value
+            metadata.Cells(r, 3).Value2 = value
+            Exit Sub
+        End If
+    Next r
+End Sub
+
+Private Function CommitFaultSelection(ByVal Target As Range, ByVal value As String) As Boolean
+    Dim r As Long, candidate As Range, accepted As Boolean, events As Boolean, guarded As Boolean
+    Dim metadata As Worksheet, key As String, previous As String, sheet As Worksheet
+    On Error GoTo Restore
+    r = FaultControlRow(Target)
+    If r = 0 Then Exit Function
+    If Not FaultFieldActive(r) Then Exit Function
+    Application.Calculate
+    For Each candidate In SourceRange(Target).Cells
+        If Not IsError(candidate.Value2) Then
+            If StrComp(CStr(candidate.Value2), value, vbBinaryCompare) = 0 Then accepted = True: Exit For
+        End If
+    Next candidate
+    If Not accepted Then Exit Function
+    Set metadata = ThisWorkbook.Worksheets("_fault_controls")
+    Set sheet = Target.Parent
+    key = CStr(metadata.Cells(r, 1).Value2)
+    previous = CStr(metadata.Cells(r, 3).Value2)
+    events = Application.EnableEvents
+    guarded = True
+    Application.EnableEvents = False
+    Updating = True
+    Target.Value2 = "'" & value
+    metadata.Cells(r, 3).Value2 = value
+    If previous <> value Then
+        If sheet.FilterMode Then sheet.AutoFilter.ShowAllData
+        Select Case key
+            Case "organization"
+                ResetFaultControl "asset"
+                ResetFaultControl "baseline_module"
+            Case "compare_organization"
+                ResetFaultControl "compare_asset"
+                ResetFaultControl "compare_module"
+            Case "asset"
+                ResetFaultControl "baseline_module"
+            Case "compare_asset"
+                ResetFaultControl "compare_module"
+        End Select
+    End If
+    Application.Calculate
+    Select Case CStr(ThisWorkbook.Worksheets("_fault_state").Range("B3").Value2)
+        Case "부서"
+            ResetFaultControl "compare_asset"
+            ResetFaultControl "compare_module"
+        Case "라인"
+            ResetFaultControl "compare_module"
+    End Select
+    Application.Calculate
+    CommitFaultSelection = True
+Restore:
+    If guarded Then Application.EnableEvents = events
+    Updating = False
+    If CommitFaultSelection Then
+        Application.Calculate
+        RefreshFaultComparison
+    End If
+End Function
+
+Private Function HandleFaultChange(ByVal sheet As Object, ByVal Target As Range) As Boolean
+    If sheet.Name <> FaultSheetName Then Exit Function
+    Dim metadata As Worksheet, r As Long, cell As Range, incoming As String, events As Boolean, guarded As Boolean
+    On Error GoTo Restore
+    Set metadata = ThisWorkbook.Worksheets("_fault_controls")
+    For r = 2 To metadata.Cells(metadata.Rows.Count, 1).End(xlUp).Row
+        Set cell = sheet.Range(metadata.Cells(r, 2).Value2)
+        If Not Application.Intersect(Target, cell.MergeArea) Is Nothing Then
+            HandleFaultChange = True
+            If Not IsError(cell.Value2) Then incoming = CStr(cell.Value2)
+            events = Application.EnableEvents
+            guarded = True
+            Application.EnableEvents = False
+            cell.Value2 = "'" & CStr(metadata.Cells(r, 3).Value2)
+            Application.EnableEvents = events
+            guarded = False
+            CommitFaultSelection cell, incoming
+        End If
+    Next r
+Restore:
+    If guarded Then Application.EnableEvents = events
+End Function
+
+Public Sub RefreshFaultComparison()
+    On Error GoTo Done
+    Dim labels As Range, count As Long, sheet As Worksheet, item As ChartObject, metric As Long, available As Long
+    Set labels = ThisWorkbook.Names("_Fault_Labels").RefersToRange
+    Set sheet = labels.Parent
+    RenderFaultFilters
+    count = CLng(ThisWorkbook.Worksheets("_fault_state").Range("B4").Value2)
+    labels.EntireRow.RowHeight = 21
+    labels.EntireRow.Hidden = True
+    If count > 0 Then labels.Cells(1, 1).Resize(count, 1).EntireRow.Hidden = False
+
+Done:
+    On Error Resume Next
+    If Not sheet Is Nothing Then
+          sheet.PageSetup.PrintArea = "A1:L" & CStr(labels.Row + IIf(count > 0, count, 1) - 1)
+        sheet.PageSetup.Zoom = False
+        sheet.PageSetup.FitToPagesWide = 1
+          If CStr(ThisWorkbook.Worksheets("_fault_state").Range("B3").Value2) = "부서" Or count <= 5 Then
+            sheet.PageSetup.FitToPagesTall = 1
+        Else
+            sheet.PageSetup.FitToPagesTall = False
+        End If
+        Application.Calculate
+        For metric = 1 To sheet.ChartObjects.Count
+            Set item = sheet.ChartObjects(metric)
+            available = Application.Count(ThisWorkbook.Worksheets("_fault_chart_rank").Columns(IIf(metric = 1, "E", "F")))
+            With item.Chart.SeriesCollection(1)
+                .HasDataLabels = True
+                .DataLabels.ShowValue = (available > 0)
+                .DataLabels.NumberFormat = "#,##0"
+                .DataLabels.NumberFormatLinked = False
+            End With
+            item.Chart.Refresh
+        Next metric
+    End If
+End Sub
+
+Private Function FaultFieldActive(ByVal row As Long) As Boolean
+    Dim metadata As Worksheet, level As String, key As String
+    Set metadata = ThisWorkbook.Worksheets("_fault_controls")
+    level = CStr(ThisWorkbook.Worksheets("_fault_state").Range("B3").Value2)
+    key = CStr(metadata.Cells(row, 1).Value2)
+    Select Case key
+        Case "baseline_module"
+            FaultFieldActive = CStr(FaultControlValue("asset")) <> AllLabel
+        Case "compare_asset"
+            FaultFieldActive = level <> "부서"
+        Case "compare_module"
+            FaultFieldActive = level = "상세설비" And CStr(FaultControlValue("compare_asset")) <> AllLabel
+        Case Else
+            FaultFieldActive = True
+    End Select
+End Function
+
+Private Function FaultControlValue(ByVal key As String) As Variant
+    Dim metadata As Worksheet, r As Long
+    Set metadata = ThisWorkbook.Worksheets("_fault_controls")
+    For r = 2 To metadata.Cells(metadata.Rows.Count, 1).End(xlUp).Row
+        If metadata.Cells(r, 1).Value2 = key Then
+            FaultControlValue = ThisWorkbook.Worksheets(FaultSheetName).Range(metadata.Cells(r, 2).Value2).Value2
+            Exit Function
+        End If
+    Next r
+End Function
+
+Private Sub DrawFaultFilterBox(ByVal sheet As Worksheet, ByVal reference As Worksheet, ByVal address As String)
+    Dim area As Range, source As Range, edge As Variant
+    Set area = sheet.Range(address)
+    Set source = reference.Range(address)
+    area.NumberFormat = source.NumberFormat
+    area.Font.Color = source.Font.Color
+    area.Interior.Color = source.Interior.Color
+    area.Interior.Pattern = source.Interior.Pattern
+    For Each edge In Array(xlEdgeLeft, xlEdgeTop, xlEdgeRight, xlEdgeBottom)
+        With area.Borders(CLng(edge))
+            .LineStyle = xlContinuous
+            .Weight = xlThin
+            .Color = RGB(0, 0, 0)
+        End With
+    Next edge
+End Sub
+
+Private Sub RenderFaultFilters()
+    Dim sheet As Worksheet, reference As Worksheet, metadata As Worksheet, row As Long
+    Dim caption As String, edit As String, key As String, cell As Range, updatingScreen As Boolean
+    On Error GoTo Done
+    updatingScreen = Application.ScreenUpdating
+    Application.ScreenUpdating = False
+    Set sheet = ThisWorkbook.Worksheets(FaultSheetName)
+    Set reference = ThisWorkbook.Worksheets("_fault_filter_styles")
+    Set metadata = ThisWorkbook.Worksheets("_fault_controls")
+    sheet.Range("A6:L8").Borders.LineStyle = xlNone
+    sheet.Range("A6:L8").Interior.Pattern = xlNone
+    For row = 2 To metadata.Cells(metadata.Rows.Count, 1).End(xlUp).Row
+        key = CStr(metadata.Cells(row, 1).Value2)
+        caption = CStr(metadata.Cells(row, 4).Value2)
+        edit = CStr(metadata.Cells(row, 5).Value2)
+        Set cell = sheet.Range(metadata.Cells(row, 2).Value2)
+        On Error Resume Next
+        cell.Validation.Delete
+        On Error GoTo Done
+        DrawFaultFilterBox sheet, reference, caption
+        DrawFaultFilterBox sheet, reference, edit
+        If FaultFieldActive(row) Then
+            cell.Validation.Add Type:=xlValidateList, AlertStyle:=xlValidAlertStop, Formula1:="=_Fault_List_" & key
+            cell.Validation.InCellDropdown = True
+            cell.Validation.ShowError = True
+            cell.Validation.ErrorMessage = "목록에서 선택하세요."
+        Else
+            With sheet.Range(caption & "," & edit)
+                .Font.Color = RGB(128, 128, 128)
+                .Interior.Pattern = xlSolid
+                .Interior.Color = RGB(242, 242, 242)
+            End With
+        End If
+    Next row
+Done:
+    Application.ScreenUpdating = updatingScreen
 End Sub

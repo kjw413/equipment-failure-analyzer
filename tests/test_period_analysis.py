@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from core.period_analysis import DAY_COLUMNS, case_days, case_periods
+from core.period_analysis import DAY_COLUMNS, case_days
 
 
 def test_month_includes_empty_days_and_retains_missing_time_and_reviews():
@@ -66,23 +66,3 @@ def test_invalid_month_is_rejected(month):
     facts = pd.DataFrame(columns=["date", "minutes"])
     with pytest.raises(ValueError, match="YYYY-MM"):
         case_days(facts, month)
-
-
-def test_weeks_start_monday_and_years_are_calendar_years():
-    facts = pd.DataFrame(
-        {
-            "date": ["2025-12-31", "2026-01-04", "2026-01-05", None, "2026-01-20"],
-            "minutes": [10, None, 5, 7, None],
-            "review_count": [0, 1, 0, 0, 0],
-        }
-    )
-    weeks = case_periods(facts, "week")
-    assert weeks.period.tolist() == ["2025-12-29", "2026-01-05", "2026-01-12", "2026-01-19"]
-    assert weeks["count"].tolist() == [2, 1, 0, 1]
-    assert weeks["total_minutes"].iloc[0] == 10 and weeks["review_count"].iloc[0] == 1
-    assert weeks["total_minutes"].iloc[2] == 0 and pd.isna(weeks["total_minutes"].iloc[3])
-    years = case_periods(facts, "year")
-    assert years.period.tolist() == ["2025", "2026"]
-    assert years["count"].tolist() == [1, 3]
-    with pytest.raises(ValueError):
-        case_periods(facts, "month")

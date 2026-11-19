@@ -8,7 +8,7 @@ from openpyxl.workbook.defined_name import DefinedName
 from report.drilldown import MAIN_SHEET
 from report.formatting import bounded_int
 
-TABLE_HEADER = 27
+TABLE_HEADER = 26
 FIRST_RANK = TABLE_HEADER + 1
 
 
@@ -136,8 +136,5 @@ def complete_rank_tables(builder):
 
 
 def apply_rank_layout(builder):
-    from report.comparison_rank import build_comparison_ranks
-
     complete_rank_tables(builder)
-    build_comparison_ranks(builder)
     integer_times(builder)

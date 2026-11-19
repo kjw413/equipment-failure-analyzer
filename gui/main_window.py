@@ -267,9 +267,8 @@ class MainWindow(QMainWindow):
         )
         self.open_button = self.button("Excel \uc5f4\uae30", self.open_excel, run)
         self.pdf_button = self.button("PDF \uc5f4\uae30", self.open_pdf, run)
-        self.source_review_button = self.button("원본 검토표시 열기", self.open_source_review, run)
         self.report_button.setToolTip(
-            "분석 Excel, PDF와 검토필요 색상을 적용한 원본 사본을 저장합니다."
+            "분석·검토현황·원본 검토표시를 담은 Excel 1개와 PDF 1개를 저장합니다."
         )
         self.output_button = self.button("\uacb0\uacfc \ud3f4\ub354", self.open_output, run)
         self.report_settings_button = self.button(
@@ -594,9 +593,6 @@ class MainWindow(QMainWindow):
             )
         for widget in (self.open_button, self.pdf_button, self.output_button):
             widget.setEnabled(not busy and self.last_reports is not None)
-        self.source_review_button.setEnabled(
-            not busy and getattr(self.last_reports, "source_review", None) is not None
-        )
         self.chart_choice.setEnabled(not busy)
         self.chart_metric.setEnabled(not busy)
         self.chart_equipment.setEnabled(not busy)
@@ -1003,7 +999,7 @@ class MainWindow(QMainWindow):
         if not path:
             return
         paths = report_paths(path, source_path=self.loaded.path)
-        outputs = (paths.excel, paths.pdf, getattr(paths, "source_review", None))
+        outputs = (paths.excel, paths.pdf)
         existing = [p for p in outputs if p is not None and p.exists()]
         if existing:
             message = (
@@ -1045,18 +1041,10 @@ class MainWindow(QMainWindow):
         result, paths = payload
         self.analysis_ready(result)
         self.last_reports = paths
-        source_review = getattr(paths, "source_review", None)
         self.status_label.setText(
-            (
-                "Excel + PDF + 원본 검토표시 생성 완료 | "
-                if source_review
-                else "Excel + PDF 생성 완료 | "
-            )
-            + str(paths.excel.parent)
+            "Excel + PDF 생성 완료 (원본 검토표시는 Excel 별첨) | " + str(paths.excel.parent)
         )
         outputs = ["Excel: " + str(paths.excel), "PDF: " + str(paths.pdf)]
-        if source_review is not None:
-            outputs.append("원본 검토표시: " + str(source_review))
         self.notice(f"{len(outputs)}개의 결과파일을 저장했습니다.\n\n" + "\n\n".join(outputs))
 
     def edit_review_colors(self):

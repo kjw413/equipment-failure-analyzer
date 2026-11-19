@@ -37,37 +37,31 @@ def test_full_tables_below_top_charts_keep_fractional_minutes(organization_resul
     values, formulas = load_workbook(path, data_only=True), load_workbook(path)
     try:
         main = values["02.팀별 주요이슈"]
-        assert [main.cell(row, 2).value for row in range(28, 40)] == [
+        assert [main.cell(row, 2).value for row in range(27, 39)] == [
             f"라인{i:02d}" for i in range(12)
         ]
-        assert sum(main.cell(row, 4).value or 0 for row in range(28, main.max_row + 1)) == 12
-        assert sum(main.cell(row, 5).value or 0 for row in range(28, main.max_row + 1)) == 15
-        assert main["E28"].value == 1.25 and formulas[main.title]["E28"].number_format == "#,##0"
-        assert "%" in formulas[main.title]["F28"].number_format
+        assert sum(main.cell(row, 4).value or 0 for row in range(27, main.max_row + 1)) == 12
+        assert sum(main.cell(row, 5).value or 0 for row in range(27, main.max_row + 1)) == 15
+        assert main["E27"].value == 1.25 and formulas[main.title]["E27"].number_format == "#,##0"
+        assert "%" in formulas[main.title]["F27"].number_format
         assert not any(
-            formulas[main.title].row_dimensions[row].hidden for row in range(28, main.max_row + 1)
+            formulas[main.title].row_dimensions[row].hidden for row in range(27, main.max_row + 1)
         )
-        appendix = values["별첨. 동일 상세설비 비교"]
-        labels = [appendix.cell(row, 5).value for row in range(29, appendix.max_row + 1)]
-        assert len([value for value in labels if value]) == 12
-        assert (
-            sum(appendix.cell(row, 8).value or 0 for row in range(29, appendix.max_row + 1)) == 12
-        )
-        assert "기타" not in labels
-        for name in ("02.팀별 주요이슈", "03.팀간 비교", "04.월별 주요이슈"):
+        assert "별첨. 동일 상세설비 비교" not in values
+        assert "별첨. 원본 검토표시" in values
+        for name in ("02.팀별 주요이슈", "04.고장비교", "03.월별 주요이슈"):
             sheet = formulas[name]
             assert all(chart.anchor._from.row < 26 for chart in sheet._charts)
             assert (
                 sheet[
-                    {"02.팀별 주요이슈": "A27", "03.팀간 비교": "A20", "04.월별 주요이슈": "A21"}[
+                    {"02.팀별 주요이슈": "A26", "04.고장비교": "A24", "03.월별 주요이슈": "A22"}[
                         name
                     ]
                 ].value
                 is not None
             )
-        trend = formulas["04.월별 주요이슈"]
+        trend = formulas["03.월별 주요이슈"]
         assert trend.column_dimensions["L"].width == trend.column_dimensions["A"].width
-        assert all(chart.anchor._from.row < 28 for chart in formulas[appendix.title]._charts)
         assert result.selected.equals(original)
         with ZipFile(path) as archive:
             charts = [
@@ -84,7 +78,7 @@ def test_full_tables_below_top_charts_keep_fractional_minutes(organization_resul
                 for root in horizontal
             )
             assert any(
-                "$B$28:$B$32" in node.text
+                "$B$27:$B$31" in node.text
                 for root in horizontal
                 for node in root.findall(".//c:f", NS)
             )

@@ -170,11 +170,11 @@ def test_excel_selectors_share_fact_formulas_and_native_charts(organization_resu
         comparison = values[ISSUE_SHEETS["issue_comparison"]]
         trend = values[ISSUE_SHEETS["issue_trends"]]
         assert org["C9"].value == 6 and org["E9"].value == 144
-        assert org["B28"].value == "실제설비A"
-        case_labels = [org.cell(row, 2).value for row in range(28, org.max_row + 1)]
+        assert org["B27"].value == "실제설비A"
+        case_labels = [org.cell(row, 2).value for row in range(27, org.max_row + 1)]
         assert set(case_labels) - {None, ""} == {"실제설비A", "실제설비B"}
-        assert comparison["E5"].value == "(전체)"
-        assert [comparison.cell(22, c).value for c in (1, 2, 3, 4, 6, 7)] == [
+        assert comparison["B6"].value == "부서"
+        assert [comparison.cell(25, c).value for c in (1, 2, 5, 6, 8, 9)] == [
             "공장A",
             "팀1",
             4,
@@ -182,7 +182,7 @@ def test_excel_selectors_share_fact_formulas_and_native_charts(organization_resu
             0,
             0,
         ]
-        assert [comparison.cell(23, c).value for c in (1, 2, 3, 4, 6, 7)] == [
+        assert [comparison.cell(26, c).value for c in (1, 2, 5, 6, 8, 9)] == [
             "공장B",
             "팀2",
             2,
@@ -190,13 +190,13 @@ def test_excel_selectors_share_fact_formulas_and_native_charts(organization_resu
             -2,
             56,
         ]
-        assert trend["B23"].value == 3 and trend["C23"].value == 130
-        assert trend["B24"].value == 0 and trend["C24"].value == 0
-        assert trend["B25"].value == 1 and trend["C25"].value in (None, "")
-        assert trend["B26"].value == 2 and trend["C26"].value == 14
+        assert trend["B24"].value == 3 and trend["C24"].value == 130
+        assert trend["B25"].value == 0 and trend["C25"].value == 0
+        assert trend["B26"].value == 1 and trend["C26"].value in (None, "")
+        assert trend["B27"].value == 2 and trend["C27"].value == 14
         for key, validation_count in (
             ("organization_issues", 5),
-            ("issue_comparison", 3),
+            ("issue_comparison", 7),
             ("issue_trends", 7),
         ):
             sheet = formulas[ISSUE_SHEETS[key]]
@@ -206,8 +206,8 @@ def test_excel_selectors_share_fact_formulas_and_native_charts(organization_resu
         assert chart.x_axis.scaling.orientation == "maxMin"
         assert chart.y_axis.scaling.orientation == "minMax"
         assert formulas[ISSUE_SHEETS["issue_trends"]]._charts[0].series[0].smooth is False
-        assert "_issue_filter_2" in formulas[ISSUE_SHEETS["issue_comparison"]]["C22"].value
-        assert "$B$5" in formulas["_issue_filter_1"]["A2"].value
+        assert "_fault_rows" in formulas[ISSUE_SHEETS["issue_comparison"]]["E25"].value
+        assert "$B$6" in formulas["_issue_filter_1"]["A2"].value
         assert all(
             values[name].sheet_state == "hidden"
             for name in ("_issue_facts", "_issue_lists", "_issue_rank")
@@ -242,7 +242,7 @@ def test_excel_starts_with_all_cases_without_changing_saved_case(organization_re
     try:
         trend = wb[ISSUE_SHEETS["issue_trends"]]
         assert trend["J6"].value == "(전체)"
-        assert [trend.cell(row, 2).value for row in range(23, 27)] == [3, 0, 1, 2]
+        assert [trend.cell(row, 2).value for row in range(24, 28)] == [3, 0, 1, 2]
         assert result.config_snapshot["final_report"]["focus_case"] == "선택 사례 없음"
     finally:
         wb.close()
@@ -261,9 +261,9 @@ def test_year_over_year_comparison_uses_same_calendar_month(organization_result,
     wb = load_workbook(export_report(result, tmp_path / "year_over_year.xlsx"), data_only=True)
     try:
         sheet = wb[ISSUE_SHEETS["issue_trends"]]
-        assert sheet["A35"].value == "2027-01"
-        assert sheet["I35"].value == -2
-        assert sheet["J35"].value == -90
+        assert sheet["A36"].value == "2027-01"
+        assert sheet["I36"].value == -2
+        assert sheet["J36"].value == -90
     finally:
         wb.close()
 

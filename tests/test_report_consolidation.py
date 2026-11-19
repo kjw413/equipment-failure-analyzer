@@ -18,18 +18,7 @@ OUTPUT_D = {
     key: get_column_letter(column_index_from_string(column) + 1) for key, column in D.items()
 }
 
-EXPECTED_SHEETS = [
-    "01.종합현황",
-    "02.팀별 주요이슈",
-    "03.팀간 비교",
-    "04.월별 주요이슈",
-    "별첨. 동일 상세설비 비교",
-    "별첨. 고장이력",
-    "별첨. 부품증상상세",
-    "별첨. 검토품질",
-    "별첨. 기준정보",
-    "별첨. 제품교차분석",
-]
+EXPECTED_SHEETS = list(SHEETS.values())
 
 
 def find_header(sheet, labels):
@@ -141,8 +130,8 @@ def test_consolidated_report_keeps_manager_tables_and_audit_contract(
     formulas = load_workbook(path, data_only=False)
     try:
         assert list(SHEETS.values()) == EXPECTED_SHEETS
-        assert [ws.title for ws in values if ws.sheet_state == "visible"] == EXPECTED_SHEETS[
-            : 10 if has_products else 9
+        assert [ws.title for ws in values if ws.sheet_state == "visible"] == [
+            name for name in EXPECTED_SHEETS if has_products or name != SHEETS["cross"]
         ]
         assert all(
             values[name].sheet_state == "hidden"
@@ -150,20 +139,9 @@ def test_consolidated_report_keeps_manager_tables_and_audit_contract(
         )
         assert_cached_formulas(formulas, values)
 
-        # The overview retains the global denominator and the full local rankings.
-        # The module comparison table reconciles with its own selected scope.
-        compare = values[SHEETS["module_compare"]]
-        assert compare["C9"].value == sum(
-            compare.cell(row, 8).value or 0 for row in range(29, compare.max_row + 1)
-        )
-        assert compare["F9"].value == sum(
-            compare.cell(row, 9).value or 0 for row in range(29, compare.max_row + 1)
-        )
-        assert len(compare._charts) == 2 and not compare._images
-        assert formulas[SHEETS["module_compare"]]["H29"].data_type == "f"
-        assert formulas["_module_compare"]["E2"].data_type == "f"
-        assert "COUNTIFS(" in formulas["_module_compare"]["E2"].value
-
+        assert "별첨. 동일 상세설비 비교" not in values
+        assert "별첨. 기준정보" not in values
+        assert values[SHEETS["review"]]["B7"].value == len(result.selected)
         # One history owns all formula references, and only the requested TOP is marked.
         detail = values[SHEETS["detail"]]
         assert [detail[f"{OUTPUT_D['minutes']}{row}"].value for row in range(7, 11)] == [
@@ -183,65 +161,14 @@ def test_consolidated_report_keeps_manager_tables_and_audit_contract(
         assert not detail[f"{OUTPUT_D['minutes']}10"].fill.fgColor.rgb.endswith("FFF2CC")
 
         review = values[SHEETS["review"]]
-        assert [cell.value for cell in review[6]][1:] == [
-            "원본 행",
-            "작업일자",
-            "라인명",
-            "등록 설비(변환)",
-            "고장대상 설비",
-            "원본 대분류",
-            "원본 중분류",
-            "원본 소분류",
-            "분석 라인",
-            "제품명",
-            "정지시간(분)",
-            "표준 유형",
-            "분류 상태",
-            "고장내용(설비명 변환)",
-            "고장내용(표준화 후)",
-            "고장 분야",
-            "상세설비·모듈",
-            "부품군",
-            "세부 부품",
-            "고장 현상",
-            "조치 내역",
-            "후보 규칙",
-        ]
         queue_length = len(result.tables["review"])
-        queue_rows = {review.cell(row, 2).value for row in range(7, 7 + queue_length)}
-        assert queue_rows == set(result.tables["review"].source_row)
-        assert not review.column_dimensions["B"].hidden
-        assert range_boundaries(review.auto_filter.ref)[3] == 6 + queue_length
-        criteria = values[SHEETS["criteria"]]
-        assert review.max_column == 23 and review.max_row == max(7, 6 + queue_length)
-        quality_row = next(
-            row
-            for row in range(7, criteria.max_row + 1)
-            if criteria.cell(row, 2).value == K["auto"]
+        assert review["C7"].value == queue_length
+        first = range_boundaries(review.auto_filter.ref)[1] + 1
+        assert {review.cell(row, 2).value for row in range(first, first + queue_length)} == set(
+            result.tables["review"].source_row
         )
-        assert criteria.cell(quality_row, 3).value == result.metrics["auto_rows"]
-        assert formulas[SHEETS["criteria"]].cell(quality_row, 3).data_type == "f"
-
-        assert "별첨. 부품별분석" not in formulas and "별첨. 유형별분석" not in formulas
-
-        criteria = values[SHEETS["criteria"]]
-        assert range_boundaries(criteria.auto_filter.ref)[1] == 6
-        rule_header = find_header(criteria, ["id", "enabled"])
-        assert rule_header > range_boundaries(criteria.auto_filter.ref)[3]
-        assert any(
-            range_boundaries(table.ref)[1] == rule_header for table in criteria.tables.values()
-        )
-        assert [
-            criteria.cell(row, 2).value
-            for row in range(
-                rule_header + 1, rule_header + 1 + len(result.config_snapshot["rules"])
-            )
-        ] == [rule["id"] for rule in result.config_snapshot["rules"]]
-
-        assert "별첨. 원본데이터" not in values
-        quality = values["_source_quality"]
-        assert quality.sheet_state == "hidden" and quality.max_column == 2
-        assert quality.max_row == len(result.all_records) + 1
+        assert values[SHEETS["source_review"]]["A1"].value is not None
+        assert "_source_quality" not in values
         if has_products:
             assert_product_crosses(result, values[SHEETS["cross"]])
         else:
@@ -275,11 +202,12 @@ def test_saved_legacy_section_names_route_to_consolidated_sheets(store, input_fi
         export_report(result, tmp_path / "legacy_sections.xlsx"), data_only=True
     )
     try:
-        assert SHEETS["module_compare"] in workbook.sheetnames
+        assert "별첨. 동일 상세설비 비교" not in workbook.sheetnames
         assert "별첨. 유형별분석" not in workbook.sheetnames
         assert "별첨. 라인별분석" not in workbook.sheetnames
         assert SHEETS["review"] in workbook.sheetnames
-        assert SHEETS["criteria"] in workbook.sheetnames
+        assert "별첨. 기준정보" not in workbook.sheetnames
+        assert SHEETS["source_review"] in workbook.sheetnames
         # Older Pareto choices also retain the product Pareto after consolidation.
         assert SHEETS["cross"] in workbook.sheetnames
         assert_product_crosses(result, workbook[SHEETS["cross"]])
@@ -303,13 +231,13 @@ def test_period_tables_show_calendar_order_even_when_downtime_ranking_differs(
     try:
         # The former period appendix now lives in 04's month/week/year/day view.
         assert "별첨. 기간별추이" not in workbook.sheetnames
-        sheet = workbook["04.월별 주요이슈"]
-        assert [sheet.cell(row, 1).value for row in range(23, 26)] == [
+        sheet = workbook["03.월별 주요이슈"]
+        assert [sheet.cell(row, 1).value for row in range(24, 27)] == [
             "2026-01",
             "2026-02",
             "2026-03",
         ]
-        assert [sheet.cell(row, 3).value for row in range(23, 26)] == [10, 65, 20]
+        assert [sheet.cell(row, 3).value for row in range(24, 27)] == [10, 65, 20]
     finally:
         workbook.close()
 
@@ -335,7 +263,7 @@ def test_legacy_result_without_memberships_or_products_uses_seven_sheets(
         export_report(result, tmp_path / "legacy_without_products.xlsx"), data_only=True
     )
     try:
-        assert len([ws for ws in workbook if ws.sheet_state == "visible"]) == 8
+        assert len([ws for ws in workbook if ws.sheet_state == "visible"]) == 7
         assert "별첨. 부품별분석" not in workbook.sheetnames
         assert SHEETS["fault_detail"] not in workbook.sheetnames
         assert SHEETS["cross"] not in workbook.sheetnames

@@ -11,19 +11,19 @@ def test_monthly_daily_view_keeps_periods_and_exact_data(organization_result, tm
     path = export_report(organization_result, tmp_path / "period.xlsm")
     values, formulas = load_workbook(path, data_only=True), load_workbook(path)
     try:
-        ws = values["04.월별 주요이슈"]
+        ws = values["03.월별 주요이슈"]
         assert "04.고장추이" not in values
-        assert (ws["B7"].value, ws["F7"].value) == ("월별", "2026-01")
-        assert [ws.cell(row, 1).value for row in range(23, 27)] == [
+        assert (ws["B7"].value, ws["D7"].value) == ("월별", "2026-01")
+        assert [ws.cell(row, 1).value for row in range(24, 28)] == [
             "2026-01",
             "2026-02",
             "2026-03",
             "2026-04",
         ]
-        assert sum(ws.cell(row, 2).value or 0 for row in range(23, 54)) == 6
-        assert sum(ws.cell(row, 3).value or 0 for row in range(23, 54)) == 144
-        assert ws["G23"].value in ("", None)
-        assert ws["K24"].value in ("", None)
+        assert sum(ws.cell(row, 2).value or 0 for row in range(24, 55)) == 6
+        assert sum(ws.cell(row, 3).value or 0 for row in range(24, 55)) == 144
+        assert ws["G24"].value in ("", None)
+        assert ws["K25"].value in ("", None)
         assert len(formulas[ws.title].data_validations.dataValidation) == 7
         assert values["_period_daily"]["A32"].value == "2026-01-31"
         assert values["_period_daily"]["B2"].value == 1
@@ -41,10 +41,10 @@ def test_monthly_daily_view_keeps_periods_and_exact_data(organization_result, tm
             )
         )
         assert formulas.defined_names["_Period_Mode"].attr_text.endswith("!$B$7")
-        assert formulas.defined_names["_Period_Month"].attr_text.endswith("!$F$7")
+        assert formulas.defined_names["_Period_Month"].attr_text.endswith("!$D$7")
         assert formulas[ws.title]._charts[0].x_axis.title.tx.strRef.f == "'_period_state'!$B$9"
         assert "_issue_filter_3" in formulas["_period_daily"]["B2"].value
-        assert "_period_daily" in formulas[ws.title]["B23"].value
+        assert "_period_daily" in formulas[ws.title]["B24"].value
         assert "DATE(YEAR(" in formulas["_period_daily"]["I2"].value
         assert organization_result.selected.equals(source)
     finally:
@@ -52,41 +52,20 @@ def test_monthly_daily_view_keeps_periods_and_exact_data(organization_result, tm
         formulas.close()
 
 
-def test_week_and_year_units_replace_the_period_appendix(organization_result, tmp_path):
-    """별첨. 기간별추이 is gone; its week/year units are filtered views of 04."""
+def test_month_day_view_replaces_the_period_appendix(organization_result, tmp_path):
+    """별첨. 기간별추이 is gone; 04 keeps only the month view and its day drill."""
     path = export_report(organization_result, tmp_path / "period_units.xlsm")
     values, formulas = load_workbook(path, data_only=True), load_workbook(path)
     try:
         assert "별첨. 기간별추이" not in values.sheetnames
-        ws, source = values["04.월별 주요이슈"], formulas["04.월별 주요이슈"]
+        assert "_period_weekly" not in values.sheetnames
+        assert "_period_yearly" not in values.sheetnames
+        source = formulas["03.월별 주요이슈"]
         mode = next(v for v in source.data_validations.dataValidation if str(v.sqref) == "B7")
-        assert mode.formula1 == '"월별,주별,연도별,일별"'
-        weekly, yearly = values["_period_weekly"], values["_period_yearly"]
-        # Weeks start on Monday: 2026-01-01 (Thu) belongs to the week of 2025-12-29.
-        assert weekly["A2"].value == "2025-12-29"
-        assert (weekly["B2"].value, weekly["C2"].value) == (3, 130)
-        assert weekly["A15"].value == "2026-03-30" and weekly["A16"].value is None
-        assert (weekly["B15"].value, weekly["C15"].value) == (2, 14)
-        # A week holding only an unrecorded duration keeps its time blank, not zero.
-        march = next(row for row in range(2, 16) if weekly[f"A{row}"].value == "2026-03-09")
-        assert weekly[f"B{march}"].value == 1 and weekly[f"C{march}"].value in ("", None)
-        assert sum(weekly[f"B{row}"].value for row in range(2, 16)) == 6
-        assert "+7" in formulas["_period_weekly"]["B2"].value
-        assert "_issue_filter_3" in formulas["_period_weekly"]["B2"].value
-        assert (yearly["A2"].value, yearly["B2"].value, yearly["C2"].value) == ("2026", 6, 144)
-        # Data covers 2026-01-01..04-02, so the year is a partial period.
-        assert yearly["K2"].value == "부분기간 가능" and yearly["G2"].value in ("", None)
-        state = formulas["_period_state"]
-        assert state["B4"].value.startswith("=CHOOSE('_period_state'!$B$5,4,14,1,")
-        assert "MATCH(B3" in state["B5"].value
-        display = source["B23"].value
-        for helper in ("_period_monthly", "_period_weekly", "_period_yearly", "_period_daily"):
-            assert helper in display
-        # The default monthly view is unchanged.
-        assert ws["A21"].value == "월" and ws["A23"].value == "2026-01"
-        assert "주(시작일)" in source["A21"].value and "전주 대비" in source["G21"].value
-        # Capacity covers the 14 weeks and 31 days.
-        assert formulas.defined_names["_Period_Rows"].attr_text.endswith("$A$23:$A$53")
+        assert mode.formula1 == '"월별,일별"'
+        assert values["03.월별 주요이슈"]["I7"].value == "월별로 돌아가기"
+        assert "더블클릭" in values["03.월별 주요이슈"]["A3"].value
+        assert formulas["_period_state"]["B4"].value.startswith("=IF('_period_state'!$B$3=\"일별\"")
     finally:
         values.close()
         formulas.close()

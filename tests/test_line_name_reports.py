@@ -81,17 +81,10 @@ def test_line_names_and_groups_reach_excel_and_pdf(store, line_file, tmp_path):
     book = load_workbook(path, data_only=True)
     assert book["_report_metrics"]["A2"].value == 3
     assert book["_report_metrics"]["A3"].value == 60
-    compare = book[SHEETS["module_compare"]]
-    assert compare["C9"].value == sum(
-        compare.cell(row, 8).value or 0 for row in range(29, compare.max_row + 1)
-    )
-    assert compare["F9"].value == sum(
-        compare.cell(row, 9).value or 0 for row in range(29, compare.max_row + 1)
-    )
-    names = book[SHEETS["criteria"]]
-    assert names.max_row > 8  # Classification settings follow the name mappings.
-    assert [names.cell(row, 4).value for row in (7, 8)] == ["A#1(1호기)", "A#2"]
-    assert [names.cell(row, 5).value for row in (7, 8)] == ["A", "A"]
+    compare = book["04.고장비교"]
+    assert sum(compare.cell(row, 5).value or 0 for row in range(25, compare.max_row + 1)) == 3
+    assert sum(compare.cell(row, 6).value or 0 for row in range(25, compare.max_row + 1)) == 60
+    assert "별첨. 기준정보" not in book
     details = book[SHEETS["detail"]]
     group_column = DETAIL_COLS.index("equipment_group") + 2
     assert {details.cell(row, group_column).value for row in range(7, 10)} == {"A"}
@@ -187,9 +180,7 @@ def test_factory_team_overrides_and_line_defaults_reach_reports(store, line_file
     assert by_team.selected.event_id.tolist() == normal.selected.event_id.tolist()
     path = export_report(by_team, tmp_path / "organization.xlsx")
     book = load_workbook(path, data_only=True)
-    names = book[SHEETS["criteria"]]
-    assert [names.cell(row, 6).value for row in (7, 8)] == ["직접공장", "부산공장"]
-    assert [names.cell(row, 7).value for row in (7, 8)] == ["생산팀", "생산팀"]
+    assert "별첨. 기준정보" not in book
     details = book[SHEETS["detail"]]
     factory_column = DETAIL_COLS.index("factory") + 2
     assert {details.cell(row, factory_column).value for row in range(7, 10)} == {
@@ -242,9 +233,11 @@ def test_unloaded_organization_labels_are_kept_exactly_in_settings_sheet(
     result = analyze_file(store, line_file)
     path = export_report(result, tmp_path / "unloaded_organization.xlsx")
     book = load_workbook(path, data_only=True)
-    sheet = book[SHEETS["criteria"]]
-    row = next(row for row in range(7, sheet.max_row + 1) if sheet.cell(row, 4).value == "ORG_ONLY")
-    assert [sheet.cell(row, col).value for col in (5, 6, 7)] == ["LN02", "LN01", "LN02"]
+    assert "별첨. 기준정보" not in book
+    assert result.config_snapshot["equipment_names"]["organization"]["line"]["ORG_ONLY"] == {
+        "factory": "LN01",
+        "team": "LN02",
+    }
     book.close()
 
 
@@ -281,12 +274,13 @@ def test_factory_team_filters_apply_to_all_three_outputs(store, line_file, tmp_p
     book = load_workbook(files.excel, data_only=True)
     assert book["_report_metrics"]["A2"].value == 2
     assert book["_report_metrics"]["A3"].value == 30
-    criteria = {row[1].value: row[2].value for row in book[SHEETS["criteria"]]}
-    assert criteria["공장 필터"] == "서울공장" and criteria["팀 필터"] == "포장팀"
+    assert book[SHEETS["review"]]["B7"].value == 2
+    assert "별첨. 기준정보" not in book
     book.close()
-    marked = load_workbook(files.source_review)
-    assert marked["MES"]["A2"].fill.patternType is None
-    assert marked["MES"]["A4"].fill.patternType is None
+    assert files.source_review is None
+    marked = load_workbook(files.excel)
+    assert marked[SHEETS["source_review"]]["A2"].fill.patternType is None
+    assert marked[SHEETS["source_review"]]["A4"].fill.patternType is None
     marked.close()
     pypdf = pytest.importorskip("pypdf")
     text = "\n".join(page.extract_text() or "" for page in pypdf.PdfReader(files.pdf).pages)
@@ -303,8 +297,8 @@ def test_unmatched_filter_names_are_exported_exactly_and_select_no_records(
     assert result.selected.empty and result.metrics["selected_rows"] == 0
     path = export_report(result, tmp_path / "empty_filter.xlsx")
     book = load_workbook(path, data_only=True)
-    criteria = {row[1].value: row[2].value for row in book[SHEETS["criteria"]]}
-    assert criteria["공장 필터"] == "LN02" and criteria["팀 필터"] == "LN01"
+    assert book[SHEETS["review"]]["B7"].value == 0
+    assert "별첨. 기준정보" not in book
     book.close()
 
 

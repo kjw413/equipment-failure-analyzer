@@ -177,7 +177,6 @@ def test_filter_changes_mark_results_stale_and_invalidate_report_links(
     buttons = (
         window.open_button,
         window.pdf_button,
-        window.source_review_button,
         window.output_button,
     )
     assert all(button.isEnabled() for button in buttons)

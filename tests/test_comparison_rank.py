@@ -18,18 +18,18 @@ def test_comparison_charts_rank_independently_without_reordering_table(
     values, formulas = load_workbook(path, data_only=True), load_workbook(path)
     try:
         table = values[SHEET]
-        assert [(table.cell(r, 1).value, table.cell(r, 3).value) for r in (22, 23)] == [
+        assert [(table.cell(r, 1).value, table.cell(r, 5).value) for r in (25, 26)] == [
             ("공장A", 4),
             ("공장B", 2),
         ]
-        helper = values[HELPER]
-        assert [helper.cell(r, 7).value for r in (2, 3)] == ["공장A / 팀1", "공장B / 팀2"]
+        helper = values["_fault_chart_rank"]
+        assert [helper.cell(r, 7).value for r in (2, 3)] == ["[공장A] 팀1", "[공장B] 팀2"]
         assert [helper.cell(r, 8).value for r in (2, 3)] == [4, 2]
-        assert [helper.cell(r, 9).value for r in (2, 3)] == ["공장B / 팀2", "공장A / 팀1"]
+        assert [helper.cell(r, 9).value for r in (2, 3)] == ["[공장B] 팀2", "[공장A] 팀1"]
         assert [helper.cell(r, 10).value for r in (2, 3)] == [100, 44]
         assert helper.sheet_state == "hidden"
-        assert formulas[HELPER]["C2"].value == "='03.팀간 비교'!D22"
-        assert "COUNTIFS(" in formulas[HELPER]["F2"].value
+        assert formulas["_fault_chart_rank"]["C2"].value == "='04.고장비교'!F25"
+        assert "COUNTIFS(" in formulas["_fault_chart_rank"]["F2"].value
         assert organization_result.selected.equals(before)
     finally:
         values.close()

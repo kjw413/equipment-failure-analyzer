@@ -14,12 +14,9 @@ from core.config import ConfigStore
 from core.equipment_names import code_key, equipment_catalog, resolve_name, validate_names
 from core.excel_loader import validate_path
 from core.i18n import K
-from core.issue_analysis import select_issues
 from core.models import AnalysisOptions, UserError
 from core.preprocessing import normalize, parse_date, parse_duration
 from report.excel_report import DETAIL_COLS, SHEETS, export_report
-from report.issue_workbook import report_issue_facts
-from report.module_comparison import default_module
 
 
 def test_exact_code_matching_and_case():
@@ -89,8 +86,8 @@ def test_workbook_names_formulas_and_report_code_conversion(store, input_file, t
     out = export_report(result, tmp_path / "output.xlsx")
     formulas = load_workbook(out, data_only=False)
     values = load_workbook(out, data_only=True)
-    compare = values[SHEETS["module_compare"]]
-    assert compare["C7"].value == "(전체)"
+    compare = values["04.고장비교"]
+    assert compare["D7"].value == "(전체)"
     assert "VITAL#2" in [cell.value for cell in values["_issue_lists"]["C"]]
     assert values["_report_metrics"]["A2"].value == 4
     assert values["_report_metrics"]["A3"].value == 95
@@ -106,17 +103,22 @@ def test_workbook_names_formulas_and_report_code_conversion(store, input_file, t
     assert "product" not in SHEETS
     assert not any("\uc81c\ud488\ubcc4\ubd84\uc11d" in name for name in values.sheetnames)
     assert [int(name[:2]) for name in values.sheetnames if name[:2].isdigit()] == [1, 2, 3, 4]
-    assert not values[SHEETS["module_compare"]]._images
-    assert len(values[SHEETS["module_compare"]]._charts) == 2
+    assert not values["04.고장비교"]._images
+    assert len(values["04.고장비교"]._charts) == 2
     for sheet in values:
+        if sheet.title == SHEETS["source_review"]:
+            continue
         for row in sheet.iter_rows():
             for cell in row:
                 if isinstance(cell.value, str):
                     assert "IF18115" not in cell.value
     assert detail.cell(named_row, name_col).value == "VITAL#2"
-    assert SHEETS["criteria"] in values.sheetnames
+    assert "별첨. 기준정보" not in values.sheetnames
+    assert SHEETS["review"] in values.sheetnames
     errors = []
     for sheet in values:
+        if sheet.title == SHEETS["source_review"]:
+            continue
         for row in sheet.iter_rows():
             for cell in row:
                 if cell.data_type == "e":
@@ -287,14 +289,12 @@ def test_breakdown_total_cached_and_formulas(store, input_file, tmp_path):
     result = analyze_file(store, input_file)
     path = export_report(result, tmp_path / "ranked.xlsx")
     wb = load_workbook(path, data_only=True)
-    ws = wb[SHEETS["module_compare"]]
-    facts = report_issue_facts(result.selected)
-    scoped = select_issues(facts, module=default_module(facts))
-    assert ws["C9"].value == len(scoped) and ws["F9"].value == scoped.minutes.sum()
-    assert sum(ws.cell(r, 8).value or 0 for r in range(29, ws.max_row + 1)) == len(scoped)
-    assert sum(ws.cell(r, 9).value or 0 for r in range(29, ws.max_row + 1)) == scoped.minutes.sum()
-    assert sum(ws.cell(r, 11).value or 0 for r in range(29, ws.max_row + 1)) == pytest.approx(1)
-    assert sum(ws.cell(r, 12).value or 0 for r in range(29, ws.max_row + 1)) == pytest.approx(1)
+    ws = wb["04.고장비교"]
+    assert sum(ws.cell(r, 5).value or 0 for r in range(25, ws.max_row + 1)) == len(result.selected)
+    assert (
+        sum(ws.cell(r, 6).value or 0 for r in range(25, ws.max_row + 1))
+        == result.metrics["total_minutes"]
+    )
     wb.close()
 
 

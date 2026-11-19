@@ -11,6 +11,7 @@ from matplotlib import font_manager
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.text import Text
+from matplotlib.ticker import MaxNLocator, StrMethodFormatter
 
 from core.i18n import K
 from core.sorting import descending
@@ -158,6 +159,9 @@ def figure_for(
             fontname=font,
             fontsize=9,
         )
+    value_axis = ax.yaxis if kind in ("trend", "pareto") else ax.xaxis
+    value_axis.set_major_locator(MaxNLocator(nbins="auto", integer=True))
+    value_axis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))
     ax.spines[["top", "right"]].set_visible(False)
     ax.spines[["left", "bottom"]].set_color("#C9CED3")
     ax.tick_params(axis="both", length=0, pad=6)

@@ -124,15 +124,11 @@ def test_excel_detail_and_review_expose_rule_decisions(decision_result, tmp_path
                 assert any(sheet.cell(row, column).value for row in range(7, sheet.max_row + 1))
             assert not any(DISPLAY.get(field, field) in headers for field in LEGACY_SCORE_FIELDS)
         quality_counts = {
-            row[1].value: row[2].value for row in workbook[SHEETS["criteria"]] if len(row) >= 3
+            row[1].value: row[2].value for row in workbook[SHEETS["review"]] if len(row) >= 3
         }
         assert quality_counts[K["review"]] == 1
         assert workbook["_report_metrics"]["A3"].value == decision_result.metrics["total_minutes"]
         text = workbook_text(workbook)
-        assert "판정 사유와 후보별 근거를 기록합니다" in text
-        assert "1순위 대표 자동선택" in text
-        assert "정확도나 확률이 아닙니다" in text
-        assert "다른 실제 고장이 없다는 뜻이 아닙니다" in text
         assert "최소점수" not in text and "점수 격차" not in text
     finally:
         workbook.close()
@@ -219,10 +215,10 @@ def test_older_results_ignore_scores_without_mutating_input(decision_result, tmp
             for row in legacy_rows
         )
         counts = {
-            row[1].value: row[2].value for row in workbook[SHEETS["criteria"]] if len(row) >= 3
+            row[1].value: row[2].value for row in workbook[SHEETS["review"]] if len(row) >= 3
         }
-        assert counts[K["auto"]] == 0
-        assert counts["이전 분석결과(재분석 필요)"] == len(legacy_rows)
+        assert counts.get(K["auto"], 0) == 0
+        assert counts[LEGACY_STATUS] == len(legacy_rows)
     finally:
         workbook.close()
     pypdf = pytest.importorskip("pypdf")

@@ -16,6 +16,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.workbook.properties import CalcProperties
 from openpyxl.worksheet.table import Table, TableStyleInfo
+from openpyxl.worksheet.views import Selection
 
 from core.equipment_breakdown import type_breakdown
 from core.equipment_names import (
@@ -47,7 +48,6 @@ from report.classification import (
 from report.formatting import bounded_int
 from report.issue_workbook import ISSUE_SHEETS, IssueWorkbook, report_issue_facts
 from report.locked_template import LOCKED_SHEETS, apply_locked_template, restore_template_charts
-from report.module_comparison import SHEET as MODULE_COMPARE_SHEET
 from report.output import atomic_output
 from report.workbook_layout import apply_workbook_layout
 from version import VERSION
@@ -55,12 +55,11 @@ from version import VERSION
 SHEETS = {
     "summary": "01.종합현황",
     **ISSUE_SHEETS,
-    "module_compare": MODULE_COMPARE_SHEET,
+    "review": "별첨. 검토·분류현황",
     "detail": "별첨. 고장이력",
     "fault_detail": "별첨. 부품증상상세",
-    "review": "별첨. 검토품질",
-    "criteria": "별첨. 기준정보",
     "cross": "별첨. 제품교차분석",
+    "source_review": "별첨. 원본 검토표시",
 }
 DETAIL_COLS = [
     "record_id",
@@ -253,13 +252,13 @@ class ReportBuilder:
             "component_trend": ("component",),
             "top": ("detail",),
             "quality": ("review",),
-            "rules": ("criteria",),
-            "names": ("criteria",),
+            "rules": ("review",),
+            "names": ("review",),
         }.items():
             if old in self.sections:
                 self.sections.update(destinations)
         self.sections.difference_update(("type", "component", "component_trend", "raw"))
-        self.sections.update(("summary", "detail", "review", "criteria", "module_compare"))
+        self.sections.update(("summary", "detail", "review", "source_review"))
         self.start = 7
         self.end = max(7, 6 + len(self.data))
         self.raw_helpers = {}
@@ -1533,24 +1532,17 @@ class ReportBuilder:
 
     def build(self, progress: Progress = noop_progress):
         self.detail()
-        self.raw()
         progress(25, K["exporting"])
         if "summary" in self.sections:
             self.summary()
         issues = IssueWorkbook(self)
         issues.build()
-        from report.module_comparison import build_module_comparison
-
-        build_module_comparison(issues)
         progress(55, K["exporting"])
         if "cross" in self.sections and self.r.metrics["product_count"]:
             self.crosses()
-        self.detail("review", self.r.tables["review"])
-        self.names()
-        criteria_ws = self.wb[SHEETS["criteria"]]
-        criteria_columns = criteria_ws.max_column
-        self.quality(criteria_ws, criteria_ws.max_row + 3)
-        criteria_ws.print_area = f"A1:{get_column_letter(criteria_columns)}{criteria_ws.max_row}"
+        from report.review_overview import build_review_overview
+
+        build_review_overview(self)
         if "fault_detail" in self.r.tables:
             self.fault_details(self.r.tables["fault_detail"])
         # A clean current report only: no obsolete sheets from previous versions.
@@ -1563,6 +1555,9 @@ class ReportBuilder:
             self.wb, self.cache, author=department or "확인 필요", exclude_sheets=LOCKED_SHEETS
         )
         apply_locked_template(self)
+        from report.fault_comparison import install_fault_comparison
+
+        install_fault_comparison(self)
         from report.drilldown import install_controls
 
         install_controls(self)
@@ -1573,6 +1568,11 @@ class ReportBuilder:
 
         install_period_view(self)
         self.wb.active = 0
+        for sheet in self.wb:
+            sheet.sheet_view.tabSelected = sheet is self.wb.worksheets[0]
+            sheet.freeze_panes = None
+            sheet.sheet_view.selection = [Selection(activeCell="A1", sqref="A1")]
+            sheet.sheet_view.topLeftCell = "A1"
         progress(80, K["exporting"])
         return self.wb
 
@@ -1595,6 +1595,9 @@ def export_report(
             wb.save(temp)
             builder.cache.patch(temp)
             restore_template_charts(temp, builder)
+            from report.source_appendix import append_source_review
+
+            append_source_review(temp, result)
             if p.suffix.casefold() == ".xlsm":
                 from report.search_project import embed_search_project
 

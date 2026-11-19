@@ -18,13 +18,13 @@ def test_line_rankings_and_repaired_controls(organization_result, tmp_path):
         assert len(summary.conditional_formatting) == 2
         assert summary.row_dimensions[5].height == 21
         assert summary["A1"].font.sz == 20
-        comparison = values["03.팀간 비교"]
-        assert sum(comparison.cell(row, 3).value or 0 for row in range(22, 29)) == 6
-        assert sum(comparison.cell(row, 4).value or 0 for row in range(22, 29)) == 144
+        comparison = values["04.고장비교"]
+        assert sum(comparison.cell(row, 5).value or 0 for row in range(25, 32)) == 6
+        assert sum(comparison.cell(row, 6).value or 0 for row in range(25, 32)) == 144
         expected = {
-            "02.팀별 주요이슈": {"B5", "D5", "G5", "K5", "K6"},
-            "03.팀간 비교": {"B5", "E5", "I5"},
-            "04.월별 주요이슈": {"B5", "D5", "F5", "J5", "J6", "B7", "F7"},
+            "02.팀별 주요이슈": {"B6", "D6", "G6", "K6", "K7"},
+            "04.고장비교": {"B6", "E6", "B8"},
+            "03.월별 주요이슈": {"B6", "D6", "F6", "J6", "F7", "B7", "D7"},
         }
         for name, positions in expected.items():
             assert {
@@ -32,8 +32,8 @@ def test_line_rankings_and_repaired_controls(organization_result, tmp_path):
             } == positions
         assert "#REF!" not in formulas["_issue_filter_2"]["A2"].value
         assert "_Issue_comparison_mode" not in formulas["_issue_filter_2"]["A2"].value
-        assert "$J$5" in formulas["_issue_filter_3"]["A2"].value
         assert "$J$6" in formulas["_issue_filter_3"]["A2"].value
+        assert "$F$7" in formulas["_issue_filter_3"]["A2"].value
         assert "생략" not in {c.value for row in summary for c in row if isinstance(c.value, str)}
         appendix = values[SHEETS["detail"]]
         assert appendix.row_dimensions[7].height == 21.95

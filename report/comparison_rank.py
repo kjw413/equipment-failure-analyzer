@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from numbers import Real
 
-SHEET = "03.팀간 비교"
+SHEET = "04.고장비교"
 HELPER = "_comparison_rank"
 
 

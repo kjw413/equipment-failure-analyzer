@@ -21,8 +21,8 @@ from report.formatting import bounded_int
 
 ISSUE_SHEETS = {
     "organization_issues": "02.팀별 주요이슈",
-    "issue_comparison": "03.팀간 비교",
-    "issue_trends": "04.월별 주요이슈",
+    "issue_trends": "03.월별 주요이슈",
+    "issue_comparison": "04.고장비교",
 }
 
 

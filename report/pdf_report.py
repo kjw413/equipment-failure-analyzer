@@ -192,7 +192,7 @@ class FinalReport:
         )
         self.story.append(
             self.p(
-                "PDF 책갈피에서 원하는 구역·설비로 바로 이동할 수 있습니다. Excel의 파란 선택칸은 해당 시트의 표·차트에 연동됩니다. 기존 07_고장이력의 행 필터는 종합현황을 다시 집계하는 기능이 아닙니다.",
+                "PDF 책갈피에서 원하는 구역·설비로 바로 이동할 수 있습니다. Excel의 파란 선택칸은 해당 시트의 표·차트에 연동됩니다. 별첨. 고장이력의 행 필터는 종합현황을 다시 집계하는 기능이 아닙니다.",
                 "muted",
             )
         )
@@ -261,7 +261,7 @@ class FinalReport:
             ],
             [
                 "미확정 분류",
-                f"{m.get('unresolved_classification_rows', 0):,}건 / 검토 중에도 출력 가능. Excel 09_검토품질에 정답을 기록할 수 있습니다.",
+                f"{m.get('unresolved_classification_rows', 0):,}건 / 검토 중에도 출력 가능. Excel 별첨. 검토·분류현황과 원본 검토표시에서 확인하세요.",
             ],
             ["원천 파일", self.names.text(r.loaded.path.name)],
             ["원천 시트", self.names.text(r.loaded.sheet)],
@@ -824,7 +824,7 @@ class FinalReport:
         )
         self.story.append(
             self.p(
-                "전체 검토 기록과 생략 없는 후보·규칙 근거는 Excel 09_검토품질·07_고장이력에서 확인합니다.",
+                "전체 검토 기록과 후보·판정 근거는 Excel 별첨. 검토·분류현황·고장이력에서, 원본 색상과 사유는 별첨. 원본 검토표시에서 확인합니다.",
                 "small",
             )
         )

@@ -131,11 +131,11 @@ def test_excel_single_final_counts_exclude_pending_candidates(component_result, 
         ]
         manual_row = next(
             row
-            for row in range(7, values[SHEETS["criteria"]].max_row + 1)
-            if values[SHEETS["criteria"]].cell(row, 2).value == K["manual"]
+            for row in range(7, values[SHEETS["review"]].max_row + 1)
+            if values[SHEETS["review"]].cell(row, 2).value == K["manual"]
         )
-        assert values[SHEETS["criteria"]].cell(manual_row, 3).value == 1
-        assert "COUNTIF" in formulas[SHEETS["criteria"]].cell(manual_row, 3).value
+        assert values[SHEETS["review"]].cell(manual_row, 3).value == 1
+        assert "COUNTIF" in formulas[SHEETS["review"]].cell(manual_row, 3).value
     finally:
         values.close()
         formulas.close()
@@ -174,7 +174,7 @@ def test_legacy_report_without_component_fields_or_tables_still_exports(
     )
     workbook = load_workbook(export_report(result, tmp_path / "legacy.xlsx"), data_only=True)
     try:
-        assert len([ws for ws in workbook if ws.sheet_state == "visible"]) == 9
+        assert len([ws for ws in workbook if ws.sheet_state == "visible"]) == 8
         assert "별첨. 부품별분석" not in workbook.sheetnames
         assert workbook[SHEETS["detail"]][f"{OUTPUT_D['component_count']}7"].value is None
     finally:

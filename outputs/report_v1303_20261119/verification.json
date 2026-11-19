@@ -1,0 +1,18 @@
+{
+  "source": "E:\\equipment-failure-analyzer\\output\\Equipment_Analysis_20261118_162618_수정.xlsm",
+  "source_sha256": "414918975a2af65e5ee009ad96d7ecc01b3eb372b8e3dd1eedcfb981e5e84d76",
+  "output": "E:\\equipment-failure-analyzer\\outputs\\report_v1303_20261119\\2026년_고장이력_부서전체_라인상세_비교.xlsm",
+  "rows": 2117,
+  "minutes": 94324.0,
+  "visible_sheets": [
+    "01.종합현황",
+    "02.팀별 주요이슈",
+    "03.월별 주요이슈",
+    "04.고장비교",
+    "별첨. 동일 상세설비 비교",
+    "별첨. 고장이력",
+    "별첨. 부품증상상세",
+    "별첨. 검토품질",
+    "별첨. 기준정보"
+  ]
+}

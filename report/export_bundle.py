@@ -1,4 +1,4 @@
-"""One atomic export route for analysis Excel, PDF and the annotated source copy."""
+"""Atomically export one analysis workbook and one PDF."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from pathlib import Path
 from core.models import AnalysisResult, Progress, UserError, noop_progress
 from report.excel_report import export_report
 from report.pdf_report import export_pdf
-from report.source_review import export_source_review
 
 
 @dataclass(frozen=True)
@@ -27,18 +26,14 @@ def report_paths(excel_path: str | Path, source_path: str | Path | None = None) 
         excel = excel.with_suffix(".xlsm")
     else:
         excel = excel.with_suffix(excel.suffix.casefold())
-    source_suffix = Path(source_path).suffix.casefold() if source_path is not None else ".xlsx"
-    if source_suffix not in (".xlsx", ".xlsm"):
-        source_suffix = ".xlsx"
     return ReportFiles(
         excel,
         excel.with_name(excel.stem + "_최종보고서.pdf"),
-        excel.with_name(excel.stem + "_원본_검토표시" + source_suffix),
     )
 
 
 def _commit(staged: list[Path], targets: list[Path], staging: Path) -> None:
-    """Restore every replaced target if committing any of the three files fails."""
+    """Restore every replaced target if committing either output fails."""
     backups: dict[Path, Path] = {}
     for index, target in enumerate(targets):
         if target.exists():
@@ -80,9 +75,9 @@ def export_bundle(
     *,
     overwrite: bool = False,
 ) -> ReportFiles:
-    """Create all three files from one immutable result snapshot, without source edits."""
+    """Create the Excel/PDF pair from one snapshot, without source edits."""
     paths = report_paths(excel_path, result.loaded.path)
-    targets = [paths.excel, paths.pdf, paths.source_review]
+    targets = [paths.excel, paths.pdf]
     if result.loaded.path.resolve() in targets:
         raise UserError(
             "\uc6d0\ubcf8 \ud30c\uc77c\uc744 \ub36e\uc5b4\uc4f8 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4. \ub2e4\ub978 \uc800\uc7a5 \uc774\ub984\uc744 \uc120\ud0dd\ud558\uc138\uc694."
@@ -107,20 +102,15 @@ def export_bundle(
             pdf = export_pdf(
                 result, staging / "final.pdf", lambda n, t: progress(55 + int(n * 0.35), t)
             )
-            source_review = export_source_review(
-                result,
-                staging / ("source_review" + paths.source_review.suffix),
-                lambda n, t: progress(90 + int(n * 0.08), t),
-            )
             # Check again after rendering, in case another process created a target.
             if not overwrite and any(path.exists() for path in targets):
                 raise UserError(
                     "\uc800\uc7a5 \uc911 \uac19\uc740 \uc774\ub984\uc758 \ud30c\uc77c\uc774 \uc0dd\uacbc\uc2b5\ub2c8\ub2e4. \uc0c8 \uc774\ub984\uc73c\ub85c \ub2e4\uc2dc \uc800\uc7a5\ud558\uc138\uc694."
                 )
-            _commit([excel, pdf, source_review], targets, staging)
+            _commit([excel, pdf], targets, staging)
     except PermissionError as exc:
         raise UserError(
             "Excel/PDF\uac00 \uc5f4\ub824 \uc788\uac70\ub098 \uc800\uc7a5 \uad8c\ud55c\uc774 \uc5c6\uc2b5\ub2c8\ub2e4. \ucd9c\ub825 \ud30c\uc77c\uc744 \ub2eb\uace0 \ub2e4\uc2dc \uc2dc\ub3c4\ud558\uc138\uc694. \ucd9c\ub825 \uc644\ub8cc\ub85c \ucc98\ub9ac\ud558\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4."
         ) from exc
-    progress(100, "Excel + PDF + 원본 검토표시 생성 완료")
+    progress(100, "Excel + PDF 생성 완료 (원본 검토표시는 Excel 별첨)")
     return paths

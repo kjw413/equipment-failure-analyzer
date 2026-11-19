@@ -26,7 +26,7 @@ class ReviewColorSettingsDialog(QDialog):
         self.setMinimumSize(470, 350)
         layout = QVBoxLayout(self)
         info = QLabel(
-            "Excel + PDF 생성 시 원본 검토표시 사본을 함께 저장합니다. "
+            "Excel + PDF 생성 시 결과 Excel의 별첨. 원본 검토표시에 적용합니다. "
             "검토필요 행의 A열~X열을 같은 색상으로 표시하며 입력 원본은 보존됩니다."
         )
         info.setWordWrap(True)
