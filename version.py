@@ -1,3 +1,3 @@
-VERSION = "1.34.1"
+VERSION = "1.34.2"
 APP_ID = "EquipmentFailureAnalyzer"
 APP_NAME = "\uc124\ube44 \uace0\uc7a5 \ubd84\uc11d\uae30"

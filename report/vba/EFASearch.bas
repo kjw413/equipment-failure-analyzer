@@ -604,7 +604,8 @@ End Function
 Private Sub ShowHistory()
     Dim main As Worksheet, history As Worksheet, trends As Worksheet
     Dim data As Variant, included As Variant, ids() As String, i As Long, count As Long
-    Dim header As Range, idField As Long, textColumn As Long, key As Variant
+    Dim historyFilter As AutoFilter, historyRange As Range, header As Range
+    Dim idField As Long, textColumn As Long, key As Variant
     Set main = ThisWorkbook.Worksheets("02.팀별 주요이슈")
     Set trends = ThisWorkbook.Worksheets(PeriodSheetName)
     For Each key In Array("factory", "team", "asset", "module", "part")
@@ -624,16 +625,19 @@ Private Sub ShowHistory()
             If included(i, 1) = 1 Then ids(count) = CStr(data(i, 1)): count = count + 1
         Next i
     End If
-    For Each header In history.AutoFilter.Range.Rows(1).Cells
-        If header.Value2 = "원본 기록 ID" Then idField = header.Column - history.AutoFilter.Range.Column + 1
+    Set historyFilter = history.AutoFilter
+    Set historyRange = historyFilter.Range
+    For Each header In historyRange.Rows(1).Cells
+        If header.Value2 = "원본 기록 ID" Then idField = header.Column - historyRange.Column + 1
         If header.Value2 = "고장내용(표준화 후)" Then textColumn = header.Column
     Next header
-    If history.FilterMode Then history.ShowAllData
+    ' A chart can still be active on 02 while the history range is filtered.
+    If historyFilter.FilterMode Then historyFilter.ShowAllData
     If count > 0 Then
         ReDim Preserve ids(0 To count - 1)
-        history.AutoFilter.Range.AutoFilter Field:=idField, Criteria1:=ids, Operator:=xlFilterValues
+        historyRange.AutoFilter Field:=idField, Criteria1:=ids, Operator:=xlFilterValues
     Else
-        history.AutoFilter.Range.AutoFilter Field:=idField, Criteria1:="=__EFA_no_record__"
+        historyRange.AutoFilter Field:=idField, Criteria1:="=__EFA_no_record__"
     End If
     history.Activate
     If textColumn > 0 Then Application.Goto history.Cells(6, textColumn), True

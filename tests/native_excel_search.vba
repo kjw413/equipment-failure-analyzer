@@ -180,6 +180,27 @@ Private Sub CheckMonthlyTotals(ByVal sheet As Worksheet)
     Check Abs(Application.Sum(rows.Offset(0, 2)) - minutes) < 0.00001, "Monthly minutes reconcile with report facts"
 End Sub
 
+Private Sub CheckHistoryRows(ByVal history As Worksheet, ByVal expectedCount As Long)
+    Dim facts As Worksheet, flags As Worksheet, recordIds As Range, cell As Range
+    Dim idIndex As Long, row As Long, expected As Object
+    Set facts = ThisWorkbook.Worksheets("_issue_facts")
+    Set flags = ThisWorkbook.Worksheets("_issue_filter_1")
+    Set expected = CreateObject("Scripting.Dictionary")
+    For row = 2 To facts.Cells(facts.Rows.Count, 1).End(xlUp).Row
+        If flags.Cells(row, 1).Value2 = 1 Then expected.Add CStr(facts.Cells(row, 1).Value2), True
+    Next row
+    Check expected.Count = expectedCount, "History scope count " & CStr(expected.Count) & " expected " & CStr(expectedCount)
+    idIndex = Application.Match("원본 기록 ID", history.AutoFilter.Range.Rows(1), 0)
+    Set recordIds = history.AutoFilter.Range.Columns(idIndex)
+    Set recordIds = recordIds.Offset(1, 0).Resize(recordIds.Rows.Count - 1, 1)
+    Check Application.Subtotal(103, recordIds) = expectedCount, "Visible history count matches the selected part"
+    For Each cell In recordIds.Cells
+        If Not cell.EntireRow.Hidden Then
+            Check expected.Exists(CStr(cell.Value2)), "Visible history belongs to the new selection"
+        End If
+    Next cell
+End Sub
+
 Public Function VerifySearch() As String
     On Error GoTo Failed
     Dim target As Range, picker As EFAPicker, original As String, lineLabel As String
@@ -241,9 +262,10 @@ Public Function VerifyDrilldown() As String
     Dim previousEvents As Boolean
     previousEvents = Application.EnableEvents
     On Error GoTo Failed
-    Dim main As Worksheet, trends As Worksheet, history As Worksheet, labels As Range, ids As Range
+    Dim main As Worksheet, trends As Worksheet, history As Worksheet, labels As Range, chart As ChartObject
     Dim factory As Range, team As Range, asset As Range, moduleTarget As Range, part As Range
-    Dim timeLabel As String, timeMinutes As Double, partCount As Long, idIndex As Long
+    Dim timeLabel As String, timeMinutes As Double, partCount As Long
+    Dim previousAsset As String, nextLinePoint As Long
     Set main = ThisWorkbook.Worksheets("02.팀별 주요이슈")
     Set trends = ThisWorkbook.Worksheets("03.월별 주요이슈")
     Set factory = EFASearch.ControlCell(main, "factory")
@@ -257,7 +279,7 @@ Public Function VerifyDrilldown() As String
     CheckTeamTotals main
     Check Application.CountIf(labels, "?*") = EFASearch.SourceRange(asset).Cells.Count - 1, "Full line table matches scoped choices"
     Check Application.Sum(labels.Offset(0, 2)) = main.Range("C10").Value2, "Full line table reconciles"
-    Check main.Range("E10").NumberFormat = "#,##0" And labels.Cells(1, 1).Offset(0, 3).NumberFormat = "#,##0", "Integer minute display"
+    Check main.Range("E10").NumberFormat = "#,##0" And main.Cells(labels.Row, 5).NumberFormat = "#,##0", "Integer minute display"
     Check labels.Cells(1, 1).Offset(-1, 0).Value2 = "라인", "Line ranking label"
     If Len(CStr(main.Range("H28").Value2)) > 0 And IsNumeric(main.Range("K28").Value2) Then
         timeLabel = CStr(main.Range("H28").Value2)
@@ -277,26 +299,50 @@ Public Function VerifyDrilldown() As String
     Check moduleTarget.Value2 <> AllValues, "Module selected"
     Check labels.Cells(1, 1).Offset(-1, 0).Value2 = "세부부품", "Part ranking label"
     If Len(PreviewDirectory) > 0 Then main.ExportAsFixedFormat 0, PreviewDirectory & "\drill_part.pdf"
-    partCount = labels.Cells(1, 1).Offset(0, 2).Value2
+    partCount = main.Cells(labels.Row, 4).Value2
     Check EFASearch.FollowRank(labels.Cells(1, 1)), "Part drill opens records"
     Check part.Value2 <> AllValues, "Part selected"
     Set history = ThisWorkbook.Worksheets("별첨. 고장이력")
     Check ActiveSheet.Name = history.Name, "History activated"
-    idIndex = Application.Match("원본 기록 ID", history.AutoFilter.Range.Rows(1), 0)
-    Set ids = history.AutoFilter.Range.Columns(idIndex)
-    Check Application.Subtotal(103, ids.Offset(1, 0).Resize(ids.Rows.Count - 1, 1)) = partCount, "Visible history reconciles with selected part"
+    CheckHistoryRows history, partCount
     Check EFASearch.ControlCell(trends, "asset").Value2 = asset.Value2 And EFASearch.ControlCell(trends, "part").Value2 = part.Value2, "Trend context synchronized"
     CheckMonthlyTotals trends
+    previousAsset = CStr(asset.Value2)
     Application.EnableEvents = True
     factory.Value2 = AllValues
     Application.EnableEvents = previousEvents
     Check team.Value2 = AllValues And asset.Value2 = AllValues And moduleTarget.Value2 = AllValues And part.Value2 = AllValues, "Native parent edit resets children"
     CheckTeamTotals main
+
+    ' Keep the first drill's history filter active while switching to a different line.
+    Check history.FilterMode, "First history filter is still applied"
+    nextLinePoint = 1
+    If labels.Cells(nextLinePoint, 1).Value2 = previousAsset Then nextLinePoint = 2
+    Check Len(CStr(labels.Cells(nextLinePoint, 1).Value2)) > 0, "Alternate line available"
+    Set chart = main.ChartObjects(1)
+    main.Activate
+    chart.Activate
+    Check EFASearch.FollowChart(chart.Chart, nextLinePoint), "Switch to another line"
+    Check asset.Value2 <> previousAsset, "Alternate line selected"
+    chart.Activate
+    Check EFASearch.FollowChart(chart.Chart, 1), "Drill into alternate module"
+    partCount = main.Cells(labels.Row, 4).Value2
+    chart.Activate
+    Check EFASearch.FollowChart(chart.Chart, 1), "Reopen history from the active part chart"
+    Check ActiveSheet.Name = history.Name, "Alternate history activated"
+    CheckHistoryRows history, partCount
+    history.AutoFilter.Range.AutoFilter Field:=1, Criteria1:="=__EFA_QA_no_match__"
+    Check history.AutoFilter.FilterMode, "Additional history filter applied"
+    main.Activate
+    chart.Activate
+    Check EFASearch.FollowChart(chart.Chart, 1), "Reopen after filtering out the history rows"
+    CheckHistoryRows history, partCount
+    Check EFASearch.CommitSelection(factory, AllValues) And EFASearch.CommitSelection(asset, AllValues), "Team filters reset"
     Check EFASearch.CommitSelection(EFASearch.ControlCell(trends, "factory"), AllValues), "Trend reset"
-    If history.FilterMode Then history.ShowAllData
-    VerifyDrilldown = "PASS; line_to_module_to_part; linked_history=" & CStr(partCount) & "; reset=ok"
+    If history.AutoFilter.FilterMode Then history.AutoFilter.ShowAllData
+    VerifyDrilldown = "PASS; line_to_module_to_part; link_reopened_after_filter_change; empty_history_recovered; visible_history=" & CStr(partCount)
     Exit Function
 Failed:
+    VerifyDrilldown = "FAIL; " & CStr(Err.Number) & "; " & Err.Description
     Application.EnableEvents = previousEvents
-    VerifyDrilldown = "FAIL; " & Err.Description
 End Function
