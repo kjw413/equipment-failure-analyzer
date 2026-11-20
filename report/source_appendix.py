@@ -235,6 +235,9 @@ def append_source_review(path, result):
             cell.remove(value)
             cell.set("t", "inlineStr")
             cell.append(inline)
+    from report.appendix_style import apply_raw_styles
+
+    apply_raw_styles(sheet, target, _tag, _merge_styles)
     for view in sheet.findall(_tag("sheetViews") + "/" + _tag("sheetView")):
         view.set("tabSelected", "0")
         view.set("workbookViewId", "0")

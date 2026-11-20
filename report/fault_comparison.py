@@ -14,24 +14,24 @@ from core.issue_analysis import ALL
 from report.issue_workbook import escaped_cell, exact, ref, report_issue_facts
 
 SHEET = "04.고장비교"
-FIRST = 25
+FIRST = 26
 # Captions occupy one column like the other report sheets; only the value spans columns.
 # Line names are long, so only the line value spans three columns; the others span two.
 CONTROLS = {
-    "organization": "B6",
-    "asset": "E6",
-    "baseline_module": "I6",
-    "compare_organization": "B8",
-    "compare_asset": "E8",
-    "compare_module": "I8",
+    "organization": "B7",
+    "asset": "E7",
+    "baseline_module": "I7",
+    "compare_organization": "B9",
+    "compare_asset": "E9",
+    "compare_module": "I9",
 }
 FILTER_AREAS = {
-    "organization": ("A6", "B6:C6", ""),
-    "asset": ("D6", "E6:G6", ""),
-    "baseline_module": ("H6", "I6:J6", "asset"),
-    "compare_organization": ("A8", "B8:C8", ""),
-    "compare_asset": ("D8", "E8:G8", "line_level"),
-    "compare_module": ("H8", "I8:J8", "module_level"),
+    "organization": ("A7", "B7:C7", ""),
+    "asset": ("D7", "E7:G7", ""),
+    "baseline_module": ("H7", "I7:J7", "asset"),
+    "compare_organization": ("A9", "B9:C9", ""),
+    "compare_asset": ("D9", "E9:G9", "line_level"),
+    "compare_module": ("H9", "I9:J9", "module_level"),
 }
 ROW_HEIGHT = 21
 
@@ -64,14 +64,14 @@ def _filter_box(ws, area):
 def _install_filter_view(builder, ws):
     reference = builder.wb.create_sheet("_fault_filter_styles")
     reference.sheet_state = "hidden"
-    active_caption, active_edit = ws["A6"], ws["B6"]
+    active_caption, active_edit = ws["A7"], ws["B7"]
     for caption, edit, _ in FILTER_AREAS.values():
         for area, style in ((caption, active_caption), (edit, active_edit)):
             top_left = ws[area.split(":")[0]]
             top_left.font, top_left.fill = copy(style.font), copy(style.fill)
         _filter_box(ws, caption)
         _filter_box(ws, edit)
-    for row in ws.iter_rows(min_row=6, max_row=8, max_col=12):
+    for row in ws.iter_rows(min_row=7, max_row=9, max_col=12):
         for cell in row:
             reference[cell.coordinate]._style = copy(cell._style)
     if not getattr(builder, "macro_navigation", False):
@@ -386,7 +386,7 @@ def install_fault_comparison(b):
         "상세설비",
     ]
     for col, text in enumerate(headers, 1):
-        ws.cell(24, col, text)
+        ws.cell(FIRST - 1, col, text)
     for offset in range(capacity):
         row = FIRST + offset
         item = initial_rows[offset] if offset < len(initial_rows) else None
@@ -432,13 +432,10 @@ def install_fault_comparison(b):
             getattr(b, "macro_navigation", False)
         ) and offset >= len(initial_rows)
     bottom = FIRST + capacity - 1
-    ws.auto_filter.ref = f"A24:L{bottom}"
-    ws.print_title_rows = "24:24"
+    ws.auto_filter.ref = f"A{FIRST - 1}:L{bottom}"
+    ws.print_title_rows = f"{FIRST - 1}:{FIRST - 1}"
     ws.print_area = f"A1:L{FIRST + max(1, len(initial_rows)) - 1}"
     ws.page_setup.fitToHeight = 1
-    put(ws, "A1", "='_fault_state'!B3&\"별 고장실적 비교\"", "부서별 고장실적 비교")
-    note = "기준 선택에 따라 부서·라인·상세설비별로 비교합니다. 비교의 전체는 각 대상을 개별 표시합니다."
-    ws["A3"] = note
     named("_Fault_TableRows", f"{owner}!$A${FIRST}:$L${bottom}")
     named("_Fault_Labels", f"{owner}!$M${FIRST}:$M${bottom}")
     _selectors(b, ws, facts, orgs, defaults, field, first_factory, first_team)

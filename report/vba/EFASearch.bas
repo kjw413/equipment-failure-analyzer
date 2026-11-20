@@ -835,8 +835,6 @@ Private Sub RenderFaultFilters()
     Set sheet = ThisWorkbook.Worksheets(FaultSheetName)
     Set reference = ThisWorkbook.Worksheets("_fault_filter_styles")
     Set metadata = ThisWorkbook.Worksheets("_fault_controls")
-    sheet.Range("A6:L8").Borders.LineStyle = xlNone
-    sheet.Range("A6:L8").Interior.Pattern = xlNone
     For row = 2 To metadata.Cells(metadata.Rows.Count, 1).End(xlUp).Row
         key = CStr(metadata.Cells(row, 1).Value2)
         caption = CStr(metadata.Cells(row, 4).Value2)

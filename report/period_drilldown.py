@@ -9,7 +9,6 @@ from copy import copy
 from datetime import timedelta
 
 import pandas as pd
-from openpyxl.styles import Alignment
 from openpyxl.utils.cell import absolute_coordinate
 from openpyxl.utils.datetime import to_excel
 from openpyxl.workbook.defined_name import DefinedName
@@ -20,7 +19,7 @@ from core.period_analysis import case_days
 from report.issue_workbook import ref, report_issue_facts
 
 SHEET = "03.월별 주요이슈"
-FIRST = 24
+FIRST = 25
 MODES = ("월별", "일별")
 HELPER_HEADER = [
     "기간",
@@ -72,20 +71,20 @@ def install_period_view(builder):
     for address, formula, cached in (
         (
             "B2",
-            f"=IFERROR(DATE(VALUE(LEFT({ref(SHEET)}!$D$7,4)),VALUE(RIGHT({ref(SHEET)}!$D$7,2)),1),0)",
+            f"=IFERROR(DATE(VALUE(LEFT({ref(SHEET)}!$D$8,4)),VALUE(RIGHT({ref(SHEET)}!$D$8,2)),1),0)",
             to_excel(pd.Timestamp(first_month + "-01").to_pydatetime()) if keys else 0,
         ),
-        ("B3", f"={ref(SHEET)}!$B$7", "월별"),
+        ("B3", f"={ref(SHEET)}!$B$8", "월별"),
         ("B9", "=" + _choose('"월"', '"일"'), "월"),
         ("B4", "=" + _choose(str(len(keys)), "IF(B2=0,0,DAY(EOMONTH(B2,0)))"), len(keys)),
         (
             "B7",
-            "=" + _choose('"월별 발생 건수"', f'{ref(SHEET)}!$D$7&" 일별 발생 건수"'),
+            "=" + _choose('"월별 발생 건수"', f'{ref(SHEET)}!$D$8&" 일별 발생 건수"'),
             "월별 발생 건수",
         ),
         (
             "B8",
-            "=" + _choose('"월별 정지시간"', f'{ref(SHEET)}!$D$7&" 일별 정지시간"'),
+            "=" + _choose('"월별 정지시간"', f'{ref(SHEET)}!$D$8&" 일별 정지시간"'),
             "월별 정지시간",
         ),
     ):
@@ -100,35 +99,34 @@ def install_period_view(builder):
 
     named("_Period_Months", f"'_period_months'!$A$1:$A${max(1, len(keys))}")
     for label, address, value, merge in (
-        ("조회 단위", "B7", "월별", "B7:B7"),
-        ("일별 조회 월", "D7", first_month, "D7:D7"),
+        ("조회 단위", "B8", "월별", "B8:B8"),
+        ("일별 조회 월", "D8", first_month, "D8:D8"),
     ):
         target = ws[address]
-        ws.cell(7, target.column - 1, label)
+        ws.cell(8, target.column - 1, label)
         ws.merge_cells(merge)
         target.value = value
         target.number_format = "@"
-        target.alignment = Alignment(horizontal="center", vertical="center")
-    ws["L6"] = "월별로\n돌아가기"
-    for address, formula in (("B7", '"' + ",".join(MODES) + '"'), ("D7", "=_Period_Months")):
+    ws["L7"] = "월별로\n돌아가기"
+    for address, formula in (("B8", '"' + ",".join(MODES) + '"'), ("D8", "=_Period_Months")):
         dv = DataValidation(type="list", formula1=formula, allow_blank=False)
         dv.showErrorMessage = True
         dv.error = "목록에서 선택하세요."
         ws.add_data_validation(dv)
         dv.add(ws[address])
-    for name, address in (("Mode", "B7"), ("Month", "D7"), ("Back", "L6:L7")):
+    for name, address in (("Mode", "B8"), ("Month", "D8"), ("Back", "L7:L8")):
         named("_Period_" + name, f"{ref(SHEET)}!{absolute_coordinate(address)}")
     named("_Period_ActiveCount", "'_period_state'!$B$4")
     b.cache.set(
         ws,
         "A1",
-        "=" + _choose('"월별 주요이슈"', 'D7&" 일별 주요이슈"'),
+        "=" + _choose('"월별 주요이슈"', 'D8&" 일별 주요이슈"'),
         "월별 주요이슈",
     )
-    ws.merge_cells("A3:K3")
+    ws.merge_cells("A4:K4")
     b.cache.set(
         ws,
-        "A3",
+        "A4",
         "=" + _choose(_text(MONTH_GUIDE), _text(DAY_GUIDE)),
         MONTH_GUIDE,
     )
@@ -361,11 +359,11 @@ def install_period_view(builder):
         b.cache.set(
             display,
             f"A{index + 2}",
-            # Short axis labels: the day number in the daily view.
+            # Keep the full period in the table for drilldown and shorten only the chart.
             f'=IF({ref(SHEET)}!A{row}="","",'
-            + _choose(f"{ref(SHEET)}!A{row}", f"RIGHT({ref(SHEET)}!A{row},2)")
+            + _choose(f'"\'"&RIGHT({ref(SHEET)}!A{row},5)', f"RIGHT({ref(SHEET)}!A{row},2)")
             + ")",
-            keys[index] if index < len(keys) else "",
+            "'" + keys[index][2:] if index < len(keys) else "",
         )
         for col in "BC":
             b.cache.set(
@@ -376,11 +374,11 @@ def install_period_view(builder):
             )
             display[f"{col}{index + 2}"].number_format = "#,##0"
     for address, labels in (
-        ("A22", ("월", "일")),
-        ("G22", ("전월 대비 건수", "전일 대비 건수")),
-        ("H22", ("전월 대비 정지(분)", "전일 대비 정지(분)")),
-        ("I22", ("전년동월 대비 건수", "전년동일 대비 건수")),
-        ("J22", ("전년동월 대비 정지(분)", "전년동일 대비 정지(분)")),
+        ("A23", ("월", "일")),
+        ("G23", ("전월 대비 건수", "전일 대비 건수")),
+        ("H23", ("전월 대비 정지(분)", "전일 대비 정지(분)")),
+        ("I23", ("전년동월 대비 건수", "전년동일 대비 건수")),
+        ("J23", ("전년동월 대비 정지(분)", "전년동일 대비 정지(분)")),
     ):
         b.cache.set(ws, address, "=" + _choose(*map(_text, labels)), labels[0])
     named("_Period_Rows", f"{ref(SHEET)}!$A${FIRST}:$A${FIRST + count - 1}")

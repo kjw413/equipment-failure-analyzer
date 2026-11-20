@@ -25,6 +25,7 @@ from openpyxl.utils.indexed_list import IndexedList
 from openpyxl.worksheet.properties import PageSetupProperties
 
 from core.config import resource_root
+from report.appendix_style import apply_appendix_styles
 from report.chart_numbers import format_chart_numbers
 from version import VERSION
 
@@ -220,8 +221,8 @@ def _summary_lines(builder, target):
         ):
             builder.cache.set(helper, f"{col}{row}", formula, cached)
     for first, order, rank_col, value_col, key in (
-        (10, count_order, "E", "B", "count"),
-        (23, time_order, "F", "D", "total_minutes"),
+        (9, count_order, "E", "B", "count"),
+        (22, time_order, "F", "D", "total_minutes"),
     ):
         for index in range(10):
             row = first + index
@@ -319,42 +320,42 @@ def apply_locked_template(builder):
             continue
         mapping = {}
         if index == 0:
-            mapping.update({"A3": "A4", "A7": "A6"})
+            mapping.update({"A3": "A3", "A7": "A5"})
         elif index == 1:
             mapping.update(
                 {
-                    "B6": "B6",
-                    "D6": "D6",
-                    "F6": "G6",
-                    "K6": "K6",
-                    "K7": "K7",
-                    "B7": "C9",
-                    "D7": "E9",
-                    "F7": "G9",
-                    "H7": "I9",
+                    "B6": "B7",
+                    "D6": "D7",
+                    "F6": "G7",
+                    "K6": "K7",
+                    "K7": "K8",
+                    "B7": "C10",
+                    "D7": "E10",
+                    "F7": "G10",
+                    "H7": "I10",
                 }
             )
             count = sum(source.cell(row, 4).data_type == "f" for row in range(10, 20))
-            _row_map(mapping, 10, count, 17, 12)
+            _row_map(mapping, 10, count, 18, 12)
             states[LOCKED_SHEETS[index]] = {
                 "actual": count,
                 "capacity": 5,
-                "start": 27,
+                "start": 28,
                 "chart_row_shift": 0,
             }
         elif index == 2:
             # install_fault_comparison populates the renewed sheet directly.
             pass
         else:
-            mapping.update({"B6": "B6", "D6": "D6", "F6": "F6", "K6": "J6", "B7": "J7"})
+            mapping.update({"B6": "B7", "D6": "D7", "F6": "F7", "K6": "J7", "B7": "J8"})
             count = sum(
                 source.cell(row, 2).data_type == "f" for row in range(10, source.max_row + 1)
             )
-            _row_map(mapping, 10, count, 14, 11)
+            _row_map(mapping, 10, count, 15, 11)
             states[LOCKED_SHEETS[index]] = {
                 "actual": count,
                 "capacity": 11,
-                "start": 24,
+                "start": 25,
                 "chart_row_shift": 0,
             }
         maps[source.title], names[source.title] = mapping, LOCKED_SHEETS[index]
@@ -431,8 +432,8 @@ def apply_locked_template(builder):
                 dest.value = cell.value
                 if isinstance(dest.value, str):
                     dest.data_type = "s"
+        target["A3"] = "집계기간: " + str(builder.r.metrics["period"])
         if index == 0:
-            target["A4"] = "집계기간: " + str(builder.r.metrics["period"])
             count = old_cache.get((source.title, "A6"), "")
             total = old_cache.get((source.title, "E6"), "")
             mean = old_cache.get((source.title, "I6"), "")
@@ -450,7 +451,7 @@ def apply_locked_template(builder):
                 'IF(ISNUMBER(\'_report_metrics\'!A3),TEXT(\'_report_metrics\'!A3,"#,##0")&"분","확인 필요")&'
                 '"  |  평균 정지시간 "&IF(ISNUMBER(\'_report_metrics\'!A4),TEXT(\'_report_metrics\'!A4,"#,##0")&"분","확인 필요")'
             )
-            cache.set(target, "A5", formula, text)
+            cache.set(target, "A4", formula, text)
         if index == 0:
             _summary_lines(builder, target)
     # Rewrite references in hidden rank helpers and the rest of the report once.
@@ -479,6 +480,7 @@ def apply_locked_template(builder):
         ws for ws in book if ws.title not in targets
     ]
     book.loaded_theme = design.loaded_theme
+    apply_appendix_styles(book, design)
     builder._locked_template = {"sheets": states, "styles": style_map, "images": []}
     design.close()
 
@@ -608,7 +610,7 @@ def _chart_data(raw, builder, name, extra):
                 "B" if kind == "strRef" and metric == "D" else "H" if kind == "strRef" else metric
             )
             top = int(builder.r.config_snapshot.get("final_report", {}).get("summary_top_n", 5))
-            formula = f"'02.팀별 주요이슈'!${column}$27:${column}${26 + max(5, min(10, top))}"
+            formula = f"'02.팀별 주요이슈'!${column}$28:${column}${27 + max(5, min(10, top))}"
             cache_formula = formula
             address = formula.rpartition("!")[2]
         if ":" in address or address.startswith(("_Period_", "_Fault_")):

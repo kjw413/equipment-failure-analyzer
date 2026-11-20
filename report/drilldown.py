@@ -99,15 +99,15 @@ def install_controls(builder):
     if MAIN_SHEET not in book:
         return
     ws = book[MAIN_SHEET]
-    ws["J7"] = "세부부품"
-    for address in ("B26", "H26"):
+    ws["J8"] = "세부부품"
+    for address in ("B27", "H27"):
         builder.cache.set(ws, address, "='_drill_state'!B3", "라인")
     top_n = bounded_int(
         builder.r.config_snapshot.get("final_report", {}).get("summary_top_n"), 5, 10
     )
     for name, column in (("_Drill_CountLabels", "B"), ("_Drill_TimeLabels", "H")):
         book.defined_names.add(
-            DefinedName(name, attr_text=f"{ref(ws.title)}!${column}$27:${column}${26 + top_n}")
+            DefinedName(name, attr_text=f"{ref(ws.title)}!${column}$28:${column}${27 + top_n}")
         )
 
     controls = book.create_sheet("_report_controls")

@@ -20,13 +20,13 @@ Public Function VerifyFaultComparison(ByVal evidence As String) As String
     EFASearch.Initialize
     Application.CalculateFull
     Check ThisWorkbook.Worksheets("_fault_controls").UsedRange.Rows.Count = 7, "Six controls, no comparison-unit selector"
-    Check ws.Range("A6").Value2 = "기준 부서" And ws.Range("A8").Value2 = "비교 부서" And ws.Range("A7").Value2 = "VS", "Two rows with centered VS"
-    Check ws.Range("A7").MergeArea.Address(False, False) = "A7:J7", "VS row layout"
+    Check ws.Range("A7").Value2 = "기준 부서" And ws.Range("A9").Value2 = "비교 부서" And ws.Range("A8").Value2 = "VS", "Two rows with centered VS"
+    Check ws.Range("A8").MergeArea.Address(False, False) = "A8:J8", "VS row layout"
     Check state.Range("B3").Value2 = "부서", "Department default from baseline depth"
-    Check Application.Sum(ws.Range("E25:E" & ThisWorkbook.Names("_Fault_Labels").RefersToRange.Row + ThisWorkbook.Names("_Fault_Labels").RefersToRange.Rows.Count - 1)) = UBound(FactsData, 1) - 1, "All departments reconcile"
-    Check Not EFASearch.CommitSelection(ws.Range("I6"), CStr(FactsData(2, 7))), "Module requires a selected baseline line"
+    Check Application.Sum(ws.Range("E26:E" & ThisWorkbook.Names("_Fault_Labels").RefersToRange.Row + ThisWorkbook.Names("_Fault_Labels").RefersToRange.Rows.Count - 1)) = UBound(FactsData, 1) - 1, "All departments reconcile"
+    Check Not EFASearch.CommitSelection(ws.Range("I7"), CStr(FactsData(2, 7))), "Module requires a selected baseline line"
     VerifyMetrics ws
-    VerifyCandidates ws, "E6", "B6", ""
+    VerifyCandidates ws, "E7", "B7", ""
     For i = 2 To units.Cells(units.Rows.Count, 1).End(xlUp).Row
         Set modules = CreateObject("Scripting.Dictionary")
         For j = 2 To UBound(FactsData, 1)
@@ -46,46 +46,46 @@ Public Function VerifyFaultComparison(ByVal evidence As String) As String
         If org2 <> org1 Then line2 = CStr(units.Cells(i, 1).Value2): Exit For
     Next i
     phase = "department pair"
-    Check EFASearch.CommitSelection(ws.Range("B6"), org1), "Baseline organization"
-    Check EFASearch.CommitSelection(ws.Range("B8"), org2), "Compare organization"
+    Check EFASearch.CommitSelection(ws.Range("B7"), org1), "Baseline organization"
+    Check EFASearch.CommitSelection(ws.Range("B9"), org2), "Compare organization"
     Check state.Range("B4").Value2 = 2, "Only chosen departments"
-    Check Not EFASearch.CommitSelection(ws.Range("E8"), line2), "Department level cannot silently use a comparison line"
+    Check Not EFASearch.CommitSelection(ws.Range("E9"), line2), "Department level cannot silently use a comparison line"
     VerifyMetrics ws
     VerifyView ws, evidence & "/fault_department.pdf"
     phase = "independent line scopes"
-    Check Not EFASearch.CommitSelection(ws.Range("E6"), line2), "Other organization's baseline line rejected"
-    Check EFASearch.CommitSelection(ws.Range("E6"), line1), "Baseline line changes level automatically"
+    Check Not EFASearch.CommitSelection(ws.Range("E7"), line2), "Other organization's baseline line rejected"
+    Check EFASearch.CommitSelection(ws.Range("E7"), line1), "Baseline line changes level automatically"
     Check state.Range("B3").Value2 = "라인", "Automatic line level"
-    Check ws.Range("B8").Value2 = org2, "Baseline change preserves the independent comparison organization"
-    VerifyCandidates ws, "E6", "B6", ""
-    VerifyCandidates ws, "E8", "B8", ""
-    VerifyCandidates ws, "I6", "B6", "E6"
+    Check ws.Range("B9").Value2 = org2, "Baseline change preserves the independent comparison organization"
+    VerifyCandidates ws, "E7", "B7", ""
+    VerifyCandidates ws, "E9", "B9", ""
+    VerifyCandidates ws, "I7", "B7", "E7"
     VerifyMetrics ws
-    Check EFASearch.CommitSelection(ws.Range("E8"), line2), "Choose a line from another department or factory"
+    Check EFASearch.CommitSelection(ws.Range("E9"), line2), "Choose a line from another department or factory"
     Check state.Range("B4").Value2 = 2, "Two selected lines"
     VerifyMetrics ws
     VerifyView ws, evidence & "/fault_line.pdf"
     phase = "module comparisons"
-    Check EFASearch.CommitSelection(ws.Range("I6"), module1), "Baseline module changes level automatically"
+    Check EFASearch.CommitSelection(ws.Range("I7"), module1), "Baseline module changes level automatically"
     Check state.Range("B3").Value2 = "상세설비", "Automatic module level"
-    VerifyCandidates ws, "I8", "B8", "E8"
+    VerifyCandidates ws, "I9", "B9", "E9"
     VerifyMetrics ws
-    For Each cell In EFASearch.SourceRange(ws.Range("I8")).Cells
+    For Each cell In EFASearch.SourceRange(ws.Range("I9")).Cells
         If CStr(cell.Value2) <> "(전체)" Then targetModule = CStr(cell.Value2): Exit For
     Next cell
-    Check EFASearch.CommitSelection(ws.Range("I8"), targetModule), "Independent comparison module"
+    Check EFASearch.CommitSelection(ws.Range("I9"), targetModule), "Independent comparison module"
     Check state.Range("B4").Value2 = 2, "Two independently selected modules"
     VerifyMetrics ws
-    Check EFASearch.CommitSelection(ws.Range("B8"), org1), "Compare organization reset"
-    Check ws.Range("E8").Value2 = "(전체)" And ws.Range("I8").Value2 = "(전체)", "Compare parent clears only its descendants"
-    Check ws.Range("E6").Value2 = line1 And ws.Range("I6").Value2 = module1, "Compare parent preserves baseline"
+    Check EFASearch.CommitSelection(ws.Range("B9"), org1), "Compare organization reset"
+    Check ws.Range("E9").Value2 = "(전체)" And ws.Range("I9").Value2 = "(전체)", "Compare parent clears only its descendants"
+    Check ws.Range("E7").Value2 = line1 And ws.Range("I7").Value2 = module1, "Compare parent preserves baseline"
     VerifyMetrics ws
-    Check EFASearch.CommitSelection(ws.Range("E8"), line1), "Same-line module comparison"
-    Check EFASearch.CommitSelection(ws.Range("I8"), module2), "Other module on same line"
+    Check EFASearch.CommitSelection(ws.Range("E9"), line1), "Same-line module comparison"
+    Check EFASearch.CommitSelection(ws.Range("I9"), module2), "Other module on same line"
     Check state.Range("B4").Value2 = 2, "Different modules on same line remain two rows"
     VerifyMetrics ws
     VerifyView ws, evidence & "/fault_modules.pdf"
-    Check EFASearch.CommitSelection(ws.Range("I8"), module1), "Identical module pair"
+    Check EFASearch.CommitSelection(ws.Range("I9"), module1), "Identical module pair"
     Check state.Range("B4").Value2 = 1, "Identical physical line and module deduplicated"
     phase = "missing and zero time"
     original = facts.UsedRange.Value2
@@ -108,26 +108,26 @@ Public Function VerifyFaultComparison(ByVal evidence As String) As String
     FactsData = original
     phase = "resets and native change event"
     Application.CalculateFull
-    Check EFASearch.CommitSelection(ws.Range("E6"), "(전체)"), "Return to department level"
+    Check EFASearch.CommitSelection(ws.Range("E7"), "(전체)"), "Return to department level"
     Check state.Range("B3").Value2 = "부서", "All line returns department aggregates"
-    Check ws.Range("I6").Value2 = "(전체)" And ws.Range("E8").Value2 = "(전체)" And ws.Range("I8").Value2 = "(전체)", "Unavailable descendants reset"
-    Check ws.Range("B8").Value2 = org1, "Comparison department retained across level change"
+    Check ws.Range("I7").Value2 = "(전체)" And ws.Range("E9").Value2 = "(전체)" And ws.Range("I9").Value2 = "(전체)", "Unavailable descendants reset"
+    Check ws.Range("B9").Value2 = org1, "Comparison department retained across level change"
     Check state.Range("B4").Value2 = 1, "Same department shown once"
     Application.EnableEvents = True
-    ws.Range("B8").Value2 = org2
+    ws.Range("B9").Value2 = org2
     Check state.Range("B4").Value2 = 2, "Real worksheet change event"
-    ws.Range("E6").Value2 = line1
+    ws.Range("E7").Value2 = line1
     Check state.Range("B3").Value2 = "라인", "Native event updates level"
     Application.EnableEvents = False
     VerifyMetrics ws
-    Check EFASearch.CommitSelection(ws.Range("B6"), org2), "Baseline parent change"
-    Check ws.Range("E6").Value2 = "(전체)" And ws.Range("I6").Value2 = "(전체)", "Baseline parent resets its own descendants"
-    Check ws.Range("B8").Value2 = org2, "Baseline department change does not replace comparison department"
-    Check EFASearch.CommitSelection(ws.Range("B8"), "(전체)"), "Global compare department scope"
-    Check EFASearch.CommitSelection(ws.Range("E6"), line2), "New baseline line"
-    VerifyCandidates ws, "E8", "B8", ""
+    Check EFASearch.CommitSelection(ws.Range("B7"), org2), "Baseline parent change"
+    Check ws.Range("E7").Value2 = "(전체)" And ws.Range("I7").Value2 = "(전체)", "Baseline parent resets its own descendants"
+    Check ws.Range("B9").Value2 = org2, "Baseline department change does not replace comparison department"
+    Check EFASearch.CommitSelection(ws.Range("B9"), "(전체)"), "Global compare department scope"
+    Check EFASearch.CommitSelection(ws.Range("E7"), line2), "New baseline line"
+    VerifyCandidates ws, "E9", "B9", ""
     VerifyMetrics ws
-    Check EFASearch.CommitSelection(ws.Range("E6"), "(전체)"), "Final default department depth"
+    Check EFASearch.CommitSelection(ws.Range("E7"), "(전체)"), "Final default department depth"
     VerifyRelatedViews
     VerifyCompanyNumberFormats
     VerifyIntegratedAppendices evidence
@@ -179,12 +179,12 @@ Private Sub VerifyMetrics(ByVal ws As Worksheet)
     Dim baseCount As Long, baseValid As Long, baseTime As Double, baseLine As String, cell As Range
     level = CStr(ThisWorkbook.Worksheets("_fault_state").Range("B3").Value2)
     For Each cell In ThisWorkbook.Worksheets("_fault_units").Range("A2:A" & ThisWorkbook.Worksheets("_fault_units").UsedRange.Rows.Count)
-        If cell.Value2 = ws.Range("E6").Value2 Then baseLine = CStr(cell.Offset(0, 4).Value2): Exit For
+        If cell.Value2 = ws.Range("E7").Value2 Then baseLine = CStr(cell.Offset(0, 4).Value2): Exit For
     Next cell
     For i = 2 To UBound(FactsData, 1)
         If FactsData(i, 3) = ThisWorkbook.Worksheets("_fault_state").Range("B2").Value2 And FactsData(i, 4) = ThisWorkbook.Worksheets("_fault_state").Range("B7").Value2 Then
             If level = "부서" Or FactsData(i, 5) = baseLine Then
-                If level <> "상세설비" Or FactsData(i, 7) = ws.Range("I6").Value2 Then
+                If level <> "상세설비" Or FactsData(i, 7) = ws.Range("I7").Value2 Then
                     baseCount = baseCount + 1
                     If Not IsEmpty(FactsData(i, 12)) And IsNumeric(FactsData(i, 12)) Then baseValid = baseValid + 1: baseTime = baseTime + CDbl(FactsData(i, 12))
                 End If
@@ -195,7 +195,7 @@ Private Sub VerifyMetrics(ByVal ws As Worksheet)
     If baseValid > 0 Then Check Abs(ThisWorkbook.Worksheets("_fault_state").Range("B6").Value2 - baseTime) < 0.00001, "Independent baseline minutes"
     last = ThisWorkbook.Names("_Fault_Labels").RefersToRange.Row + ThisWorkbook.Names("_Fault_Labels").RefersToRange.Rows.Count - 1
     Dim shown As Long
-    For r = 25 To last
+    For r = 26 To last
         If Len(CStr(ws.Cells(r, 13).Value2)) > 0 Then
             shown = shown + 1: count = 0: valid = 0: total = 0
             For i = 2 To UBound(FactsData, 1)
@@ -262,33 +262,39 @@ Private Sub VerifyRelatedViews()
     Set main = ThisWorkbook.Worksheets("02.팀별 주요이슈")
     Set trends = ThisWorkbook.Worksheets("03.월별 주요이슈")
     Set facts = ThisWorkbook.Worksheets("_issue_facts")
-    Check EFASearch.ControlCell(main, "asset").Address(False, False) = "G6", "Edited team filter position"
-    Check EFASearch.ControlCell(main, "part").Address(False, False) = "K7", "Edited team part position"
-    Check EFASearch.ControlCell(trends, "part").Address(False, False) = "J7", "Edited month part position"
-    Check ThisWorkbook.Names("_Period_Back").RefersToRange.Address(False, False) = "L6:L7", "Renewed return button"
-    name = CStr(main.Range("B27").Value2)
+    Check EFASearch.ControlCell(main, "asset").Address(False, False) = "G7", "Edited team filter position"
+    Check EFASearch.ControlCell(main, "part").Address(False, False) = "K8", "Edited team part position"
+    Check EFASearch.ControlCell(trends, "part").Address(False, False) = "J8", "Edited month part position"
+    Check ThisWorkbook.Names("_Period_Back").RefersToRange.Address(False, False) = "L7:L8", "Renewed return button"
+    name = CStr(main.Range("B28").Value2)
     Check EFASearch.FollowChart(main.ChartObjects(1).Chart, 1), "Team chart drills from edited table position"
-    Check main.Range("G6").Value2 = name, "Team leading line chosen"
+    Check main.Range("G7").Value2 = name, "Team leading line chosen"
     finish = facts.Cells(facts.Rows.Count, 1).End(xlUp).Row
     For r = 2 To finish
         If facts.Cells(r, 5).Value2 = name Then expected = expected + 1
     Next r
-    Check main.Range("C9").Value2 = expected, "Team line drill count"
-    Check EFASearch.CommitSelection(main.Range("G6"), "(전체)"), "Team reset"
+    Check main.Range("C10").Value2 = expected, "Team line drill count"
+    Check EFASearch.CommitSelection(main.Range("G7"), "(전체)"), "Team reset"
     name = CStr(facts.Cells(2, 8).Value2)
-    Check EFASearch.CommitSelection(trends.Range("J7"), name), "Month part selection"
+    Check EFASearch.CommitSelection(trends.Range("J8"), name), "Month part selection"
     Set periodRows = ThisWorkbook.Names("_Period_Rows").RefersToRange
-    Check periodRows.Row = 24, "Edited monthly table begins on row 24"
+    Check periodRows.Row = 25, "Edited monthly table begins on row 24"
     first = periodRows.Row
     month = CStr(trends.Cells(first, 1).Value2)
+    Dim axisLabels As Variant
+    axisLabels = trends.ChartObjects(1).Chart.SeriesCollection(1).XValues
+    Check CStr(axisLabels(1)) = "'" & Right$(month, 5), "Short month chart label"
+    Check EFASearch.FollowPeriodChart(1), "Short chart label still drills into full month"
+    Check trends.Range("D8").Value2 = month, "Full month selection from chart"
+    Check EFASearch.BackToMonths(), "Return from chart drill"
     total = trends.Cells(first, 2).Value2
     Application.EnableEvents = True
-    trends.Range("D7").Value2 = month
-    Check trends.Range("B7").Value2 = "일별", "Edited month selector activates daily view"
-    Check trends.Range("J7").Value2 = name, "Month selection preserves part selector"
+    trends.Range("D8").Value2 = month
+    Check trends.Range("B8").Value2 = "일별", "Edited month selector activates daily view"
+    Check trends.Range("J8").Value2 = name, "Month selection preserves part selector"
     Check Abs(Application.Sum(trends.Range("B" & first & ":B" & first + 30)) - total) < 0.00001, "Month-day reconciliation after template move"
     Check EFASearch.BackToMonths(), "Monthly return"
-    Check EFASearch.CommitSelection(trends.Range("J7"), "(전체)"), "Month part reset"
+    Check EFASearch.CommitSelection(trends.Range("J8"), "(전체)"), "Month part reset"
     Application.EnableEvents = False
 End Sub
 

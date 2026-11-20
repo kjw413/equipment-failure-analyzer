@@ -8,7 +8,7 @@ from openpyxl.workbook.defined_name import DefinedName
 from report.drilldown import MAIN_SHEET
 from report.formatting import bounded_int
 
-TABLE_HEADER = 26
+TABLE_HEADER = 27
 FIRST_RANK = TABLE_HEADER + 1
 
 
@@ -103,7 +103,7 @@ def complete_rank_tables(builder):
                 )
                 ws[address].number_format = "General" if offset == 1 else "#,##0"
             value_cell = f"{letters[3 if metric == 'count' else 4]}{row}"
-            denominator = "$C$9" if metric == "count" else "$E$9"
+            denominator = "$C$10" if metric == "count" else "$E$10"
             value = builder.cache.values.get((ws.title, value_cell), "")
             total = builder.cache.values.get((ws.title, denominator.replace("$", "")), "")
             share = (

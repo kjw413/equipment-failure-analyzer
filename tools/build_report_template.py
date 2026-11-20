@@ -14,7 +14,6 @@ import posixpath
 import re
 import struct
 import zlib
-from collections import Counter
 from pathlib import Path
 from xml.etree import ElementTree as ET
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -153,6 +152,53 @@ STATIC_CELLS[3] = {
 STATIC_CELLS[4] = {"A1", "A4", "A5", "C5", "E5", "I5", "I6", *(f"{c}22" for c in "ABCDEFGHIJK")}
 STATIC_CELLS[4].update({"A3", "A6", "C6", "E6", "I6", "L6", "A7", "C7", "I7"})
 
+# Current edited design places the period above the instructions on 02–04.
+STATIC_CELLS = {
+    1: {"A1", "A7", "B8", "D8", "A20", "B21", "D21"},
+    2: {
+        "A1",
+        "A4",
+        "A6",
+        "A7",
+        "C7",
+        "F7",
+        "J7",
+        "J8",
+        "B10",
+        "D10",
+        "F10",
+        "H10",
+        "A26",
+        "G26",
+        *(f"{c}27" for c in "ABCDEFGHIJKL"),
+    },
+    3: {
+        "A1",
+        "A4",
+        "A6",
+        "A7",
+        "D7",
+        "H7",
+        "A8",
+        "A9",
+        "D9",
+        "H9",
+        *(f"{c}25" for c in "ABCDEFGHIJKL"),
+    },
+    4: {
+        "A6",
+        "A7",
+        "C7",
+        "E7",
+        "I7",
+        "L7",
+        "A8",
+        "C8",
+        "I8",
+        *(f"{c}23" for c in "ABCDEFGHIJK"),
+    },
+}
+
 
 def png_chunk(kind: bytes, value: bytes) -> bytes:
     return (
@@ -210,7 +256,7 @@ def clean_sheet(xml: str, index: int, shared_strings: list[str]) -> str:
         # Comparison rows are generated from the selected population at export.
         cells = re.sub(
             r'<row\b[^>]*\br="(\d+)"[^>]*(?:/>|>.*?</row>)',
-            lambda match: match[0] if int(match[1]) <= 25 else "",
+            lambda match: match[0] if int(match[1]) <= 26 else "",
             cells,
             flags=re.S,
         )
@@ -427,6 +473,13 @@ def build_template(source: Path, destination: Path) -> dict:
 
 def build_appendix_layout(source: Path, destination: Path) -> None:
     """Extract only formatting metadata; retain no record values or source formulas."""
+    from openpyxl import load_workbook
+
+    samples = {
+        "별첨. 검토·분류현황": (20, 21),
+        "별첨. 고장이력": (6, 17),
+        "별첨. 원본 검토표시": (7, 9),
+    }
     ns = {"s": MAIN}
     layouts = {}
     with ZipFile(source) as archive:
@@ -435,35 +488,50 @@ def build_appendix_layout(source: Path, destination: Path) -> None:
             e.get("Id"): resolved_target("xl/workbook.xml", e.get("Target"))
             for e in ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
         }
-        areas = {
-            int(e.get("localSheetId")): e.text
-            for e in root.findall("s:definedNames/s:definedName", ns)
-            if e.get("name") == "_xlnm.Print_Area"
-        }
-        for index, sheet in enumerate(root.findall("s:sheets/s:sheet", ns)):
-            if not sheet.get("name", "").startswith("별첨."):
+        for sheet in root.findall("s:sheets/s:sheet", ns):
+            title = sheet.get("name")
+            if title not in samples:
                 continue
+            header, body = samples[title]
             part = rels[sheet.get("{" + OFFICE_REL + "}id")]
             xml = ET.fromstring(archive.read(part))
             rows = xml.findall("s:sheetData/s:row", ns)
-            heights = Counter(float(e.get("ht", "22")) for e in rows if int(e.get("r")) >= 7)
-            bounds = re.findall(r"\$([A-Z]+)\$\d+", areas[index])
-            layouts[sheet.get("name")] = {
-                "columns": [dict(e.attrib) for e in xml.findall("s:cols/s:col", ns)],
-                "row_heights": {
-                    e.get("r"): float(e.get("ht", "22")) for e in rows if int(e.get("r")) <= 6
+            layouts[title] = {
+                "header": header,
+                "columns": [
+                    {
+                        k: float(v) if k == "width" else int(v)
+                        for k, v in e.attrib.items()
+                        if k in {"min", "max", "width", "hidden", "outlineLevel", "collapsed"}
+                    }
+                    for e in xml.findall("s:cols/s:col", ns)
+                ],
+                "heights": {
+                    e.get("r"): float(e.get("ht"))
+                    for e in rows
+                    if int(e.get("r")) <= header and e.get("ht")
                 },
-                "body_height": heights.most_common(1)[0][0] if heights else 22,
                 "header_styles": {
                     e.get("r"): int(e.get("s", "0"))
                     for row in rows
-                    if int(row.get("r")) <= 6
+                    if int(row.get("r")) <= header
                     for e in row
                 },
-                "margins": dict(xml.find("s:pageMargins", ns).attrib),
-                "page_setup": dict(xml.find("s:pageSetup", ns).attrib),
-                "print_columns": [bounds[0], bounds[-1]],
+                "body": {
+                    e.get("r").rstrip("0123456789"): int(e.get("s", "0"))
+                    for row in rows
+                    if int(row.get("r")) == body
+                    for e in row
+                },
             }
+    raw = "별첨. 원본 검토표시"
+    if raw in layouts:
+        book = load_workbook(source, read_only=True, data_only=True)
+        try:
+            row = next(book[raw].iter_rows(min_row=7, max_row=7))
+            layouts[raw]["headers"] = {c.coordinate: c.value for c in row if c.value is not None}
+        finally:
+            book.close()
     destination.write_text(json.dumps(layouts, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
