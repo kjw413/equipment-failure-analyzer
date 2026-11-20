@@ -239,6 +239,7 @@ def _summary_lines(builder, target):
                 f"=IF(B{row}=\"\",\"\",INDEX('_report_lines'!${value_col}$2:${value_col}${end},MATCH({escaped_cell(f'B{row}')},'_report_lines'!$A$2:$A${end},0)))",
                 item[key] if item else "",
             )
+            target[f"D{row}"].number_format = "#,##0"
 
 
 def _appendix_layout(builder, design):
@@ -342,22 +343,10 @@ def apply_locked_template(builder):
                 "chart_row_shift": 0,
             }
         elif index == 2:
-            mapping.update({"B6": "E6", "B7": "F7", "G7": "I7"})
-            # The issue source excludes planned stops and can contain fewer organizations.
-            count = sum(
-                source.cell(row, 1).value is not None
-                for row in range(11, source.max_row + 1)
-                if source.cell(row, 3).data_type == "f"
-            )
-            _row_map(mapping, 11, count, 15, 10)
-            states[LOCKED_SHEETS[index]] = {
-                "actual": count,
-                "capacity": 7,
-                "start": 26,
-                "chart_row_shift": 0,
-            }
+            # install_fault_comparison populates the renewed sheet directly.
+            pass
         else:
-            mapping.update({"B6": "B6", "D6": "D6", "F6": "F6", "K6": "J6", "B7": "F7"})
+            mapping.update({"B6": "B6", "D6": "D6", "F6": "F6", "K6": "J6", "B7": "J7"})
             count = sum(
                 source.cell(row, 2).data_type == "f" for row in range(10, source.max_row + 1)
             )
@@ -464,7 +453,6 @@ def apply_locked_template(builder):
             cache.set(target, "A5", formula, text)
         if index == 0:
             _summary_lines(builder, target)
-    _appendix_layout(builder, design)
     # Rewrite references in hidden rank helpers and the rest of the report once.
     source_names = set(maps)
     for sheet in book:
@@ -540,7 +528,12 @@ def _chart_data(raw, builder, name, extra):
     metric = metric_match[1] if metric_match else None
     if name == "04.고장비교":
         metric = {"H": "C", "J": "D"}.get(metric, metric)
-        raw_text = raw_text.replace("!$C$24", "!$E$24").replace("!$D$24", "!$F$24")
+        if "!_Fault_CountValues" in raw_text:
+            metric = "C"
+        elif "!_Fault_TimeValues" in raw_text:
+            metric = "D"
+        else:
+            raw_text = raw_text.replace("!$C$24", "!$E$24").replace("!$D$24", "!$F$24")
     if name == "03.월별 주요이슈":
         if "!_Period_ChartCount" in raw_text:
             metric = "B"

@@ -95,7 +95,7 @@ def test_locked_design_keeps_formats_and_approved_filter_space(organization_resu
             assert target.page_margins == source.page_margins
             assert target.sheet_properties.pageSetUpPr.fitToPage
             assert target.page_setup.fitToWidth == 1
-        assert {"D6:E6", "D7:E7", "G6:H6", "G7:H7"} <= {
+        assert {"B6:C6", "B8:C8", "E6:G6", "E8:G8", "A7:J7"} <= {
             str(x) for x in result["04.고장비교"].merged_cells.ranges
         }
         for name in LOCKED_SHEETS[1:]:

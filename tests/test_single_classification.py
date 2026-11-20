@@ -100,8 +100,9 @@ def test_unresolved_classification_exports_with_compact_review(store, input_file
         header = range_boundaries(review.auto_filter.ref)[1]
         for row in range(header + 1, header + 1 + len(expected)):
             record = expected.loc[review.cell(row, 2).value]
-            for name in ("raw_description", "candidates", "status"):
+            for name in ("review_reason", "status"):
                 assert review.cell(row, FIELDS.index(name) + 2).value == (record[name] or None)
+            assert review.cell(row, FIELDS.index("history_link") + 2).value == "이력 보기"
         assert review.max_row == max(header + 1, header + len(expected))
         assert wb["_report_metrics"]["A2"].value == result.metrics["selected_rows"]
     assert len(result.tables["fault_detail"]) == len(

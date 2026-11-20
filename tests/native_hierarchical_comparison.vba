@@ -262,20 +262,21 @@ Private Sub VerifyRelatedViews()
     Set main = ThisWorkbook.Worksheets("02.팀별 주요이슈")
     Set trends = ThisWorkbook.Worksheets("03.월별 주요이슈")
     Set facts = ThisWorkbook.Worksheets("_issue_facts")
-    Check EFASearch.ControlCell(main, "asset").Address(False, False) = "E6", "Edited team filter position"
+    Check EFASearch.ControlCell(main, "asset").Address(False, False) = "G6", "Edited team filter position"
     Check EFASearch.ControlCell(main, "part").Address(False, False) = "K7", "Edited team part position"
-    Check EFASearch.ControlCell(trends, "part").Address(False, False) = "F7", "Edited month part position"
+    Check EFASearch.ControlCell(trends, "part").Address(False, False) = "J7", "Edited month part position"
+    Check ThisWorkbook.Names("_Period_Back").RefersToRange.Address(False, False) = "L6:L7", "Renewed return button"
     name = CStr(main.Range("B27").Value2)
     Check EFASearch.FollowChart(main.ChartObjects(1).Chart, 1), "Team chart drills from edited table position"
-    Check main.Range("E6").Value2 = name, "Team leading line chosen"
+    Check main.Range("G6").Value2 = name, "Team leading line chosen"
     finish = facts.Cells(facts.Rows.Count, 1).End(xlUp).Row
     For r = 2 To finish
         If facts.Cells(r, 5).Value2 = name Then expected = expected + 1
     Next r
     Check main.Range("C9").Value2 = expected, "Team line drill count"
-    Check EFASearch.CommitSelection(main.Range("E6"), "(전체)"), "Team reset"
+    Check EFASearch.CommitSelection(main.Range("G6"), "(전체)"), "Team reset"
     name = CStr(facts.Cells(2, 8).Value2)
-    Check EFASearch.CommitSelection(trends.Range("F7"), name), "Month part selection"
+    Check EFASearch.CommitSelection(trends.Range("J7"), name), "Month part selection"
     Set periodRows = ThisWorkbook.Names("_Period_Rows").RefersToRange
     Check periodRows.Row = 24, "Edited monthly table begins on row 24"
     first = periodRows.Row
@@ -284,10 +285,10 @@ Private Sub VerifyRelatedViews()
     Application.EnableEvents = True
     trends.Range("D7").Value2 = month
     Check trends.Range("B7").Value2 = "일별", "Edited month selector activates daily view"
-    Check trends.Range("F7").Value2 = name, "Month selection preserves part selector"
+    Check trends.Range("J7").Value2 = name, "Month selection preserves part selector"
     Check Abs(Application.Sum(trends.Range("B" & first & ":B" & first + 30)) - total) < 0.00001, "Month-day reconciliation after template move"
     Check EFASearch.BackToMonths(), "Monthly return"
-    Check EFASearch.CommitSelection(trends.Range("F7"), "(전체)"), "Month part reset"
+    Check EFASearch.CommitSelection(trends.Range("J7"), "(전체)"), "Month part reset"
     Application.EnableEvents = False
 End Sub
 
@@ -379,7 +380,7 @@ Private Sub VerifyIntegratedAppendices(ByVal evidence As String)
         Check s.Name <> "별첨. 동일 상세설비 비교" And s.Name <> "별첨. 기준정보", "Obsolete appendices removed"
         If s.Visible = xlSheetVisible Then visible = visible + 1
     Next s
-    Check visible = 8, "Eight report sheets"
+    Check visible = 7, "Seven report sheets"
     Set overview = ThisWorkbook.Worksheets("별첨. 검토·분류현황")
     Set raw = ThisWorkbook.Worksheets("별첨. 원본 검토표시")
     Check overview.Range("B7").Value2 = 2117, "Review overview analysis count"

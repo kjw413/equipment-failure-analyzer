@@ -139,7 +139,7 @@ def test_source_codes_categories_and_legacy_report_projection(store, tmp_path):
     ] = K["code_missing"]
     output = export_report(replace(result, selected=old_records), tmp_path / "output.xlsx")
     with closing(load_workbook(output, data_only=True)) as report:
-        for key in ("detail", "review", "fault_detail"):
+        for key in ("detail",):
             ws = report[SHEETS[key]]
             header_row = (
                 int(__import__("re").search(r"[0-9]+", ws.auto_filter.ref)[0])
@@ -153,7 +153,7 @@ def test_source_codes_categories_and_legacy_report_projection(store, tmp_path):
                     in {K["review"], K["code_missing"], K["rule_unmatched"]}
                     for row in range(header_row + 1, ws.max_row + 1)
                 )
-        assert report[SHEETS["review"]].max_column == len(FIELDS) + 1 == 17
+        assert report[SHEETS["review"]].max_column == len(FIELDS) + 1 == 10
     assert source.read_bytes() == before
     assert result.selected.event_id.tolist() == source_event_ids
     assert result.selected.record_id.is_unique

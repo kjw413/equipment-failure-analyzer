@@ -24,7 +24,8 @@ def test_pair_has_one_workbook_with_review_summary_and_annotated_input(store, in
     book = load_workbook(paths.excel, data_only=True)
     try:
         visible = [s.title for s in book if s.sheet_state == "visible"]
-        assert len(visible) == 9  # 8 required sheets plus product cross-analysis.
+        assert len(visible) == 8  # 7 required sheets plus product cross-analysis.
+        assert "별첨. 부품증상상세" not in book
         assert "별첨. 동일 상세설비 비교" not in book and "별첨. 기준정보" not in book
         assert "_module_compare" not in book and "_source_quality" not in book
         overview = book["별첨. 검토·분류현황"]
@@ -54,8 +55,10 @@ def test_pair_has_one_workbook_with_review_summary_and_annotated_input(store, in
             for c in row
             if c.data_type == "f" and "HYPERLINK" in c.value
         ]
-        assert len(links) == len(result.tables["review"])
-        assert all(SOURCE_SHEET in value for value in links)
+        assert sum(SOURCE_SHEET in value for value in links) == len(result.tables["review"])
+        assert sum("별첨. 고장이력" in value and "MATCH(" in value for value in links) == len(
+            result.tables["review"]
+        )
         assert all(c.data_type != "f" for row in formulas[SOURCE_SHEET] for c in row)
     finally:
         formulas.close()

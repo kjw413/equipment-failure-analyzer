@@ -57,11 +57,12 @@ def test_excel_has_one_detail_row_per_fault_including_pending_classifications(
     assert split_result.metrics["total_minutes"] == 95
     workbook = load_workbook(export_report(split_result, tmp_path / "split.xlsx"), data_only=True)
     try:
-        assert len([ws for ws in workbook if ws.sheet_state == "visible"]) == 9
-        sheet = workbook[SHEETS["fault_detail"]]
+        assert len([ws for ws in workbook if ws.sheet_state == "visible"]) == 8
+        assert "별첨. 부품증상상세" not in workbook
+        sheet = workbook[SHEETS["detail"]]
         headers = [cell.value for cell in sheet[6]]
         assert DISPLAY["middle"] in headers and DISPLAY["minor"] in headers
-        assert not any("정지시간" in str(value) for value in headers)
+        assert any("정지시간" in str(value) for value in headers)
         record_column = headers.index(DISPLAY.get("record_id", "record_id")) + 1
         middle_column = headers.index(DISPLAY["middle"]) + 1
         minor_column = headers.index(DISPLAY["minor"]) + 1

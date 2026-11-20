@@ -137,9 +137,21 @@ STATIC_CELLS[2] = {
     *(f"{c}26" for c in "ABCDEFGHIJKL"),
 }
 STATIC_CELLS[3] = {"A1", "A4", "A5", "D5", "H5", *(f"{c}20" for c in "ABCDEFGHIJ")}
-STATIC_CELLS[3] = {"A1", "A3", "A5", "A6", "A7", "C7", "E7", *(f"{c}24" for c in "ABCDEFGHIJ")}
+STATIC_CELLS[3] = {
+    "A1",
+    "A3",
+    "A5",
+    "A6",
+    "D6",
+    "H6",
+    "A7",
+    "A8",
+    "D8",
+    "H8",
+    *(f"{c}24" for c in "ABCDEFGHIJKL"),
+}
 STATIC_CELLS[4] = {"A1", "A4", "A5", "C5", "E5", "I5", "I6", *(f"{c}22" for c in "ABCDEFGHIJK")}
-STATIC_CELLS[4].update({"A6", "C6", "E6", "I6", "A7", "C7", "E7"})
+STATIC_CELLS[4].update({"A3", "A6", "C6", "E6", "I6", "L6", "A7", "C7", "I7"})
 
 
 def png_chunk(kind: bytes, value: bytes) -> bytes:
@@ -193,7 +205,16 @@ def clean_sheet(xml: str, index: int, shared_strings: list[str]) -> str:
     section = re.search(r"<sheetData>.*?</sheetData>", xml, re.S)
     if section is None:
         raise ValueError("Worksheet has no sheetData")
-    xml = xml[: section.start()] + CELL.sub(replace_cell, section.group(0)) + xml[section.end() :]
+    cells = CELL.sub(replace_cell, section.group(0))
+    if index == 3:
+        # Comparison rows are generated from the selected population at export.
+        cells = re.sub(
+            r'<row\b[^>]*\br="(\d+)"[^>]*(?:/>|>.*?</row>)',
+            lambda match: match[0] if int(match[1]) <= 25 else "",
+            cells,
+            flags=re.S,
+        )
+    xml = xml[: section.start()] + cells + xml[section.end() :]
     # Printer device settings can contain local printer/account names. The
     # independent paper size, orientation, scaling and margins remain untouched.
     xml = re.sub(

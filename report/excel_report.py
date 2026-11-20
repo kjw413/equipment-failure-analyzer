@@ -14,6 +14,7 @@ from openpyxl import Workbook
 from openpyxl.drawing.image import Image
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.utils.cell import range_boundaries
 from openpyxl.workbook.properties import CalcProperties
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.worksheet.views import Selection
@@ -57,11 +58,10 @@ SHEETS = {
     **ISSUE_SHEETS,
     "review": "별첨. 검토·분류현황",
     "detail": "별첨. 고장이력",
-    "fault_detail": "별첨. 부품증상상세",
     "cross": "별첨. 제품교차분석",
     "source_review": "별첨. 원본 검토표시",
 }
-DETAIL_COLS = [
+_DETAIL_DATA_FIELDS = [
     "record_id",
     "source_row",
     "date",
@@ -125,6 +125,32 @@ DETAIL_COLS = [
     "team",
     "classification_candidates",
     "classification_known_fields",
+]
+VISIBLE_DETAIL_COLS = (
+    "date",
+    "factory",
+    "team",
+    "report_equipment",
+    "detail_equipment",
+    "part_group",
+    "middle",
+    "minor",
+    "minutes",
+    "normalized",
+    "raw_description",
+    "repair_actions",
+    "status",
+    "review_reason",
+    "review_action",
+    "evidence",
+    "major",
+    "source_row",
+)
+DETAIL_COLS = [
+    *VISIBLE_DETAIL_COLS,
+    *(field for field in _DETAIL_DATA_FIELDS if field not in VISIBLE_DETAIL_COLS),
+    "recorded_actions",
+    "fault_detail_evidence",
 ]
 D = {k: get_column_letter(i + 1) for i, k in enumerate(DETAIL_COLS)}
 REVIEW_COLS = [
@@ -407,8 +433,10 @@ class ReportBuilder:
         if key == "review":
             return self.review(frame)
         frame = self.data if frame is None else descending(frame, "minutes")
-        ws = self.new_sheet(key, span=12)
-        ws.merge_cells("A5:L5")
+        span = len(VISIBLE_DETAIL_COLS)
+        last_visible = get_column_letter(span)
+        ws = self.new_sheet(key, span=span)
+        ws.merge_cells(f"A5:{last_visible}5")
         self.put(
             ws,
             5,
@@ -421,7 +449,16 @@ class ReportBuilder:
         )
         ws.row_dimensions[5].height = 34
         self.header(ws, 6, [self.display_header(c) for c in DETAIL_COLS])
+        fault_details = self.r.tables.get("fault_detail", pd.DataFrame())
+        evidence = (
+            fault_details.set_index("record_id")[["actions", "evidence"]].to_dict("index")
+            if not fault_details.empty
+            else {}
+        )
         for index, record in enumerate(frame.to_dict("records"), 7):
+            detail = evidence.get(record.get("record_id"), {})
+            record["recorded_actions"] = detail.get("actions")
+            record["fault_detail_evidence"] = detail.get("evidence")
             for col, name in enumerate(DETAIL_COLS, 1):
                 role = (
                     "review"
@@ -441,7 +478,17 @@ class ReportBuilder:
                     c.number_format = INT
                 if name == "date":
                     c.number_format = "yyyy-mm-dd"
-            ws.row_dimensions[index].height = decision_row_height(record)
+            ws.row_dimensions[index].height = decision_row_height(
+                record,
+                {
+                    "normalized": 43,
+                    "raw_description": 43,
+                    "review_reason": 43,
+                    "review_action": 43,
+                    "evidence": 37,
+                },
+                minimum=22,
+            )
             if (
                 key == "detail"
                 and index < 7 + self.r.options.top_n
@@ -493,14 +540,21 @@ class ReportBuilder:
             )
         ws.column_dimensions[D["source_row"]].width = 11
         ws.column_dimensions[D["minutes"]].width = 18
-        ws.column_dimensions[D["record_id"]].hidden = True
-        ws.column_dimensions[D["event_id"]].hidden = True
-        ws.column_dimensions[D["classification_known_fields"]].hidden = True
-        if self.r.metrics["product_count"] == 0:
-            ws.column_dimensions[D["product"]].hidden = True
-        ws.freeze_panes = "G7"
+        for field in (
+            "date",
+            "factory",
+            "team",
+            "part_group",
+            "middle",
+            "minor",
+            "major",
+            "status",
+        ):
+            ws.column_dimensions[D[field]].width = 16
+        for name in DETAIL_COLS[len(VISIBLE_DETAIL_COLS) :]:
+            ws.column_dimensions[D[name]].hidden = True
         ws.auto_filter.ref = f"A6:{D[DETAIL_COLS[-1]]}{max(6, 6 + len(frame))}"
-        ws.print_area = f"B1:L{max(7, 6 + len(frame))}"
+        ws.print_area = f"A1:{last_visible}{max(7, 6 + len(frame))}"
         if frame.empty:
             self.put(
                 ws, 7, 2, "검토필요 이력 없음" if key == "review" else K["empty"], role="muted"
@@ -1147,6 +1201,8 @@ class ReportBuilder:
         # not in this human-readable report projection.
         return {
             "classification_candidates": "검토 후보 목록(순위·근거 JSON)",
+            "recorded_actions": "기록된 조치",
+            "fault_detail_evidence": "부품·현상 근거",
             "line_code": "라인명(코드 변환)",
             "raw_line_name": "원본 라인명(변환)",
             "equipment_code": "\uc124\ube44\uba85(\ucf54\ub4dc \ubcc0\ud658)",
@@ -1542,9 +1598,15 @@ class ReportBuilder:
             self.crosses()
         from report.review_overview import build_review_overview
 
-        build_review_overview(self)
-        if "fault_detail" in self.r.tables:
-            self.fault_details(self.r.tables["fault_detail"])
+        review = build_review_overview(self)
+        appendix_row_heights = {
+            sheet.title: {
+                row: dim.height
+                for row, dim in sheet.row_dimensions.items()
+                if row > range_boundaries(sheet.auto_filter.ref)[1]
+            }
+            for sheet in (review, self.wb[SHEETS["detail"]])
+        }
         # A clean current report only: no obsolete sheets from previous versions.
         order = {name: i for i, name in enumerate(SHEETS.values())}
         self.wb._sheets.sort(key=lambda ws: order.get(ws.title, 999))
@@ -1554,6 +1616,9 @@ class ReportBuilder:
         apply_workbook_layout(
             self.wb, self.cache, author=department or "확인 필요", exclude_sheets=LOCKED_SHEETS
         )
+        for title, heights in appendix_row_heights.items():
+            for row, height in heights.items():
+                self.wb[title].row_dimensions[row].height = height
         apply_locked_template(self)
         from report.fault_comparison import install_fault_comparison
 

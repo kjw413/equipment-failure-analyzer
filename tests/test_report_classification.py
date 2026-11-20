@@ -11,13 +11,12 @@ from openpyxl.utils import column_index_from_string, get_column_letter
 
 from core.i18n import DISPLAY, K
 from report.classification import (
-    COMPONENT_FIELDS,
     DECISION_FIELDS,
     LEGACY_REASON,
     LEGACY_SCORE_FIELDS,
     LEGACY_STATUS,
 )
-from report.excel_report import DETAIL_COLS, SHEETS, D, export_report
+from report.excel_report import DETAIL_COLS, SHEETS, VISIBLE_DETAIL_COLS, D, export_report
 from report.pdf_report import export_pdf
 
 OUTPUT_D = {
@@ -57,57 +56,18 @@ def workbook_text(workbook):
     )
 
 
-def test_decision_columns_preserve_existing_formula_column_positions():
-    assert len(DETAIL_COLS) == 62
+def test_decision_columns_follow_visible_history_fields():
+    assert len(DETAIL_COLS) == 64
     assert len(DETAIL_COLS) == len(set(DETAIL_COLS))
-    assert DETAIL_COLS[:12] == [
-        "record_id",
-        "source_row",
-        "date",
-        "line",
-        "registered",
-        "target",
-        "equipment",
-        "product",
-        "minutes",
-        "type",
-        "status",
-        "normalized",
-    ]
-    assert DETAIL_COLS[12] == "raw_description"
-    assert DETAIL_COLS[13:19] == [
-        "major",
-        "detail_equipment",
-        "part_group",
-        "middle",
-        "minor",
-        "repair_actions",
-    ]
-    assert DETAIL_COLS[39:44] == [
-        "duplicate",
-        "equipment_code",
-        "raw_equipment_name",
-        "report_equipment",
-        "name_mapped",
-    ]
-    assert DETAIL_COLS[44:46] == list(DECISION_FIELDS)
-    assert DETAIL_COLS[46:55] == [
-        field
-        for field in COMPONENT_FIELDS
-        if field
-        not in (
-            "classification_schema",
-            "part_group",
-            "repair_actions",
-            "classification_known_fields",
-        )
-    ]
-    assert DETAIL_COLS[55:58] == ["line_code", "raw_line_name", "equipment_group"]
-    assert DETAIL_COLS[58:60] == ["factory", "team"]
-    assert DETAIL_COLS[60] == "classification_candidates"
-    assert DETAIL_COLS[61] == "classification_known_fields"
+    assert tuple(DETAIL_COLS[: len(VISIBLE_DETAIL_COLS)]) == VISIBLE_DETAIL_COLS
+    assert set(DECISION_FIELDS) <= set(DETAIL_COLS[len(VISIBLE_DETAIL_COLS) :])
+    assert {
+        "classification_candidates",
+        "classification_known_fields",
+        "recorded_actions",
+        "fault_detail_evidence",
+    } <= set(DETAIL_COLS)
     assert "classification_schema" not in DETAIL_COLS
-    assert D["record_id"] == "A" and D["minutes"] == "I" and D["type"] == "J"
     assert not set(LEGACY_SCORE_FIELDS).intersection(DETAIL_COLS)
 
 
@@ -214,9 +174,7 @@ def test_older_results_ignore_scores_without_mutating_input(decision_result, tmp
             detail[f"{OUTPUT_D['classification_reason']}{row}"].value == LEGACY_REASON
             for row in legacy_rows
         )
-        counts = {
-            row[1].value: row[2].value for row in workbook[SHEETS["review"]] if len(row) >= 3
-        }
+        counts = {row[1].value: row[2].value for row in workbook[SHEETS["review"]] if len(row) >= 3}
         assert counts.get(K["auto"], 0) == 0
         assert counts[LEGACY_STATUS] == len(legacy_rows)
     finally:

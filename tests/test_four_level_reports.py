@@ -20,7 +20,7 @@ from core.failure_modes import (
 from core.fault_components import CATEGORY_FIELDS, component_payload, type_label
 from core.i18n import DISPLAY, K
 from report.classification import classification_result
-from report.excel_report import DETAIL_COLS, REVIEW_COLS, SHEETS, D, export_report
+from report.excel_report import DETAIL_COLS, SHEETS, D, export_report
 from report.pdf_report import export_pdf
 
 OUTPUT_D = {
@@ -114,17 +114,9 @@ def test_four_axes_export_in_order_and_preserve_cached_totals(hierarchy_result, 
         export_report(hierarchy_result, tmp_path / "four_axes.xlsx"), data_only=True
     )
     try:
-        for keys in (DETAIL_COLS, REVIEW_COLS):
-            fields = [
-                "major",
-                "detail_equipment",
-                "part_group",
-                "middle",
-                "minor",
-                "repair_actions",
-            ]
-            positions = [keys.index(key) for key in fields]
-            assert positions == list(range(positions[0], positions[0] + len(fields)))
+        fields = ["detail_equipment", "part_group", "middle", "minor"]
+        positions = [DETAIL_COLS.index(key) for key in fields]
+        assert positions == list(range(positions[0], positions[0] + len(fields)))
         detail = workbook[SHEETS["detail"]]
         assert detail[f"{OUTPUT_D['detail_equipment']}6"].value == DISPLAY["detail_equipment"]
         assert detail[f"{OUTPUT_D['detail_equipment']}7"].value in {"컨베어", "필러"}
@@ -132,14 +124,9 @@ def test_four_axes_export_in_order_and_preserve_cached_totals(hierarchy_result, 
         assert detail[f"{OUTPUT_D['part_group']}7"].value == "베어링·부싱"
         assert detail[f"{OUTPUT_D['repair_actions']}7"].value == "교체"
         assert workbook["_report_metrics"]["A3"].value == hierarchy_result.metrics["total_minutes"]
-        faults = workbook[SHEETS["fault_detail"]]
-        headers = [cell.value for cell in faults[6]]
-        fields = ["major", "detail_equipment", "part_group", "middle", "minor", "repair_actions"]
-        positions = [headers.index(DISPLAY[key]) for key in fields]
-        assert positions == list(range(positions[0], positions[0] + len(fields)))
-        assert faults.auto_filter.ref.startswith("B6:O")
-        assert faults.column_dimensions["P"].hidden
-        assert faults.cell(7, headers.index(DISPLAY["repair_actions"]) + 1).value == "교체"
+        assert "별첨. 부품증상상세" not in workbook
+        assert detail.auto_filter.ref.startswith("B6:")
+        assert detail.column_dimensions[OUTPUT_D["component_details"]].hidden
     finally:
         workbook.close()
     pd.testing.assert_frame_equal(hierarchy_result.selected, before)
@@ -169,10 +156,7 @@ def test_explicitly_cleared_action_does_not_reappear_from_original_evidence(
     try:
         detail = workbook[SHEETS["detail"]]
         assert detail[f"{OUTPUT_D['repair_actions']}7"].value is None
-        faults = workbook[SHEETS["fault_detail"]]
-        headers = [cell.value for cell in faults[6]]
-        assert faults.cell(7, headers.index(DISPLAY["repair_actions"]) + 1).value is None
-        assert faults.cell(7, headers.index(DISPLAY["actions"]) + 1).value == "교체"
+        assert detail[f"{OUTPUT_D['recorded_actions']}7"].value == "교체"
     finally:
         workbook.close()
     pd.testing.assert_series_equal(selected["repair_actions"], cleared.selected["repair_actions"])
@@ -293,7 +277,9 @@ def test_partial_excel_has_separate_counts_and_retains_missing_field(partial_res
             row[1].value: row[2].value for row in workbook[SHEETS["review"]] if len(row) >= 3
         }
         assert quality[K["partial"]] == 1
-        assert quality.get(K["auto"], 0) + quality.get(K["partial"], 0) == len(partial_result.selected)
+        assert quality.get(K["auto"], 0) + quality.get(K["partial"], 0) == len(
+            partial_result.selected
+        )
     finally:
         workbook.close()
 

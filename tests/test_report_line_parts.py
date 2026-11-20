@@ -47,16 +47,16 @@ def test_selectable_appendices_and_part_controls_preserve_original_rows(
             word in name for name in visible for word in ("유형별분석", "부품별분석", "원본데이터")
         )
         assert "_source_quality" not in values
-        assert values["04.고장비교"]["F6"].value == "기준 라인"
-        assert values["03.월별 주요이슈"]["E7"].value == "세부부품"
+        assert values["04.고장비교"]["D6"].value == "기준 라인"
+        assert values["03.월별 주요이슈"]["I7"].value == "세부부품"
         validation = next(
             v
             for v in formulas["03.월별 주요이슈"].data_validations.dataValidation
-            if str(v.sqref) == "F7"
+            if str(v.sqref) == "J7"
         )
         assert validation.formula1 == "=_Issue_part"
         assert validation.showErrorMessage and validation.showInputMessage
-        assert len(formulas["04.고장비교"].data_validations.dataValidation) == 7
+        assert len(formulas["04.고장비교"].data_validations.dataValidation) == 6
         sheet = values["04.고장비교"]
         assert sum(sheet.cell(row, 5).value or 0 for row in range(25, sheet.max_row + 1)) == 6
         assert sum(sheet.cell(row, 6).value or 0 for row in range(25, sheet.max_row + 1)) == 144
@@ -64,7 +64,8 @@ def test_selectable_appendices_and_part_controls_preserve_original_rows(
         assert DETAIL_COLS.index("normalized") < DETAIL_COLS.index("raw_description")
         detail = values[SHEETS["detail"]]
         assert detail.cell(6, DETAIL_COLS.index("normalized") + 2).value == "고장내용(표준화 후)"
-        assert {detail.cell(row, 2).value for row in range(7, 13)} == set(
+        record_column = DETAIL_COLS.index("record_id") + 2
+        assert {detail.cell(row, record_column).value for row in range(7, 13)} == set(
             organization_result.selected.record_id
         )
         filter_formula = formulas["_issue_filter_1"]["A2"].value

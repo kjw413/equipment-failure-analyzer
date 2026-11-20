@@ -265,7 +265,7 @@ def test_legacy_result_without_memberships_or_products_uses_seven_sheets(
     try:
         assert len([ws for ws in workbook if ws.sheet_state == "visible"]) == 7
         assert "별첨. 부품별분석" not in workbook.sheetnames
-        assert SHEETS["fault_detail"] not in workbook.sheetnames
+        assert "별첨. 부품증상상세" not in workbook.sheetnames
         assert SHEETS["cross"] not in workbook.sheetnames
         assert workbook["_report_metrics"]["A2"].value == 4
         assert workbook["_report_metrics"]["A3"].value == 95

@@ -3,7 +3,7 @@
 from copy import copy
 
 import pandas as pd
-from openpyxl.styles import Alignment, Border, PatternFill, Side
+from openpyxl.styles import Border, PatternFill, Side
 from openpyxl.utils import get_column_letter as letter
 from openpyxl.utils.cell import range_boundaries
 from openpyxl.workbook.defined_name import DefinedName
@@ -64,7 +64,11 @@ def _filter_box(ws, area):
 def _install_filter_view(builder, ws):
     reference = builder.wb.create_sheet("_fault_filter_styles")
     reference.sheet_state = "hidden"
+    active_caption, active_edit = ws["A6"], ws["B6"]
     for caption, edit, _ in FILTER_AREAS.values():
+        for area, style in ((caption, active_caption), (edit, active_edit)):
+            top_left = ws[area.split(":")[0]]
+            top_left.font, top_left.fill = copy(style.font), copy(style.fill)
         _filter_box(ws, caption)
         _filter_box(ws, edit)
     for row in ws.iter_rows(min_row=6, max_row=8, max_col=12):
@@ -131,22 +135,7 @@ def install_fault_comparison(b):
     facts["line_choice"] = [
         choices[key] for key in zip(facts.factory, facts.team, facts.asset, strict=True)
     ]
-    header_style, body_style, edit_style = (
-        copy(ws["A24"]._style),
-        copy(ws["A26"]._style),
-        copy(ws["B7"]._style),
-    )
-    caption_style = copy(ws["A7"]._style)
-    for area in list(ws.merged_cells.ranges):
-        if area.min_row >= 6:
-            ws.unmerge_cells(str(area))
-    for row in ws.iter_rows(min_row=6, max_col=max(13, ws.max_column)):
-        for cell in row:
-            cell.value = None
-            b.cache.values.pop((SHEET, cell.coordinate), None)
-            if cell.row <= 8:
-                cell.border = Border()
-                cell.fill = PatternFill()
+    body_styles = {cell.column_letter: copy(cell._style) for cell in ws[FIRST]}
     ws.data_validations.dataValidation.clear()
 
     def new(name, header):
@@ -185,31 +174,8 @@ def install_fault_comparison(b):
         units.append([choice, factory, team, families[(factory, team, asset)], asset])
     defaults = {key: ALL for key in CONTROLS}
     defaults["organization"] = first_org
-    for key, (caption, edit, _) in FILTER_AREAS.items():
-        ws.merge_cells(edit)
-        address = caption.split(":")[0]
-        ws[address] = {
-            "organization": "기준 부서",
-            "asset": "기준 라인",
-            "baseline_module": "기준 상세설비",
-            "compare_organization": "비교 부서",
-            "compare_asset": "비교 라인",
-            "compare_module": "비교 상세설비",
-        }[key]
-        ws[address]._style = copy(caption_style)
-        ws[address].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        ws[CONTROLS[key]] = defaults[key]
-        ws[CONTROLS[key]]._style = copy(edit_style)
-        ws[CONTROLS[key]].alignment = Alignment(
-            horizontal="center", vertical="center", wrap_text=True
-        )
-    ws.merge_cells("A7:J7")
-    ws["A7"] = "VS"
-    ws["A7"]._style = copy(caption_style)
-    ws["A7"].fill = PatternFill()
-    ws["A7"].alignment = Alignment(horizontal="center", vertical="center")
-    for row in (6, 7, 8):
-        ws.row_dimensions[row].height = ROW_HEIGHT
+    for key, address in CONTROLS.items():
+        ws[address] = defaults[key]
 
     owner = ref(SHEET)
     state = new("_fault_state", ["설정", "값"])
@@ -420,13 +386,7 @@ def install_fault_comparison(b):
         "상세설비",
     ]
     for col, text in enumerate(headers, 1):
-        cell = ws.cell(24, col, text)
-        cell._style = copy(header_style)
-        cell.alignment = Alignment(horizontal="center", vertical="center", shrink_to_fit=True)
-    ws.row_dimensions[24].height = ROW_HEIGHT
-    ws.column_dimensions["L"].hidden = False
-    ws.column_dimensions["L"].width = ws.column_dimensions["K"].width = 13
-    ws.column_dimensions["M"].hidden = True
+        ws.cell(24, col, text)
     for offset in range(capacity):
         row = FIRST + offset
         item = initial_rows[offset] if offset < len(initial_rows) else None
@@ -450,13 +410,8 @@ def install_fault_comparison(b):
                 f"=IFERROR(INDEX('_fault_rows'!${source}$2:${source}${last},{match}),\"\")",
                 item[key] if item else "",
             )
-            ws[f"{target}{row}"]._style = copy(body_style)
+            ws[f"{target}{row}"]._style = copy(body_styles.get(target))
             ws[f"{target}{row}"].number_format = "General" if target in "ABCDLM" else "#,##0"
-            ws[f"{target}{row}"].alignment = Alignment(
-                horizontal="left" if target in "ABCDL" else "right",
-                vertical="center",
-                shrink_to_fit=True,
-            )
         for target, metric, baseline_row, key in [("H", "E", 5, "count"), ("I", "F", 6, "minutes")]:
             base = first[key] if first else ""
             value = (
@@ -470,7 +425,7 @@ def install_fault_comparison(b):
                 f'=IF(OR(M{row}="",{metric}{row}="",\'_fault_state\'!$B${baseline_row}=""),"",{metric}{row}-\'_fault_state\'!$B${baseline_row})',
                 value,
             )
-            ws[f"{target}{row}"]._style = copy(body_style)
+            ws[f"{target}{row}"]._style = copy(body_styles[target])
             ws[f"{target}{row}"].number_format = '[Red]"▲ "#,##0;[Blue]"▼ "#,##0;0'
         ws.row_dimensions[row].height = ROW_HEIGHT
         ws.row_dimensions[row].hidden = bool(

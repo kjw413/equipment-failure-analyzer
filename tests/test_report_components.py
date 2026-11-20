@@ -109,9 +109,9 @@ def test_excel_single_final_counts_exclude_pending_candidates(component_result, 
                     len(json.loads(detail[f"{OUTPUT_D['classification_candidates']}{row}"].value))
                     == 2
                 )
-        faults = values[SHEETS["fault_detail"]]
+        faults = detail
         assert faults.max_row == 10
-        assert len({faults.cell(row, 2).value for row in range(7, 11)}) == 4
+        assert len({faults[f"{OUTPUT_D['record_id']}{row}"].value for row in range(7, 11)}) == 4
         headers = [cell.value for cell in faults[6]]
         from core.i18n import DISPLAY
 

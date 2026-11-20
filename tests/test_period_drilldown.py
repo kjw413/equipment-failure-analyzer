@@ -63,7 +63,7 @@ def test_month_day_view_replaces_the_period_appendix(organization_result, tmp_pa
         source = formulas["03.월별 주요이슈"]
         mode = next(v for v in source.data_validations.dataValidation if str(v.sqref) == "B7")
         assert mode.formula1 == '"월별,일별"'
-        assert values["03.월별 주요이슈"]["I7"].value == "월별로 돌아가기"
+        assert values["03.월별 주요이슈"]["L6"].value == "월별로\n돌아가기"
         assert "더블클릭" in values["03.월별 주요이슈"]["A3"].value
         assert formulas["_period_state"]["B4"].value.startswith("=IF('_period_state'!$B$3=\"일별\"")
     finally:

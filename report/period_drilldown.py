@@ -109,16 +109,14 @@ def install_period_view(builder):
         target.value = value
         target.number_format = "@"
         target.alignment = Alignment(horizontal="center", vertical="center")
-    ws.merge_cells("I7:K7")
-    ws["I7"] = "월별로 돌아가기"
-    ws["I7"]._style = copy(ws["B5"]._style)
+    ws["L6"] = "월별로\n돌아가기"
     for address, formula in (("B7", '"' + ",".join(MODES) + '"'), ("D7", "=_Period_Months")):
         dv = DataValidation(type="list", formula1=formula, allow_blank=False)
         dv.showErrorMessage = True
         dv.error = "목록에서 선택하세요."
         ws.add_data_validation(dv)
         dv.add(ws[address])
-    for name, address in (("Mode", "B7"), ("Month", "D7"), ("Back", "I7:K7")):
+    for name, address in (("Mode", "B7"), ("Month", "D7"), ("Back", "L6:L7")):
         named("_Period_" + name, f"{ref(SHEET)}!{absolute_coordinate(address)}")
     named("_Period_ActiveCount", "'_period_state'!$B$4")
     b.cache.set(
@@ -128,8 +126,6 @@ def install_period_view(builder):
         "월별 주요이슈",
     )
     ws.merge_cells("A3:K3")
-    ws["A3"]._style = copy(ws["I7"]._style)
-    ws["A3"].alignment = Alignment(horizontal="left", vertical="center")
     b.cache.set(
         ws,
         "A3",

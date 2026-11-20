@@ -19,19 +19,14 @@ FIELDS = (
     "report_equipment",
     "minutes",
     "status",
-    "major",
-    "detail_equipment",
-    "middle",
-    "minor",
-    "normalized",
-    "raw_description",
     "review_reason",
-    "review_action",
-    "candidates",
+    "history_link",
 )
 
 
 def build_review_overview(b):
+    from report.excel_report import decision_row_height
+
     result = b.r
     review = descending(result.tables["review"], "minutes")
     ws = b.new_sheet("review", "검토필요 및 분류현황", span=len(FIELDS))
@@ -40,7 +35,7 @@ def build_review_overview(b):
         ws,
         5,
         1,
-        "정지시간 내림차순. 원본 행 번호를 클릭하면 색상·사유 메모가 표시된 원본 별첨으로 이동합니다. 검수 후 프로그램에서 보정하고 다시 출력하세요.",
+        "정지시간 내림차순. 상세 이력에서 표준화 내용과 분류 근거를 확인할 수 있습니다. 원본 행 번호를 클릭하면 색칠된 원본으로 이동합니다.",
         project=False,
     )
     b.header(ws, 6, ["분석 이력(건)", "검토필요 이력(건)", "정지시간(분)", "시간 기재(건)"])
@@ -73,7 +68,7 @@ def build_review_overview(b):
         b.put(ws, row, 6, " ", project=False).fill = PatternFill(
             "solid", fgColor=colors[key].lstrip("#")
         )
-    ws.merge_cells("D16:J16")
+    ws.merge_cells("D16:I16")
     b.put(
         ws,
         16,
@@ -85,10 +80,8 @@ def build_review_overview(b):
     headers = [b.display_header(field) for field in FIELDS]
     headers[4] = "라인"
     for field, label in {
-        "normalized": "표준화 후 내용",
-        "raw_description": "원문 고장내용",
         "review_reason": "검토 사유",
-        "review_action": "확인·수정 사항",
+        "history_link": "상세 이력",
     }.items():
         headers[FIELDS.index(field)] = label
     b.header(ws, header, headers)
@@ -104,6 +97,15 @@ def build_review_overview(b):
                     source_row,
                     "0",
                 )
+            elif field == "history_link":
+                b.formula(
+                    ws,
+                    row,
+                    col,
+                    f'=IFERROR(HYPERLINK("#\'별첨. 고장이력\'!B"&(MATCH(A{row},{b.range("source_row")},0)+6),"이력 보기"),"")',
+                    "이력 보기",
+                    "General",
+                )
             else:
                 b.put(
                     ws,
@@ -117,16 +119,17 @@ def build_review_overview(b):
                     if field == "minutes"
                     else None,
                 )
-        ws.row_dimensions[row].height = 64
+        ws.row_dimensions[row].height = decision_row_height(
+            record, {"review_reason": 41}, minimum=24
+        )
     if review.empty:
         b.put(ws, header + 1, 1, "검토필요 이력 없음", project=False)
     for col, field in enumerate(FIELDS, 1):
-        ws.column_dimensions[get_column_letter(col)].width = (
-            42
-            if field
-            in ("normalized", "raw_description", "review_reason", "review_action", "candidates")
-            else 18
-        )
+        ws.column_dimensions[get_column_letter(col)].width = {
+            "report_equipment": 25,
+            "review_reason": 46,
+            "history_link": 14,
+        }.get(field, 16)
     ws.column_dimensions["A"].width = 14
     last_column = get_column_letter(len(FIELDS))
     ws.auto_filter.ref = f"A{header}:{last_column}{max(header, header + len(review))}"
