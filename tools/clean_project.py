@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CACHES = {"build", ".pytest_cache", ".ruff_cache"}
-PRESERVED = {".git", ".venv", "config", "source", "wheels", "output", "dist"}
+PRESERVED = {".git", ".venv", "config", "source", "wheels", "output", "outputs", "dist", "tmp"}
 VALIDATION_FOLDERS = (
     "catalog_activation_1_8_0",
     "catalog_application_20261020",
@@ -20,6 +20,7 @@ VALIDATION_FOLDERS = (
     "rules_report_validation",
     "ui_1_9_0",
 )
+LOCAL_VALIDATION_FOLDERS = ("tmp/demo", "tmp/qa")
 
 
 @dataclass
@@ -146,6 +147,10 @@ def discover(validation_temp: bool) -> tuple[list[Path], list[str]]:
 
     walk(ROOT)
     if validation_temp:
+        for name in LOCAL_VALIDATION_FOLDERS:
+            path = ROOT / name
+            if os.path.lexists(path):
+                candidates.add(path)
         for name in VALIDATION_FOLDERS:
             directory = ROOT / "output" / name
             if not os.path.lexists(directory):
@@ -175,7 +180,7 @@ def main() -> int:
     parser.add_argument(
         "--validation-temp",
         action="store_true",
-        help="also include pytest_* folders in the five known output validation folders",
+        help="also include local QA work and pytest_* folders in known validation directories",
     )
     options = parser.parse_args()
     paths, warnings = discover(options.validation_temp)

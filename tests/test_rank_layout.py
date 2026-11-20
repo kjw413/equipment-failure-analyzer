@@ -37,29 +37,28 @@ def test_full_tables_below_top_charts_keep_fractional_minutes(organization_resul
     values, formulas = load_workbook(path, data_only=True), load_workbook(path)
     try:
         main = values["02.팀별 주요이슈"]
-        assert [main.cell(row, 2).value for row in range(27, 39)] == [
+        first_data_row = 28
+        assert [main.cell(row, 2).value for row in range(first_data_row, first_data_row + 12)] == [
             f"라인{i:02d}" for i in range(12)
         ]
-        assert sum(main.cell(row, 4).value or 0 for row in range(27, main.max_row + 1)) == 12
-        assert sum(main.cell(row, 5).value or 0 for row in range(27, main.max_row + 1)) == 15
-        assert main["E27"].value == 1.25 and formulas[main.title]["E27"].number_format == "#,##0"
-        assert "%" in formulas[main.title]["F27"].number_format
-        assert not any(
-            formulas[main.title].row_dimensions[row].hidden for row in range(27, main.max_row + 1)
-        )
+        rows = range(first_data_row, main.max_row + 1)
+        assert sum(main.cell(row, 4).value or 0 for row in rows) == 12
+        assert sum(main.cell(row, 5).value or 0 for row in rows) == 15
+        assert main[f"E{first_data_row}"].value == 1.25
+        assert formulas[main.title][f"E{first_data_row}"].number_format == "#,##0"
+        assert "%" in formulas[main.title][f"F{first_data_row}"].number_format
+        assert not any(formulas[main.title].row_dimensions[row].hidden for row in rows)
         assert "별첨. 동일 상세설비 비교" not in values
         assert "별첨. 원본 검토표시" in values
-        for name in ("02.팀별 주요이슈", "04.고장비교", "03.월별 주요이슈"):
+        for name, header_row in {
+            "02.팀별 주요이슈": 27,
+            "04.고장비교": 25,
+            "03.월별 주요이슈": 23,
+        }.items():
             sheet = formulas[name]
-            assert all(chart.anchor._from.row < 26 for chart in sheet._charts)
-            assert (
-                sheet[
-                    {"02.팀별 주요이슈": "A26", "04.고장비교": "A24", "03.월별 주요이슈": "A22"}[
-                        name
-                    ]
-                ].value
-                is not None
-            )
+            assert sheet._charts
+            assert all(chart.anchor._from.row + 1 < header_row for chart in sheet._charts)
+            assert sheet.cell(header_row, 1).value is not None
         trend = formulas["03.월별 주요이슈"]
         assert trend.column_dimensions["L"].width == trend.column_dimensions["A"].width
         assert result.selected.equals(original)
@@ -78,7 +77,7 @@ def test_full_tables_below_top_charts_keep_fractional_minutes(organization_resul
                 for root in horizontal
             )
             assert any(
-                "$B$27:$B$31" in node.text
+                f"$B${first_data_row}:$B${first_data_row + 4}" in node.text
                 for root in horizontal
                 for node in root.findall(".//c:f", NS)
             )

@@ -1,7 +1,15 @@
-param([Parameter(Mandatory=$true)][string]$ReportPath, [switch]$AllowTemporaryVbaAccess, [string]$EvidenceDirectory='output/report_v122_qa', [switch]$PreviewPdf)
+param([Parameter(Mandatory=$true)][string]$ReportPath, [switch]$AllowTemporaryVbaAccess, [string]$EvidenceDirectory='tmp/qa/search', [switch]$PreviewPdf)
 $ErrorActionPreference = 'Stop'
 if (-not $AllowTemporaryVbaAccess) { throw 'Explicit authorization required.' }
 $root = Split-Path -Parent $PSScriptRoot
+$ReportPath = (Resolve-Path -LiteralPath $ReportPath).ProviderPath
+if ([IO.Path]::IsPathRooted($EvidenceDirectory)) {
+    $evidencePath = $EvidenceDirectory
+} else {
+    $evidencePath = Join-Path $root $EvidenceDirectory
+}
+$evidencePath = [IO.Path]::GetFullPath($evidencePath)
+[void][IO.Directory]::CreateDirectory($evidencePath)
 $securityPath = 'HKCU:\Software\Microsoft\Office\16.0\Excel\Security'
 $existed = Test-Path -LiteralPath $securityPath
 $old = Get-ItemProperty -LiteralPath $securityPath -Name AccessVBOM -ErrorAction SilentlyContinue
@@ -42,7 +50,7 @@ try {
     # Route a probe through the bound handler so the real BeforeDoubleClick procedure runs.
     $searchModule.AddFromString("`r`nPublic Function ProbeChartDoubleClick(ByVal sheetName As String, ByVal chartIndex As Long, ByVal point As Long) As Boolean`r`nInitialize`r`nDim handler As EFADrillChart`r`nFor Each handler In ChartHandlers`r`nIf handler.Watched.Parent.Parent.Name = sheetName And handler.Watched.Parent.Index = chartIndex Then ProbeChartDoubleClick = handler.ProbeDoubleClick(point): Exit Function`r`nNext handler`r`nEnd Function")
     $excel.CalculateFull()
-    if ($PreviewPdf) { $excel.Run("'" + $book.Name + "'!NativeSearchQA.SetPreviewDirectory", (Join-Path $root $EvidenceDirectory)) }
+    $excel.Run("'" + $book.Name + "'!NativeSearchQA.ConfigureEvidence", $evidencePath, [bool]$PreviewPdf)
     $result = $excel.Run("'" + $book.Name + "'!NativeSearchQA.VerifySearch")
     if ($result -notlike 'PASS;*') { throw "Native Excel verification failed: $result" }
     Write-Output $result
@@ -60,16 +68,16 @@ try {
     Write-Output $events
     if ($events -notlike 'PASS;*') { throw "Native workbook event verification failed: $events" }
     if ($PreviewPdf) {
-        $book.Worksheets.Item('01.종합현황').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/summary_native.pdf')))
-        $book.Worksheets.Item('03.월별 주요이슈').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/trend_native.pdf')))
-        $book.Worksheets.Item('04.고장비교').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/comparison_native.pdf')))
-        $book.Worksheets.Item('별첨. 동일 상세설비 비교').ExportAsFixedFormat(0, (Join-Path $root ($EvidenceDirectory + '/module_compare_native.pdf')))
+        $book.Worksheets.Item('01.종합현황').ExportAsFixedFormat(0, (Join-Path $evidencePath 'summary_native.pdf'))
+        $book.Worksheets.Item('03.월별 주요이슈').ExportAsFixedFormat(0, (Join-Path $evidencePath 'trend_native.pdf'))
+        $book.Worksheets.Item('04.고장비교').ExportAsFixedFormat(0, (Join-Path $evidencePath 'comparison_native.pdf'))
+        $book.Worksheets.Item('별첨. 검토·분류현황').ExportAsFixedFormat(0, (Join-Path $evidencePath 'review_summary_native.pdf'))
     }
     $book.Close($false)
     $book = $null
     if ((Get-FileHash -LiteralPath $ReportPath -Algorithm SHA256).Hash -ne $hashBefore) { throw 'Report changed during verification.' }
     $evidence = [ordered]@{ passed=$true; native_excel_version=$excel.Version; result=$result; drilldown=$drill; comparison_sort=$comparison; period_drilldown=$period; workbook_selection_event=$events; source_sha256=$hashBefore; source_unchanged=$true; keyboard_handlers_tested=$true; keyboard_visual_test=$false }
-    $evidence | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root ($EvidenceDirectory + '/native_verification.json')) -Encoding utf8
+    $evidence | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidencePath 'native_verification.json') -Encoding utf8
 } finally {
     try {
         if ($book) { $book.Close($false) }

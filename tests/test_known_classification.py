@@ -182,8 +182,8 @@ def test_current_pipeline_and_report_keep_known_axes_and_equipment_statistics(
     exported = export_report(result, tmp_path / "known.xlsx")
     workbook = load_workbook(exported, data_only=True)
     try:
-        sheet = workbook["04.고장비교"]
-        assert sheet["A1"].value == "부서별 고장실적 비교"
+        sheet = workbook[SHEETS["issue_comparison"]]
+        assert sheet["A1"].value == "고장비교"
         choices = [cell.value for cell in workbook["_issue_lists"]["D"]]
         assert "필러·충진기" in choices and "컨베어" in choices
         facts = workbook["_issue_facts"]

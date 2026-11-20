@@ -126,7 +126,14 @@ def test_four_axes_export_in_order_and_preserve_cached_totals(hierarchy_result, 
         assert workbook["_report_metrics"]["A3"].value == hierarchy_result.metrics["total_minutes"]
         assert "별첨. 부품증상상세" not in workbook
         assert detail.auto_filter.ref.startswith("B6:")
-        assert detail.column_dimensions[OUTPUT_D["component_details"]].hidden
+        hidden_columns = {
+            index
+            for dimension in detail.column_dimensions.values()
+            if dimension.hidden
+            for index in range(dimension.min, dimension.max + 1)
+        }
+        assert detail[f"{OUTPUT_D['component_details']}6"].column in hidden_columns
+        assert all(detail[f"{OUTPUT_D[key]}6"].column not in hidden_columns for key in fields)
     finally:
         workbook.close()
     pd.testing.assert_frame_equal(hierarchy_result.selected, before)
@@ -269,12 +276,13 @@ def test_partial_excel_has_separate_counts_and_retains_missing_field(partial_res
         assert partial[0][DETAIL_COLS.index("middle") + 1] == "베어링"
         assert partial[0][DETAIL_COLS.index("minor") + 1] == UNKNOWN_SYMPTOM
         assert partial[0][DETAIL_COLS.index("classification_missing_fields") + 1] == "고장 현상"
-        summary = workbook[SHEETS["summary"]]["A6"].value
-        assert "부분 자동분류 1건" in summary
-        assert "완전 자동분류" in summary
-        assert "검토 대상 0건" in summary
+        review = workbook[SHEETS["review"]]
+        assert review["B7"].value == len(partial_result.selected)
+        assert review["C7"].value == 0
         quality = {
-            row[1].value: row[2].value for row in workbook[SHEETS["review"]] if len(row) >= 3
+            state: count
+            for state, count in review.iter_rows(min_row=11, min_col=2, max_col=3, values_only=True)
+            if state in {K["auto"], K["partial"]}
         }
         assert quality[K["partial"]] == 1
         assert quality.get(K["auto"], 0) + quality.get(K["partial"], 0) == len(

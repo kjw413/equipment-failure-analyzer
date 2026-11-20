@@ -1,4 +1,4 @@
-"""Command-line entry point for analysis and its three output files."""
+"""Command-line entry point for analysis and Excel/PDF export."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument(
-        "--overwrite", action="store_true", help="Replace existing analysis, PDF and review copy"
+        "--overwrite", action="store_true", help="Replace the existing Excel and PDF reports"
     )
     parser.add_argument("--sheet")
     parser.add_argument("--header-row", type=int)
@@ -79,8 +79,6 @@ def run(args: argparse.Namespace) -> int:
     print(f"Rows: {result.metrics['selected_rows']}; minutes: {result.metrics['total_minutes']}")
     print(paths.excel)
     print(paths.pdf)
-    if paths.source_review is not None:
-        print(paths.source_review)
     return 0
 
 

@@ -1,7 +1,8 @@
-param([Parameter(Mandatory=$true)][string]$ReportPath,[switch]$AllowTemporaryVbaAccess,[string]$EvidenceDirectory='output/fault_comparison_qa',[string]$ProbePath='tests/native_hierarchical_comparison.vba')
+param([Parameter(Mandatory=$true)][string]$ReportPath,[switch]$AllowTemporaryVbaAccess,[string]$EvidenceDirectory='tmp/qa/fault-comparison',[string]$ProbePath='tests/native_hierarchical_comparison.vba')
 $ErrorActionPreference='Stop'
 if (-not $AllowTemporaryVbaAccess) { throw 'Explicit authorization required.' }
 $root=Split-Path -Parent $PSScriptRoot
+[void][IO.Directory]::CreateDirectory((Join-Path $root $EvidenceDirectory))
 $securityPath='HKCU:\Software\Microsoft\Office\16.0\Excel\Security'
 $existed=Test-Path -LiteralPath $securityPath
 $old=Get-ItemProperty -LiteralPath $securityPath -Name AccessVBOM -ErrorAction SilentlyContinue

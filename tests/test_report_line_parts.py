@@ -47,19 +47,19 @@ def test_selectable_appendices_and_part_controls_preserve_original_rows(
             word in name for name in visible for word in ("유형별분석", "부품별분석", "원본데이터")
         )
         assert "_source_quality" not in values
-        assert values["04.고장비교"]["D6"].value == "기준 라인"
-        assert values["03.월별 주요이슈"]["I7"].value == "세부부품"
+        assert values["04.고장비교"]["D7"].value == "기준 라인"
+        assert values["03.월별 주요이슈"]["I8"].value == "세부부품"
         validation = next(
             v
             for v in formulas["03.월별 주요이슈"].data_validations.dataValidation
-            if str(v.sqref) == "J7"
+            if str(v.sqref) == "J8"
         )
         assert validation.formula1 == "=_Issue_part"
         assert validation.showErrorMessage and validation.showInputMessage
         assert len(formulas["04.고장비교"].data_validations.dataValidation) == 6
         sheet = values["04.고장비교"]
-        assert sum(sheet.cell(row, 5).value or 0 for row in range(25, sheet.max_row + 1)) == 6
-        assert sum(sheet.cell(row, 6).value or 0 for row in range(25, sheet.max_row + 1)) == 144
+        assert sum(sheet.cell(row, 5).value or 0 for row in range(26, sheet.max_row + 1)) == 6
+        assert sum(sheet.cell(row, 6).value or 0 for row in range(26, sheet.max_row + 1)) == 144
         assert len(sheet._charts) == 2 and not sheet._images
         assert DETAIL_COLS.index("normalized") < DETAIL_COLS.index("raw_description")
         detail = values[SHEETS["detail"]]
@@ -70,11 +70,11 @@ def test_selectable_appendices_and_part_controls_preserve_original_rows(
         )
         filter_formula = formulas["_issue_filter_1"]["A2"].value
         assert "SEARCH(" not in filter_formula and "COUNTIF(_Issue_asset" not in filter_formula
-        assert "'_issue_facts'!$E2='02.팀별 주요이슈'!$G$6" in filter_formula
+        assert "'_issue_facts'!$E2='02.팀별 주요이슈'!$G$7" in filter_formula
         for name, cells in (
-            ("02.팀별 주요이슈", ("D27", "E27", "F27")),
-            ("04.고장비교", ("E25", "F25", "G25")),
-            ("03.월별 주요이슈", ("B24", "C24", "D24")),
+            ("02.팀별 주요이슈", ("D28", "E28", "F28")),
+            ("04.고장비교", ("E26", "F26", "G26")),
+            ("03.월별 주요이슈", ("B25", "C25", "D25")),
         ):
             for cell in cells:
                 target = formulas[name][cell]

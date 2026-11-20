@@ -87,7 +87,8 @@ def test_workbook_names_formulas_and_report_code_conversion(store, input_file, t
     formulas = load_workbook(out, data_only=False)
     values = load_workbook(out, data_only=True)
     compare = values["04.고장비교"]
-    assert compare["D7"].value == "(전체)"
+    assert compare["D7"].value == "기준 라인"
+    assert compare["E7"].value == "(전체)"
     assert "VITAL#2" in [cell.value for cell in values["_issue_lists"]["C"]]
     assert values["_report_metrics"]["A2"].value == 4
     assert values["_report_metrics"]["A3"].value == 95
@@ -289,12 +290,11 @@ def test_breakdown_total_cached_and_formulas(store, input_file, tmp_path):
     result = analyze_file(store, input_file)
     path = export_report(result, tmp_path / "ranked.xlsx")
     wb = load_workbook(path, data_only=True)
-    ws = wb["04.고장비교"]
-    assert sum(ws.cell(r, 5).value or 0 for r in range(25, ws.max_row + 1)) == len(result.selected)
-    assert (
-        sum(ws.cell(r, 6).value or 0 for r in range(25, ws.max_row + 1))
-        == result.metrics["total_minutes"]
-    )
+    [(sheet_name, table_range)] = wb.defined_names["_Fault_TableRows"].destinations
+    assert sheet_name == SHEETS["issue_comparison"]
+    rows = wb[sheet_name][table_range]
+    assert sum(row[4].value or 0 for row in rows) == len(result.selected)
+    assert sum(row[5].value or 0 for row in rows) == result.metrics["total_minutes"]
     wb.close()
 
 

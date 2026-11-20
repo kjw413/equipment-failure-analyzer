@@ -11,7 +11,7 @@ $hadValue = $null -ne $old
 $excel = $null
 $book = $null
 $ownedProcess = $null
-$work = Join-Path $root 'output/search_project_build'
+$work = Join-Path $root 'tmp/qa/search-project'
 [void][IO.Directory]::CreateDirectory($work)
 $macroBook = Join-Path $work 'search_project.xlsm'
 try {

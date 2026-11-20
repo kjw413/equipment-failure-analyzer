@@ -24,9 +24,9 @@ def test_renewal_summary_uses_correct_average_and_configured_department(
         assert [metrics[cell].value for cell in ("A2", "A3")] == [4, 95]
         # One of the four records has no duration; it is not a zero-minute stop.
         assert metrics["A4"].value == pytest.approx(95 / 3)
-        assert "4건" in summary["A5"].value and "95분" in summary["A5"].value
-        assert "32분" in summary["A5"].value
-        assert formulas[SHEETS["summary"]]["A5"].data_type == "f"
+        assert "4건" in summary["A4"].value and "95분" in summary["A4"].value
+        assert "32분" in summary["A4"].value
+        assert formulas[SHEETS["summary"]]["A4"].data_type == "f"
         appendix = values[SHEETS["review"]]
         assert appendix["B3"].value == f"{datetime.now():%Y.%m.%d} 생산기술팀 작성"
         assert appendix["B3"].alignment.horizontal == "right"
@@ -41,7 +41,10 @@ def test_renewal_summary_uses_correct_average_and_configured_department(
             "04.고장비교",
         ]
         for sheet in values:
-            if sheet.sheet_state != "visible" or sheet.title in (*values.sheetnames[:4], SHEETS["source_review"]):
+            if sheet.sheet_state != "visible" or sheet.title in (
+                *values.sheetnames[:4],
+                SHEETS["source_review"],
+            ):
                 continue
             assert all(cell.value is None for cell in sheet["A"])
             assert not any(area.min_col == 1 for area in sheet.merged_cells.ranges)

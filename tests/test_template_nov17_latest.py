@@ -15,13 +15,13 @@ def test_edited_template_preserves_tables_styles_and_merged_headers(organization
     result, source = load_workbook(path), load_workbook(template_path())
     try:
         main = result["02.팀별 주요이슈"]
-        assert main["A6"].value == "공장" and main["A9"].value is None
-        assert main["A25"].value == "○ 고장이력 (건수 내림차순)"
-        assert main["G25"].value == "○ 고장이력 (시간 내림차순)"
+        assert main["A7"].value == "공장" and main["A9"].value is None
+        assert main["A26"].value == "○ 고장이력 (건수 내림차순)"
+        assert main["G26"].value == "○ 고장이력 (시간 내림차순)"
         for name, addresses in {
-            main.title: ("A1", "A5", "A25", "G25", "A26", "D26", "G26", "K26", "D27", "K27"),
-            "04.고장비교": ("A1", "A5"),
-            "03.월별 주요이슈": ("A1", "A22", "H22", "A24", "B24"),
+            main.title: ("A1", "A6", "A26", "G26", "A27", "D27", "G27", "K27", "D28", "K28"),
+            "04.고장비교": ("A1", "A6"),
+            "03.월별 주요이슈": ("A1", "A23", "H23", "A25", "B25"),
         }.items():
             sheet, design = result[name], source[name]
             for address in addresses:
@@ -33,8 +33,9 @@ def test_edited_template_preserves_tables_styles_and_merged_headers(organization
                 assert sheet.row_dimensions[row].height == design.row_dimensions[row].height
             for chart, original in zip(sheet._charts, design._charts, strict=True):
                 assert chart.anchor == original.anchor
-        assert result["04.고장비교"].auto_filter.ref.startswith("A24:L")
-        assert {"A22:A23", "K22:K23"} <= set(
+        assert result["04.고장비교"].auto_filter.ref.startswith("A25:L")
+        assert {"B27:C27", "H27:I27"} <= set(map(str, main.merged_cells.ranges))
+        assert {"A23:A24", "K23:K24"} <= set(
             map(str, result["03.월별 주요이슈"].merged_cells.ranges)
         )
         with ZipFile(path) as archive:

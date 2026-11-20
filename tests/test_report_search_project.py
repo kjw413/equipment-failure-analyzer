@@ -72,7 +72,11 @@ def test_macro_report_keeps_values_charts_and_exact_lists(organization_result, t
         assert workbook_type == "application/vnd.ms-excel.sheet.macroEnabled.main+xml"
     book = load_workbook(macro, keep_vba=True, data_only=True)
     try:
-        assert book["02.팀별 주요이슈"]["B6"].value == "(전체)"
+        issues = book["02.팀별 주요이슈"]
+        assert issues["B7"].value == "(전체)"
+        assert len(issues._charts) == 2
+        validation = next(v for v in issues.data_validations.dataValidation if "B7" in v.sqref)
+        assert validation.formula1 == "=_Issue_factory" and validation.showErrorMessage
         assert book.vba_archive is not None
     finally:
         book.close()

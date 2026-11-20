@@ -39,7 +39,7 @@ def test_bundle_generates_two_files_same_totals_and_name(store, input_file, tmp_
     wb = load_workbook(files.excel, data_only=True)
     assert wb["_report_metrics"]["A2"].value == 4
     assert wb["_report_metrics"]["A3"].value == 95
-    assert "95분" in wb[SHEETS["summary"]]["A5"].value
+    assert "정지시간 합계 95분" in wb[SHEETS["summary"]]["A4"].value
     assert files.source_review is None
     assert len([ws for ws in wb if ws.sheet_state == "visible"]) == 8 and not any(
         "\uc81c\ud488\ubcc4\ubd84\uc11d" in x for x in wb.sheetnames

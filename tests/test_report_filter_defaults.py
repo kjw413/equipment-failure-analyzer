@@ -40,7 +40,7 @@ def test_excel_filter_values_start_at_first_list_item(store, input_file, tmp_pat
                     value = sheet.cell(target_range.min_row, target_range.min_col).value
                     assert value in (ALL, first_choice), (sheet_name, str(target_range), value)
                     checked += 1
-        assert checked == 19
+        assert checked == 18
         assert result.config_snapshot == original_config
         assert store.read("final_report.json")["focus_case"] == saved_case
     finally:

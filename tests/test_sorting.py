@@ -85,7 +85,7 @@ def test_detail_export_sorted_without_mutating_source(store, input_file, tmp_pat
     detail = wb[SHEETS["detail"]]
     minutes = DETAIL_COLS.index("minutes") + 2
     assert [detail.cell(r, minutes).value for r in range(7, 11)] == [65, 20, 10, None]
-    table = wb['_fault_chart_rank']
+    table = wb["_fault_chart_rank"]
     values = [table.cell(r, 8).value for r in range(2, 12)]
     actual = [v for v in values if v not in (None, "")]
     assert actual and actual == sorted(actual, reverse=True)
@@ -123,10 +123,7 @@ def test_empty_product_report_blocks_are_omitted(store, no_product_file, tmp_pat
         assert phrase not in all_text
     assert SHEETS["cross"] not in wb.sheetnames
     text = "\n".join(
-        str(cell.value)
-        for row in wb["04.고장비교"]
-        for cell in row
-        if cell.value is not None
+        str(cell.value) for row in wb["04.고장비교"] for cell in row if cell.value is not None
     )
     assert "\uc81c\ud488" not in text
     ws = wb[SHEETS["detail"]]

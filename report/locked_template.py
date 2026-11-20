@@ -6,7 +6,6 @@ is restored after saving because an openpyxl round trip discards Excel extension
 
 from __future__ import annotations
 
-import json
 import math
 import posixpath
 import re
@@ -18,7 +17,7 @@ from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import load_workbook
-from openpyxl.cell.cell import Cell, MergedCell
+from openpyxl.cell.cell import MergedCell
 from openpyxl.formula import Tokenizer
 from openpyxl.utils.cell import get_column_letter, range_boundaries
 from openpyxl.utils.indexed_list import IndexedList
@@ -241,65 +240,6 @@ def _summary_lines(builder, target):
                 item[key] if item else "",
             )
             target[f"D{row}"].number_format = "#,##0"
-
-
-def _appendix_layout(builder, design):
-    """Apply the reference's appendix geometry without fixed source-data row counts."""
-    from openpyxl.worksheet.dimensions import ColumnDimension
-
-    path = resource_root() / "config" / "report_appendix_layout.json"
-    layouts = json.loads(path.read_text(encoding="utf-8"))
-    reference_styles = {}
-
-    def reference(style_id):
-        if style_id not in reference_styles:
-            cell = Cell(design.worksheets[0], row=1, column=1)
-            cell._style = design._cell_styles[style_id]
-            reference_styles[style_id] = cell
-        return reference_styles[style_id]
-
-    for name, layout in layouts.items():
-        if name not in builder.wb:
-            continue
-        target = builder.wb[name]
-        target.column_dimensions.clear()
-        for attrs in layout["columns"]:
-            key = get_column_letter(int(attrs["min"]))
-            dimension = ColumnDimension(target, index=key)
-            target.column_dimensions[key] = dimension
-            # Apply grouped Excel column dimensions including hidden source IDs.
-            for attr in ("min", "max", "width", "hidden", "bestFit", "outlineLevel", "collapsed"):
-                if attr in attrs:
-                    value = attrs[attr]
-                    setattr(
-                        dimension,
-                        attr,
-                        float(value)
-                        if attr == "width"
-                        else bool(int(value))
-                        if attr in ("hidden", "bestFit", "collapsed")
-                        else int(value),
-                    )
-            if "style" in attrs:
-                _style(reference(int(attrs["style"])), dimension)
-        for address, style_id in layout["header_styles"].items():
-            cell = target[address]
-            if not isinstance(cell, MergedCell):
-                _style(reference(style_id), cell)
-        for row in range(1, target.max_row + 1):
-            target.row_dimensions[row].height = (
-                layout["row_heights"].get(str(row), layout["body_height"])
-                if row <= 6
-                else layout["body_height"]
-            )
-        for key, value in layout["margins"].items():
-            setattr(target.page_margins, key, float(value))
-        for key, value in layout["page_setup"].items():
-            if key in ("orientation", "paperSize", "fitToWidth", "fitToHeight", "scale"):
-                setattr(target.page_setup, key, value if key == "orientation" else int(value))
-        left, right = layout["print_columns"]
-        bottom = max(target.max_row, 42) if name.endswith("분석") else target.max_row
-        target.print_area = f"{left}1:{right}{bottom}"
 
 
 def apply_locked_template(builder):

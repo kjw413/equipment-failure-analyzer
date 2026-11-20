@@ -1,7 +1,7 @@
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-extend-exclude = ["build", "dist", "sample", "output"]
+extend-exclude = ["build", "dist", "sample", "output", "outputs", "tmp"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I"]

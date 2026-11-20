@@ -26,25 +26,22 @@ def test_missing_time_excel_summary_does_not_name_a_time_leader(store, input_fil
             str(cell.value) for row in summary for cell in row if cell.value is not None
         )
         assert "nan" not in text.lower()
-        assert "정지시간 합계 확인 필요" in summary["A5"].value
-        assert summary["A35"].value is None
-        assert "최다 설비:" not in text
+        assert "정지시간 합계 확인 필요" in summary["A4"].value
+        assert summary["D9"].value == 1
+        assert all(
+            summary[f"{column}{row}"].value in (None, "")
+            for column in "BD"
+            for row in range(22, 32)
+        )
     finally:
         workbook.close()
 
 
-def test_equipment_charts_share_rendering_and_describe_configured_limit(
-    store, input_file, tmp_path, monkeypatch
-):
+def test_removed_donut_option_uses_current_excel_comparison(store, input_file, tmp_path):
     result = analyze_file(store, input_file)
     settings = {**result.config_snapshot["settings"], "donut_top_n": 3}
     result = replace(result, config_snapshot={**result.config_snapshot, "settings": settings})
-    render = Mock(wraps=excel.donut_png)
-    breakdown = Mock(wraps=excel.type_breakdown)
-    monkeypatch.setattr(excel, "donut_png", render)
-    monkeypatch.setattr(excel, "type_breakdown", breakdown)
     path = excel.export_report(result, tmp_path / "shared.xlsx")
-    assert render.call_count == 0 and breakdown.call_count == 0
     workbook = load_workbook(path, data_only=True)
     try:
         assert "별첨. 동일 상세설비 비교" not in workbook

@@ -229,15 +229,15 @@ def test_period_tables_show_calendar_order_even_when_downtime_ranking_differs(
     result = analyze_file(store, input_file)
     workbook = load_workbook(export_report(result, tmp_path / "calendar.xlsx"), data_only=True)
     try:
-        # The former period appendix now lives in 04's month/week/year/day view.
+        # The monthly issue sheet incorporates the former period appendix.
         assert "별첨. 기간별추이" not in workbook.sheetnames
         sheet = workbook["03.월별 주요이슈"]
-        assert [sheet.cell(row, 1).value for row in range(24, 27)] == [
+        assert [sheet.cell(row, 1).value for row in range(25, 28)] == [
             "2026-01",
             "2026-02",
             "2026-03",
         ]
-        assert [sheet.cell(row, 3).value for row in range(24, 27)] == [10, 65, 20]
+        assert [sheet.cell(row, 3).value for row in range(25, 28)] == [10, 65, 20]
     finally:
         workbook.close()
 

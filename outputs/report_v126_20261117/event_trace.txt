@@ -1,8 +1,0 @@
-Before Range.Select
-Before Prepare
-After Prepare
-Before Show
-ObservePicker begin
-ObservePicker escaped
-After Show
-After Range.Select

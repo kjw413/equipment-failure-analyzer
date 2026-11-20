@@ -14,6 +14,8 @@ sample/
 .pytest_tmp*/
 output/*
 !output/README.txt
+/outputs/*
+/source/*
 .ruff_cache/
 tmp/
 ~$*

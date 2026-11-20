@@ -6,8 +6,10 @@ End Sub
 Private Sub VerifyPeriodMouse(ByVal sheet As Worksheet)
     ' Exercise Excel's real Select event: a single click must only select the point.
     ' The drill runs on double-click (EFADrillChart.BeforeDoubleClick -> FollowChart).
-    Dim chart As Chart, selected As Long, expected As String, previousEvents As Boolean
-    PeriodCheck EFASearch.ProbeChartBindingCount() = 6, "Six native chart handlers bound (02, 04, same-module comparison)"
+    Dim chart As Chart, selected As Long, expected As String, previousEvents As Boolean, boundCharts As Long
+    boundCharts = ThisWorkbook.Worksheets("02.팀별 주요이슈").ChartObjects.Count + _
+                  ThisWorkbook.Worksheets("04.고장비교").ChartObjects.Count + sheet.ChartObjects.Count
+    PeriodCheck EFASearch.ProbeChartBindingCount() = boundCharts, "All current native chart handlers bound"
     Application.Visible = True
     sheet.Activate
     Set chart = sheet.ChartObjects(1).Chart
@@ -18,9 +20,9 @@ Private Sub VerifyPeriodMouse(ByVal sheet As Worksheet)
     Application.EnableEvents = True
     chart.SeriesCollection(1).Points(selected).Select
     Application.EnableEvents = previousEvents
-    PeriodCheck sheet.Range("B7").Value2 = "월별", "Single click (Select event) does not drill"
+    PeriodCheck ThisWorkbook.Names("_Period_Mode").RefersToRange.Value2 = "월별", "Single click (Select event) does not drill"
     PeriodCheck EFASearch.ProbeChartDoubleClick(sheet.Name, 1, selected), "Double-click handler cancels Excel's default and drills"
-    PeriodCheck sheet.Range("B7").Value2 = "일별" And sheet.Range("F7").Value2 = expected, "Drill commits exactly the selected month"
+    PeriodCheck ThisWorkbook.Names("_Period_Mode").RefersToRange.Value2 = "일별" And ThisWorkbook.Names("_Period_Month").RefersToRange.Value2 = expected, "Drill commits exactly the selected month"
     PeriodCheck EFASearch.BackToMonths(), "Restore monthly after point drill"
     ' Excel otherwise exports an active selected chart instead of the worksheet.
     sheet.Range("A1").Select

@@ -81,9 +81,11 @@ def test_line_names_and_groups_reach_excel_and_pdf(store, line_file, tmp_path):
     book = load_workbook(path, data_only=True)
     assert book["_report_metrics"]["A2"].value == 3
     assert book["_report_metrics"]["A3"].value == 60
-    compare = book["04.고장비교"]
-    assert sum(compare.cell(row, 5).value or 0 for row in range(25, compare.max_row + 1)) == 3
-    assert sum(compare.cell(row, 6).value or 0 for row in range(25, compare.max_row + 1)) == 60
+    [(sheet_name, table_range)] = book.defined_names["_Fault_TableRows"].destinations
+    assert sheet_name == SHEETS["issue_comparison"]
+    rows = book[sheet_name][table_range]
+    assert sum(row[4].value or 0 for row in rows) == 3
+    assert sum(row[5].value or 0 for row in rows) == 60
     assert "별첨. 기준정보" not in book
     details = book[SHEETS["detail"]]
     group_column = DETAIL_COLS.index("equipment_group") + 2

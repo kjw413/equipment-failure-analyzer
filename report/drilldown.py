@@ -12,15 +12,6 @@ MAIN_SHEET = "02.팀별 주요이슈"
 FIELDS = ("factory", "team", "asset", "module", "part")
 
 
-def field_order(title):
-    """Cascade order per sheet: parents narrow child lists; changes reset children."""
-    from report.module_comparison import FIELD_ORDER, SHEET
-
-    if title == "04.고장비교":
-        return ("organization", "asset", "module")
-    return FIELD_ORDER if title == SHEET else FIELDS
-
-
 def build_ranks(issues, filters):
     from report.issue_workbook import exact
 
@@ -125,21 +116,15 @@ def install_controls(builder):
         selected = {}
         for validation in sheet.data_validations.dataValidation:
             field = validation.formula1.removeprefix("=_Issue_")
-            if field not in (*FIELDS, "organization"):
+            if field not in FIELDS:
                 continue
             for area in validation.sqref.ranges:
                 selected[field] = sheet.cell(area.min_row, area.min_col).coordinate
-        order = field_order(sheet.title)
-        for field in order:
+        for position, field in enumerate(FIELDS):
             if field not in selected:
-                continue
-            if field == "organization":
-                address = selected[field]
-                controls.append([sheet.title, field, address, 1, 0, sheet[address].value])
                 continue
             column += 1
             letter = get_column_letter(column)
-            position = order.index(field)
             address = selected[field]
             committed = sheet[address].value
             controls.append([sheet.title, field, address, position + 1, column, committed or ALL])
@@ -151,11 +136,11 @@ def install_controls(builder):
                 ),
             ]
             # _issue_lists keeps the canonical FIELDS column order on every sheet.
-            source_col = get_column_letter(FIELDS.index(field) + 1)
+            source_col = get_column_letter(position + 1)
             count = len(values)
             source_range = f"'_issue_lists'!${source_col}$1:${source_col}${count}"
             conditions = []
-            for parent in order[:position]:
+            for parent in FIELDS[:position]:
                 if parent not in selected:
                     continue
                 col = get_column_letter(FACT_COLUMNS.index(parent) + 1)
@@ -163,8 +148,6 @@ def install_controls(builder):
                 cell_ref = f"{ref(sheet.title)}!${cell.column_letter}${cell.row}"
                 conditions.extend((f"'_issue_facts'!${col}$2:${col}${last}", criterion(cell_ref)))
             fact_col = get_column_letter(key_index)
-            eligible = None
-            allowed = [v for v in values if eligible is None or v == ALL or v in eligible]
             for row, value in enumerate(values, 1):
                 args = [
                     *conditions,
@@ -172,13 +155,13 @@ def install_controls(builder):
                     exact(value),
                 ]
                 formula = "=1" if row == 1 else f"=IF(COUNTIFS({','.join(args)})>0,1,0)"
-                builder.cache.set(flags, f"{letter}{row}", formula, int(value in allowed))
+                builder.cache.set(flags, f"{letter}{row}", formula, 1)
                 index = f"_xlfn.AGGREGATE(15,6,(ROW({source_range})-ROW('_issue_lists'!${source_col}$1)+1)/('_selector_flags'!${letter}$1:${letter}${count}>0),{row})"
                 builder.cache.set(
                     lists,
                     f"{letter}{row}",
                     f'=IFERROR(INDEX({source_range},{index}),"")',
-                    allowed[row - 1] if row <= len(allowed) else "",
+                    value,
                 )
             scope = f"'_selector_lists'!${letter}$1:${letter}${count}"
             # COUNTIF ?* excludes formula-empty strings. ALL is always the first item.

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from copy import copy
 from dataclasses import replace
 from io import BytesIO
@@ -16,7 +15,7 @@ from openpyxl import load_workbook
 from PIL import Image
 
 from core.analyzer import analyze
-from report.excel_report import ReportBuilder
+from report.excel_report import export_report
 from report.locked_template import (
     LOCKED_SHEETS,
     METRICS_SHEET,
@@ -28,28 +27,6 @@ from report.locked_template import (
 @pytest.fixture
 def organization_result(store, input_file):
     return test_report_issue_views.organization_result.__wrapped__(store, input_file)
-
-
-def populate(result, path):
-    from report.excel_report import export_report
-
-    builder = ReportBuilder(result)
-    export_report(result, path)
-    return builder
-
-
-def without_caches(raw):
-    raw = re.sub(rb"<c:(strCache|numCache)\b[^>]*>.*?</c:\1>", b"", raw, flags=re.DOTALL)
-    raw = re.sub(
-        rb'(<c:numFmt\b[^>]*formatCode=")([^"]*)(")',
-        lambda m: m[0] if b"%" in m[2] else m[1] + re.sub(rb"\.0+", b"", m[2]) + m[3],
-        raw,
-    )
-    if b'<c:barDir val="bar"' in raw:
-        raw = re.sub(
-            rb'<c:orientation val="(?:minMax|maxMin)"/>', b'<c:orientation val="maxMin"/>', raw
-        )
-    return raw
 
 
 def test_template_asset_contains_design_only():
@@ -75,7 +52,7 @@ def test_template_asset_contains_design_only():
 
 def test_locked_design_keeps_formats_and_approved_filter_space(organization_result, tmp_path):
     path = tmp_path / "locked.xlsx"
-    builder = populate(organization_result, path)
+    export_report(organization_result, path)
     design = load_workbook(template_path())
     result = load_workbook(path)
     try:
@@ -95,32 +72,31 @@ def test_locked_design_keeps_formats_and_approved_filter_space(organization_resu
             assert target.page_margins == source.page_margins
             assert target.sheet_properties.pageSetUpPr.fitToPage
             assert target.page_setup.fitToWidth == 1
-        assert {"B6:C6", "B8:C8", "E6:G6", "E8:G8", "A7:J7"} <= {
+        assert {"B7:C7", "B9:C9", "E7:G7", "E9:G9", "I7:J7", "I9:J9", "A8:J8"} <= {
             str(x) for x in result["04.고장비교"].merged_cells.ranges
         }
         for name in LOCKED_SHEETS[1:]:
             assert len(result[name]._charts) == 2
     finally:
-        builder.close()
         design.close()
         result.close()
 
 
 def test_locked_values_formulas_and_native_graphics(organization_result, tmp_path):
     path = tmp_path / "values.xlsx"
-    builder = populate(organization_result, path)
-    values, formulas = load_workbook(path, data_only=True), load_workbook(path)
+    export_report(organization_result, path)
+    values = load_workbook(path, data_only=True)
     try:
         assert values[METRICS_SHEET]["A2"].value == 6
         assert values[METRICS_SHEET]["A3"].value == 144
         assert values[METRICS_SHEET]["A4"].value == 28.8
-        assert "평균 정지시간 29분" in values[LOCKED_SHEETS[0]]["A5"].value
-        assert values[LOCKED_SHEETS[1]]["C9"].value == 6
-        assert values[LOCKED_SHEETS[1]]["E9"].value == 144
+        assert "평균 정지시간 29분" in values[LOCKED_SHEETS[0]]["A4"].value
+        assert values[LOCKED_SHEETS[1]]["C10"].value == 6
+        assert values[LOCKED_SHEETS[1]]["E10"].value == 144
         comparison = values["04.고장비교"]
-        assert [comparison.cell(26, col).value for col in (5, 6, 8, 9)] == [2, 100, -2, 56]
+        assert [comparison.cell(27, col).value for col in (5, 6, 8, 9)] == [2, 100, -2, 56]
         trend = values["03.월별 주요이슈"]
-        assert [(trend.cell(row, 2).value, trend.cell(row, 3).value) for row in range(24, 28)] == [
+        assert [(trend.cell(row, 2).value, trend.cell(row, 3).value) for row in range(25, 29)] == [
             (3, 130),
             (0, 0),
             (1, None),
@@ -135,9 +111,7 @@ def test_locked_values_formulas_and_native_graphics(organization_result, tmp_pat
                     assert label.find("c:showVal", NS).get("val") == "1"
                     assert label.find("c:numFmt", NS).get("formatCode") == "#,##0"
     finally:
-        builder.close()
         values.close()
-        formulas.close()
 
 
 @pytest.mark.parametrize("minutes,empty", [(None, False), (0, False), (None, True)])
@@ -153,10 +127,10 @@ def test_summary_missing_time_and_zero_stay_distinct(organization_result, tmp_pa
         else organization_result.options,
     )
     path = tmp_path / "missing.xlsx"
-    builder = populate(result, path)
+    export_report(result, path)
     values = load_workbook(path, data_only=True)
     try:
-        text = values[LOCKED_SHEETS[0]]["A5"].value
+        text = values[LOCKED_SHEETS[0]]["A4"].value
         if minutes == 0 and not empty:
             assert "정지시간 합계 0분" in text
             assert "평균 정지시간 0분" in text
@@ -165,7 +139,6 @@ def test_summary_missing_time_and_zero_stay_distinct(organization_result, tmp_pa
             assert "평균 정지시간 확인 필요" in text
             assert values[METRICS_SHEET]["A3"].value is None
     finally:
-        builder.close()
         values.close()
 
 
@@ -197,20 +170,19 @@ def test_longer_tables_preserve_every_organization_and_month(organization_result
         organization_result.options,
     )
     path = tmp_path / "grow.xlsx"
-    builder = populate(result, path)
+    export_report(result, path)
     values = load_workbook(path, data_only=True)
     try:
         comparison, trend = values["04.고장비교"], values["03.월별 주요이슈"]
         assert (
-            sum(comparison.cell(row, 5).value or 0 for row in range(25, comparison.max_row + 1))
+            sum(comparison.cell(row, 5).value or 0 for row in range(26, comparison.max_row + 1))
             == 24
         )
-        assert sum(trend.cell(row, 2).value or 0 for row in range(24, 48)) == 24
-        assert comparison["A33"].value == "공장8"
-        assert trend["A47"].value == "2026-12"
+        assert sum(trend.cell(row, 2).value or 0 for row in range(25, 49)) == 24
+        assert comparison["A34"].value == "공장8"
+        assert trend["A48"].value == "2026-12"
         assert comparison._charts[0].anchor._from.row < 24
         assert trend._charts[0].anchor._from.row < 24
-        assert trend.row_dimensions[47].height > 0
+        assert trend.row_dimensions[48].height > 0
     finally:
-        builder.close()
         values.close()
