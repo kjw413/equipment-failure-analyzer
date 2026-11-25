@@ -39,7 +39,7 @@ def test_existing_profile_gets_every_new_choice_and_keeps_manual_corrections(tmp
     (directory / "manual_overrides.json").write_bytes(original_manual)
     store = ConfigStore(root)
     config = store.load()
-    assert len(paths()) == 248
+    assert len(paths()) == 250
     assert catalog_categories(config["rules"]) == paths()
     assert not any(rule["id"] == "PUMP" for rule in config["rules"])
     assert (directory / "manual_overrides.json").read_bytes() == original_manual

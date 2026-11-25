@@ -162,14 +162,23 @@ class PublicTaxonomy:
             )
         if family == "씰·패킹·링" and symptom in {"손상·파손", "마모", "변형", "이탈·풀림"}:
             return "기계"
-        if symptom == "누설":
+        if symptom == "온도이상":
+            return "온도·냉각"
+        generic_valve = part == "밸브(종류 미상)" or (
+            part == "세부 부품 미기재" and equipment == "밸브"
+        )
+        if generic_valve and symptom in {"손상·파손", "마모", "변형", "부식", "이탈·풀림"}:
+            return "기계"
+        if symptom == "누설" or generic_valve:
             if re.search(r"냉매|icm|석션.*밸브|썩션.*밸브", context, re.I):
                 return "온도·냉각"
             if re.search(r"에어|공압|진공", context):
                 return "공압·진공"
-            return "유체·배관"
-        if symptom == "온도이상":
-            return "온도·냉각"
+            if re.search(r"냉각수|공정수|용수|스팀|증기|온수|냉수|원유|오일|유체", context) or (
+                symptom == "누설" and not generic_valve and original != UNKNOWN_DOMAIN
+            ):
+                return "유체·배관"
+            return UNKNOWN_DOMAIN
         if part == "세부 부품 미기재" and symptom == "고장·이상":
             return UNKNOWN_DOMAIN
         return original if original in self.domains else UNKNOWN_DOMAIN

@@ -9,6 +9,7 @@ QLabel#dropTitle { font-size: 15px; font-weight: 600; }
 QFrame#dropArea { background: #FFFFFF; border: 2px dashed #AAB3BC; border-radius: 10px; }
 QPushButton { background: #FFFFFF; border: 1px solid #C5CCD3; border-radius: 5px; padding: 7px 13px; min-height: 20px; }
 QPushButton:hover { background: #E8EDF1; }
+QPushButton:checked { background: #E5E9ED; border-color: #98A8B5; }
 QToolButton { background: white; border: 1px solid #C5CCD3; border-radius: 5px; padding: 7px 16px 7px 10px; min-height: 20px; }
 QToolButton:hover { background: #E8EDF1; }
 QMenu { background: white; border: 1px solid #C5CCD3; padding: 5px; }

@@ -45,8 +45,12 @@ def test_window_initialization_and_mapping_button(app, tmp_path):
     window.show()
     QTest.qWait(30)
     assert window.drop.acceptDrops()
+    assert window.drop.isVisible()
+    assert not window.file_settings_button.isVisible()
     assert window.names_button.isEnabled()
     assert not window.report_button.isEnabled()
+    assert window.last_results_button.isHidden()
+    assert window.tabs.tabText(1) == "검토필요 · 분석 전"
     window.close()
 
 
@@ -246,6 +250,13 @@ def test_save_dialog_starts_in_output_folder(app, tmp_path, monkeypatch, input_f
     window.load_path(input_file)
     while window.task is not None:
         QTest.qWait(50)
+    assert window.drop.isHidden()
+    assert not window.source_panel.isHidden()
+    assert window.advanced_panel.isHidden()
+    window.advanced_toggle.click()
+    assert not window.advanced_panel.isHidden()
+    window.advanced_toggle.click()
+    assert window.advanced_panel.isHidden()
     seen = {}
 
     def fake_dialog(parent, title, directory, *args, **kwargs):
@@ -253,7 +264,7 @@ def test_save_dialog_starts_in_output_folder(app, tmp_path, monkeypatch, input_f
         return "", ""
 
     monkeypatch.setattr(QFileDialog, "getSaveFileName", fake_dialog)
-    window.save_report()
+    window.report_button.click()
     from pathlib import Path
 
     assert Path(seen["directory"]).parent == app_root() / "output"
@@ -276,22 +287,46 @@ def analyzed_window(app, tmp_path, input_file):
     window.close()
 
 
-@pytest.mark.parametrize("source_option", ["sheet", "header"])
-def test_source_option_changes_mark_results_stale(analyzed_window, source_option):
-    from core.i18n import K
-    from core.models import UserError
+@pytest.mark.parametrize("choice", ["cancel", "apply", "invalid"])
+def test_file_read_settings_apply_only_when_reload_succeeds(analyzed_window, monkeypatch, choice):
+    from PySide6.QtWidgets import QDialog, QDialogButtonBox, QSpinBox
 
     window = analyzed_window
-    assert window.status_label.text() == K["done"]
-    if source_option == "sheet":
-        window.sheets.addItem("Another sheet")
-        window.sheets.setCurrentText("Another sheet")
-    else:
-        window.header_row.setValue(window.loaded.header_row + 1)
+    loaded, result = window.loaded, window.result
+    errors = []
+    monkeypatch.setattr(window, "show_error", errors.append)
 
-    assert window.status_label.text() == K["stale"]
-    with pytest.raises(UserError):
-        window.analysis_inputs()
+    def change_header(dialog):
+        buttons = dialog.findChild(QDialogButtonBox)
+        mapping = next(button for button in buttons.buttons() if button.text() == "컬럼 매핑…")
+        assert mapping.isEnabled()
+        header = dialog.findChild(QSpinBox)
+        header.setValue(250000 if choice == "invalid" else 0)
+        assert not mapping.isEnabled()
+        button = next(
+            button
+            for button in buttons.buttons()
+            if button.text() == ("취소" if choice == "cancel" else "적용 후 읽기")
+        )
+        button.click()
+        return dialog.result()
+
+    monkeypatch.setattr(QDialog, "exec", change_header)
+    window.file_settings_button.click()
+    if choice != "cancel":
+        task = window.task
+        assert task is not None and task.wait(20_000)
+        QTest.qWait(30)
+    assert window.task is None
+    if choice == "apply":
+        assert window.loaded is not loaded and window.loaded.header_row == loaded.header_row
+        assert window.result is None
+        assert window.current_page_key() == "raw"
+        assert window.tabs.tabText(1) == "검토필요 · 분석 전"
+    else:
+        assert window.loaded is loaded and window.result is result
+        assert not window._analysis_stale
+    assert bool(errors) == (choice == "invalid")
 
 
 def test_reanalysis_invalidates_previous_report_links(analyzed_window, tmp_path, monkeypatch):
@@ -303,6 +338,7 @@ def test_reanalysis_invalidates_previous_report_links(analyzed_window, tmp_path,
     window.report_ready((window.result, paths))
     window.update_controls()
     report_buttons = (window.open_button, window.pdf_button, window.output_button)
+    assert not window.last_results_button.isHidden()
     assert all(button.isEnabled() for button in report_buttons)
 
     window.top.setValue(2)
@@ -314,10 +350,11 @@ def test_reanalysis_invalidates_previous_report_links(analyzed_window, tmp_path,
     assert window.task is None
     assert window.result.options.top_n == 2
     assert window.last_reports is None
+    assert window.last_results_button.isHidden()
     assert all(not button.isEnabled() for button in report_buttons)
 
 
-def test_reset_clears_chart_failure_message(analyzed_window, monkeypatch):
+def test_loading_file_clears_chart_failure_message(analyzed_window, monkeypatch):
     import report.charts
     from core.i18n import K
 
@@ -330,7 +367,7 @@ def test_reset_clears_chart_failure_message(analyzed_window, monkeypatch):
     assert window._chart_canvas is None
     assert window.chart_empty.text() != K["empty"]
 
-    window.reset()
+    window.loaded_ready(window.loaded)
     assert window.chart_empty.text() == K["empty"]
     assert not window.chart_empty.isHidden()
 

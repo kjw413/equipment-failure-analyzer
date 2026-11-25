@@ -196,7 +196,7 @@ def test_filter_changes_mark_results_stale_and_invalidate_report_links(
     assert opened == []
 
 
-def test_filter_controls_disable_when_busy_and_reset_on_new_file_or_reset(
+def test_filter_controls_disable_when_busy_and_reset_on_new_file(
     window_factory, organization_loaded
 ):
     window = window_factory(load=False)
@@ -222,16 +222,6 @@ def test_filter_controls_disable_when_busy_and_reset_on_new_file_or_reset(
     )
     assert window.factory_filter.currentData() is None
     assert window.team_filter.currentData() is None
-    select_data(window.factory_filter, "North")
-    select_data(window.team_filter, "Blue")
-    window.reset()
-    assert window.loaded is None
-    assert window.factory_filter.currentData() is None
-    assert window.team_filter.currentData() is None
-    assert combo_values(window.factory_filter) == {None}
-    assert combo_values(window.team_filter) == {None}
-    assert not window.factory_filter.isEnabled()
-    assert not window.team_filter.isEnabled()
 
 
 def test_edit_names_refreshes_choices_from_latest_manual_metadata_before_analysis(

@@ -82,15 +82,6 @@ class DropArea(QFrame):
         buttons.addStretch()
         layout.addLayout(buttons)
 
-    def set_compact(self, compact: bool):
-        """Make room for analysis after loading; retain the drop target."""
-        self.title.setVisible(not compact)
-        self.subtitle.setVisible(not compact)
-        self.browse_button.setText("다른 파일 선택" if compact else K["browse"])
-        self.setMinimumHeight(56 if compact else 126)
-        self.setMaximumHeight(60 if compact else 16777215)
-        self.setToolTip("다른 Excel 파일을 끌어 놓거나 선택하세요." if compact else "")
-
     def dragEnterEvent(self, event):
         if self.isEnabled() and event.mimeData().hasUrls():
             event.acceptProposedAction()

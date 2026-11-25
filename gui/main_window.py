@@ -6,13 +6,15 @@ from datetime import datetime
 
 import pandas as pd
 from PySide6.QtCore import QDate, Qt, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDateEdit,
     QDialog,
+    QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -106,42 +108,11 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(18, 12, 18, 12)
         layout.setSpacing(8)
         self._build_header(layout)
-        condition_bar = QHBoxLayout()
-        self.source_toggle = QToolButton()
-        self.source_toggle.setText("파일 · 분석 조건")
-        self.source_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.source_toggle.setCheckable(True)
-        self.source_toggle.setChecked(True)
-        self.source_toggle.setArrowType(Qt.ArrowType.UpArrow)
-        condition_bar.addWidget(self.source_toggle)
-        self.condition_summary = QLabel("Excel 파일을 등록하세요.")
-        self.condition_summary.setObjectName("muted")
-        self.condition_summary.setWordWrap(True)
-        self.condition_summary.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
-        )
-        condition_bar.addWidget(self.condition_summary, 1)
-        layout.addLayout(condition_bar)
-        self.source_panel = QWidget()
-        source_layout = QVBoxLayout(self.source_panel)
-        source_layout.setContentsMargins(0, 0, 0, 0)
-        source_layout.setSpacing(8)
-        self._build_source_controls(source_layout)
-        self._build_analysis_controls(source_layout)
-        self.source_toggle.toggled.connect(self._toggle_source_panel)
-        layout.addWidget(self.source_panel)
+        self._build_source_controls(layout)
+        self._build_analysis_controls(layout)
         self._build_report_controls(layout)
         self._build_tabs(layout)
         self._build_status(layout)
-
-    def _toggle_source_panel(self, expanded):
-        self.source_panel.setVisible(expanded)
-        self.source_toggle.setArrowType(
-            Qt.ArrowType.UpArrow if expanded else Qt.ArrowType.DownArrow
-        )
-        self.source_toggle.setToolTip(
-            "파일·분석 조건 접기" if expanded else "파일·분석 조건 펼치기"
-        )
 
     def _build_header(self, layout):
         header = QHBoxLayout()
@@ -152,33 +123,6 @@ class MainWindow(QMainWindow):
         header.addWidget(title)
         header.addStretch()
         header.addWidget(subtitle)
-        layout.addLayout(header)
-
-    def _build_source_controls(self, layout):
-        self.drop = DropArea()
-        self.drop.browse_requested.connect(self.browse)
-        self.drop.file_dropped.connect(self.load_path)
-        self.drop.invalid_drop.connect(self.notice)
-        layout.addWidget(self.drop)
-        self.file_label = QLabel(K["ready"])
-        self.file_label.setWordWrap(True)
-        self.file_label.setObjectName("muted")
-        self.file_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(self.file_label)
-        source = QHBoxLayout()
-        source.addWidget(QLabel(K["choose_sheet"]))
-        self.sheets = QComboBox()
-        self.sheets.setMinimumWidth(220)
-        source.addWidget(self.sheets)
-        source.addWidget(QLabel(K["header"]))
-        self.header_row = QSpinBox()
-        self.header_row.setRange(1, 250000)
-        self.header_row.setValue(1)
-        source.addWidget(self.header_row)
-        self.reload_button = self.button(K["reload"], self.reload, source)
-        self.columns_button = self.button(K["mapping"], self.edit_columns, source)
-        self.reset_button = self.button(K["reset"], self.reset, source)
-        source.addStretch()
         self.settings_button = QToolButton()
         self.settings_button.setText("기준정보 · 설정")
         self.settings_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -189,7 +133,7 @@ class MainWindow(QMainWindow):
         self.review_colors_action = menu.addAction("검토필요 색상 설정", self.edit_review_colors)
         self.folder_button = menu.addAction(K["config"], self.open_config)
         self.settings_button.setMenu(menu)
-        source.addWidget(self.settings_button)
+        header.addWidget(self.settings_button)
         self.actions.extend(
             [
                 self.settings_button,
@@ -199,22 +143,82 @@ class MainWindow(QMainWindow):
                 self.folder_button,
             ]
         )
-        layout.addLayout(source)
+        layout.addLayout(header)
+
+    def _build_source_controls(self, layout):
+        self.source_panel = QWidget()
+        source = QHBoxLayout(self.source_panel)
+        source.setContentsMargins(0, 0, 0, 0)
+        self.browse_change_button = self.button("파일 변경", self.browse, source)
+        self.file_settings_button = self.button("파일 읽기 설정…", self.edit_file_settings, source)
+        self.condition_summary = QLabel()
+        self.condition_summary.setObjectName("muted")
+        self.condition_summary.setWordWrap(True)
+        self.condition_summary.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
+        self.condition_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        source.addWidget(self.condition_summary, 1)
+        layout.addWidget(self.source_panel)
+
+        self.drop = DropArea()
+        self.drop.browse_requested.connect(self.browse)
+        self.drop.file_dropped.connect(self.load_path)
+        self.drop.invalid_drop.connect(self.notice)
+        layout.addWidget(self.drop)
 
     def _build_analysis_controls(self, layout):
-        filters = QGridLayout()
-        filters.addWidget(QLabel(K["scope"]), 0, 0)
+        self.filters_panel = QWidget()
+        filters = QHBoxLayout(self.filters_panel)
+        filters.setContentsMargins(0, 0, 0, 0)
+        self.factory_filter = QComboBox()
+        self.factory_filter.addItem(K["all_factories"], None)
+        self.team_filter = QComboBox()
+        self.team_filter.addItem(K["all_teams"], None)
+        for combo, name in ((self.factory_filter, "공장"), (self.team_filter, "팀")):
+            combo.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+            combo.setMinimumContentsLength(12)
+            label = QLabel(name)
+            label.setBuddy(combo)
+            filters.addWidget(label)
+            filters.addWidget(combo)
+        self.limit_dates = QCheckBox(K["date_filter"])
+        filters.addWidget(self.limit_dates)
+        self.date_range = QWidget()
+        dates = QHBoxLayout(self.date_range)
+        dates.setContentsMargins(0, 0, 0, 0)
+        self.date_from = QDateEdit(QDate.currentDate())
+        self.date_to = QDateEdit(QDate.currentDate())
+        for edit, name in ((self.date_from, "시작일"), (self.date_to, "종료일")):
+            edit.setAccessibleName(name)
+            edit.setDisplayFormat("yyyy-MM-dd")
+            edit.setCalendarPopup(True)
+        dates.addWidget(self.date_from)
+        dates.addWidget(QLabel("~"))
+        dates.addWidget(self.date_to)
+        filters.addWidget(self.date_range)
+        filters.addStretch()
+        self.advanced_toggle = QPushButton("고급 조건")
+        self.advanced_toggle.setCheckable(True)
+        filters.addWidget(self.advanced_toggle)
+        layout.addWidget(self.filters_panel)
+
+        self.advanced_panel = QWidget()
+        advanced = QGridLayout(self.advanced_panel)
+        advanced.setContentsMargins(0, 0, 0, 0)
+        advanced.addWidget(QLabel(K["scope"]), 0, 0)
         self.scope = QComboBox()
         self.scope.addItem(K["fault_only"], "fault")
         self.scope.addItem(K["all_stops"], "all")
-        filters.addWidget(self.scope, 0, 1)
-        filters.addWidget(QLabel(K["basis"]), 0, 2)
+        advanced.addWidget(self.scope, 0, 1)
+        advanced.addWidget(QLabel(K["basis"]), 0, 2)
         self.basis = QComboBox()
         for value in ("mapped", "group", "factory", "team", "target", "registered", "family"):
             self.basis.addItem(K[value], value)
-        self.basis.setMinimumWidth(265)
-        filters.addWidget(self.basis, 0, 3)
-        filters.addWidget(QLabel(K["units"]), 0, 4)
+        advanced.addWidget(self.basis, 0, 3)
+        advanced.addWidget(QLabel(K["units"]), 0, 4)
         self.units = QComboBox()
         for label, value in (
             (K["minutes_unit"], "minutes"),
@@ -223,64 +227,48 @@ class MainWindow(QMainWindow):
             (K["excel_days"], "excel_days"),
         ):
             self.units.addItem(label, value)
-        filters.addWidget(self.units, 0, 5)
-        self.limit_dates = QCheckBox(K["date_filter"])
-        filters.addWidget(self.limit_dates, 1, 0)
-        self.date_from = QDateEdit(QDate.currentDate())
-        self.date_to = QDateEdit(QDate.currentDate())
-        for edit in (self.date_from, self.date_to):
-            edit.setDisplayFormat("yyyy-MM-dd")
-            edit.setCalendarPopup(True)
-        filters.addWidget(self.date_from, 1, 1)
-        filters.addWidget(QLabel("~"), 1, 2)
-        filters.addWidget(self.date_to, 1, 3)
+        advanced.addWidget(self.units, 0, 5)
         self.dedup = QCheckBox(K["dedup"])
-        filters.addWidget(self.dedup, 1, 4, 1, 2)
-        filters.addWidget(QLabel(K["factory_filter"]), 2, 0)
-        self.factory_filter = QComboBox()
-        self.factory_filter.addItem(K["all_factories"], None)
-        filters.addWidget(self.factory_filter, 2, 1)
-        filters.addWidget(QLabel(K["team_filter"]), 2, 2)
-        self.team_filter = QComboBox()
-        self.team_filter.addItem(K["all_teams"], None)
-        for combo in (self.factory_filter, self.team_filter):
-            combo.setSizeAdjustPolicy(
-                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
-            )
-            combo.setMinimumContentsLength(16)
-        filters.addWidget(self.team_filter, 2, 3)
-        filter_help = QLabel("선택한 공장·팀의 기록만 분석합니다.")
-        filter_help.setObjectName("muted")
-        filter_help.setWordWrap(True)
-        filters.addWidget(filter_help, 2, 4, 1, 2)
-        layout.addLayout(filters)
-
-    def _build_report_controls(self, layout):
-        run = QHBoxLayout()
-        self.analyze_button = self.button(K["analyze"], self.standardize, run, "primary")
-        self.analyze_button.setToolTip("현재 파일의 확정 대기 분류를 일괄 적용하고 분석합니다.")
-        self.pending_label = QLabel()
-        self.pending_label.setObjectName("muted")
-        run.addWidget(self.pending_label)
-        self.report_button = self.button(
-            "Excel + PDF \uc0dd\uc131", self.save_report, run, "primary"
-        )
-        self.open_button = self.button("Excel \uc5f4\uae30", self.open_excel, run)
-        self.pdf_button = self.button("PDF \uc5f4\uae30", self.open_pdf, run)
-        self.report_button.setToolTip(
-            "분석·검토현황·원본 검토표시를 담은 Excel 1개와 PDF 1개를 저장합니다."
-        )
-        self.output_button = self.button("\uacb0\uacfc \ud3f4\ub354", self.open_output, run)
-        self.report_settings_button = self.button(
-            "\ubcf4\uace0\uc11c \uc124\uc815", self.edit_report_settings, run
-        )
-        run.addStretch()
-        run.addWidget(QLabel("TOP"))
+        advanced.addWidget(self.dedup, 1, 0, 1, 2)
+        advanced.addWidget(QLabel("분석 상위 항목 수"), 1, 2)
         self.top = QSpinBox()
         self.top.setRange(1, 30)
         self.top.setValue(int(self.config["settings"].get("top_n", 10)))
-        run.addWidget(self.top)
-        layout.addLayout(run)
+        self.top.setToolTip(
+            "그래프의 표시 항목 수와 정지시간 상위 기록을 설정합니다. 종합 보고서 순위는 보고서 옵션에서 설정합니다."
+        )
+        advanced.addWidget(self.top, 1, 3)
+        self.advanced_panel.hide()
+        self.advanced_toggle.toggled.connect(self.advanced_panel.setVisible)
+        layout.addWidget(self.advanced_panel)
+
+    def _build_report_controls(self, layout):
+        self.run_panel = QWidget()
+        run = QHBoxLayout(self.run_panel)
+        run.setContentsMargins(0, 0, 0, 0)
+        self.analyze_button = self.button("분석 실행", self.standardize, run, "primary")
+
+        self.report_button = QToolButton()
+        self.report_button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        options = QMenu(self.report_button)
+        self.save_report_action = QAction("보고서 저장", self.report_button)
+        self.save_report_action.triggered.connect(self.save_report)
+        self.report_button.setDefaultAction(self.save_report_action)
+        self.report_settings_action = options.addAction("보고서 옵션…", self.edit_report_settings)
+        self.report_button.setMenu(options)
+        run.addWidget(self.report_button)
+
+        self.last_results_button = QToolButton()
+        self.last_results_button.setText("마지막 결과")
+        self.last_results_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        results = QMenu(self.last_results_button)
+        self.open_button = results.addAction("Excel 열기", self.open_excel)
+        self.pdf_button = results.addAction("PDF 열기", self.open_pdf)
+        self.output_button = results.addAction("결과 폴더 열기", self.open_output)
+        self.last_results_button.setMenu(results)
+        run.addWidget(self.last_results_button)
+        run.addStretch()
+        layout.addWidget(self.run_panel)
 
     def _build_tabs(self, layout):
         self.summary = self.make_summary()
@@ -325,6 +313,7 @@ class MainWindow(QMainWindow):
         self.navigation = WorkspaceNavigation(
             {**self.panes, "summary": self.summary, "chart": self.chart_page}
         )
+        self.navigation.chart_requested.connect(self._select_table_chart)
         self.tabs = self.navigation.tabs
         layout.addWidget(self.navigation, 1)
         for key in ("review", "detail"):
@@ -353,12 +342,19 @@ class MainWindow(QMainWindow):
             pane.extra_columns.toggled.connect(
                 lambda checked, target=pane: self._grid_columns(target, checked)
             )
-            pane.layout().itemAt(0).layout().insertWidget(1, pane.extra_columns)
+            toolbar = pane.layout().itemAt(0).layout()
+            toolbar.insertWidget(1, pane.extra_columns)
+            pane.original_button = QPushButton("원본 행 보기")
+            pane.original_button.setEnabled(False)
+            toolbar.insertWidget(2, pane.original_button)
+            pane.original_button.clicked.connect(
+                lambda _checked=False, target=pane: self._open_original_row(target)
+            )
+            pane.table.selectionModel().selectionChanged.connect(
+                lambda _selected, _deselected, target=pane: self._update_original_button(target)
+            )
             pane.description.setText(
-                "분야·상세설비·세부 부품·고장 현상은 모두 독립 선택합니다. 부분분류는 확인된 항목을 보존하고 미기재 항목을 표시합니다. "
-                "원문에 없는 정보를 추측해 입력할 필요가 없습니다. 모든 항목을 선택하면 확정 대기로 표시합니다. "
-                "후보 비교는 최종 분류 셀에서 열 수 있습니다. 확정은 [표준화 + 분석 실행]에서 합니다. "
-                "분류 선택은 메모리에만 유지하며 프로그램을 닫으면 사라집니다."
+                "최종 분류 셀에서 후보를 비교하세요. 확정 대기 분류는 [분류 적용 및 재분석]을 눌러 저장합니다."
             )
             pane.description.setVisible(True)
 
@@ -400,6 +396,8 @@ class MainWindow(QMainWindow):
     def _build_status(self, layout):
         status = QHBoxLayout()
         self.status_label = QLabel(K["ready"])
+        self.status_label.setWordWrap(True)
+        self.status_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
@@ -420,8 +418,6 @@ class MainWindow(QMainWindow):
             self.date_to,
             self.dedup,
             self.top,
-            self.sheets,
-            self.header_row,
         ]
         for combo in (self.scope, self.basis, self.units):
             combo.currentIndexChanged.connect(self.mark_stale)
@@ -432,8 +428,6 @@ class MainWindow(QMainWindow):
         self.date_from.dateChanged.connect(self.mark_stale)
         self.date_to.dateChanged.connect(self.mark_stale)
         self.top.valueChanged.connect(self.mark_stale)
-        self.sheets.currentIndexChanged.connect(self.mark_stale)
-        self.header_row.valueChanged.connect(self.mark_stale)
 
     @staticmethod
     def _set_filter_choices(combo, all_label, values, selected, *, preserve_unavailable=True):
@@ -490,7 +484,6 @@ class MainWindow(QMainWindow):
             combo.setToolTip(combo.currentText())
         self.last_reports = None
         self.mark_stale()
-        self._update_condition_summary()
 
     def _organization_filter_summary(self, options=None):
         factory = self.factory_filter.currentData() if options is None else options.factory
@@ -501,20 +494,25 @@ class MainWindow(QMainWindow):
             if value is not None
         )
 
-    def _update_condition_summary(self, *, include_result=True):
+    def _update_condition_summary(self):
         if self.loaded is None:
-            self.condition_summary.setText("Excel 파일을 등록하세요.")
+            self.condition_summary.clear()
+            self.condition_summary.setToolTip("")
             return
-        parts = [self.loaded.path.name]
-        if include_result and self.result is not None and not self._analysis_stale:
-            parts.append(f"{self.result.metrics['selected_rows']:,}건")
-        parts.append(K[self.basis.currentData()])
-        filters = self._organization_filter_summary()
-        if filters:
-            parts.append(filters)
+        parts = [self.loaded.path.name, f"원본 {len(self.loaded.frame):,}행"]
+        if self.result is not None and not self._analysis_stale:
+            parts.append(f"분석 {self.result.metrics['selected_rows']:,}건")
+        parts.extend((self.factory_filter.currentText(), self.team_filter.currentText()))
+        if self.limit_dates.isChecked():
+            parts.append(f"{self.date_from.text()} ~ {self.date_to.text()}")
+        else:
+            parts.append("전체 기간")
+        parts.extend((self.scope.currentText(), self.basis.currentText()))
         summary = "  |  ".join(parts)
         self.condition_summary.setText(summary)
-        self.condition_summary.setToolTip(f"{self.loaded.path}\n{summary}")
+        self.condition_summary.setToolTip(
+            f"{self.loaded.path}\n{self.loaded.sheet} · 제목 {self.loaded.header_row}행\n{summary}"
+        )
 
     def button(self, text, slot, layout, style=None):
         button = QPushButton(text)
@@ -550,7 +548,7 @@ class MainWindow(QMainWindow):
             self.card_labels[key] = value
         layout.addLayout(cards)
         self.notes = QTextBrowser()
-        self.notes.setPlainText(K["ready"] + "\n\n" + K["name_help"] + "\n\nIF18115  ->  VITAL#2")
+        self.notes.setPlainText("Excel 파일을 등록한 뒤 [분석 실행]을 누르세요.")
         layout.addWidget(self.notes, 1)
         return page
 
@@ -563,41 +561,62 @@ class MainWindow(QMainWindow):
 
     def _update_pending_count(self):
         pending = len(self._current_event_ids.intersection(self._pending_classifications))
-        self.pending_label.setText(f"확정 대기 {pending:,}건" if pending else "")
-        self.report_button.setToolTip(
-            "확정 대기 선택은 보고서에 반영되지 않습니다. 표준화 버튼으로 먼저 일괄 적용할 수 있습니다."
+        self.analyze_button.setText(
+            f"분류 {pending:,}건 적용 및 재분석" if pending else "분석 실행"
+        )
+        self.save_report_action.setToolTip(
+            "대기 중인 분류를 보고서에 반영하려면 [분류 적용 및 재분석]을 먼저 누르세요."
             if pending
-            else "분석 Excel, PDF와 검토필요 색상을 적용한 원본 사본을 저장합니다."
+            else "분석 Excel과 PDF를 저장합니다. 원본 검토표시는 Excel에 포함됩니다."
         )
 
     def update_controls(self):
         busy = self.task is not None or self._grid_refresh_pending
+        has_file = self.loaded is not None
+        has_reports = self.last_reports is not None
         self._update_pending_count()
         for widget in self.actions + self.option_widgets + [self.drop]:
             widget.setEnabled(not busy)
         for widget in (
-            self.reload_button,
-            self.columns_button,
-            self.reset_button,
-            self.sheets,
-            self.header_row,
             self.analyze_button,
             self.report_button,
-            self.factory_filter,
-            self.team_filter,
+            self.save_report_action,
+            self.report_settings_action,
+            self.filters_panel,
+            self.advanced_toggle,
+            self.advanced_panel,
         ):
-            widget.setEnabled(not busy and self.loaded is not None)
+            widget.setEnabled(not busy and has_file)
+        for widget in (
+            self.source_panel,
+            self.filters_panel,
+            self.run_panel,
+        ):
+            widget.setVisible(has_file)
+        self.drop.setVisible(not has_file)
+        self.advanced_panel.setVisible(has_file and self.advanced_toggle.isChecked())
+        self.date_range.setVisible(self.limit_dates.isChecked())
         for key in ("detail", "review"):
-            self.panes[key].set_editing_enabled(
+            pane = self.panes[key]
+            pane.set_editing_enabled(
                 not busy and self.result is not None and not self._analysis_stale
             )
-        for widget in (self.open_button, self.pdf_button, self.output_button):
-            widget.setEnabled(not busy and self.last_reports is not None)
+            self._update_original_button(pane)
+        self.last_results_button.setVisible(has_reports)
+        for widget in (
+            self.last_results_button,
+            self.open_button,
+            self.pdf_button,
+            self.output_button,
+        ):
+            widget.setEnabled(not busy and has_reports)
         self.chart_choice.setEnabled(not busy)
         self.chart_metric.setEnabled(not busy)
         self.chart_equipment.setEnabled(not busy)
-        self.date_from.setEnabled(not busy and self.limit_dates.isChecked())
-        self.date_to.setEnabled(not busy and self.limit_dates.isChecked())
+        self.date_from.setEnabled(not busy and has_file and self.limit_dates.isChecked())
+        self.date_to.setEnabled(not busy and has_file and self.limit_dates.isChecked())
+        self.progress.setVisible(self.task is not None)
+        self._update_condition_summary()
 
     def run_task(self, function, on_success):
         if self.task is not None:
@@ -647,10 +666,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.show_error(exc)
             return
-        self.clear_results()
-        self.loaded = None
-        self._refresh_organization_filters(reset=True)
-        self.file_label.setText(str(path))
+        self.status_label.setText(f"{path.name} 읽는 중…")
         lookup = self.store.saved_mapping
         self.run_task(
             lambda progress: load_excel(
@@ -660,31 +676,65 @@ class MainWindow(QMainWindow):
         )
 
     def loaded_ready(self, loaded):
+        self.clear_results()
         self.loaded = loaded
         self._current_event_ids = set(event_ids(loaded, loaded.mapping))
-        self.last_reports = None
         self._refresh_organization_filters(reset=True)
-        self.drop.set_compact(True)
-        self.source_toggle.setChecked(True)
-        self._update_condition_summary(include_result=False)
-        self.condition_summary.setToolTip(str(loaded.path))
-        self.sheets.clear()
-        self.sheets.addItems(loaded.sheet_names)
-        self.sheets.setCurrentText(loaded.sheet)
-        self.header_row.setValue(loaded.header_row)
-        self.file_label.setText(
-            f"{loaded.path}\n{loaded.sheet}  |  {len(loaded.frame):,} rows / {len(loaded.headers)} columns  |  header {loaded.header_row}"
-        )
+        self.panes["raw"].search.clear()
         self.panes["raw"].set_frame(loaded.frame.drop(columns=["__source_row"], errors="ignore"))
-        self.notes.setPlainText(K["name_help"])
+        self.notes.setPlainText("공장·팀·기간을 선택한 뒤 [분석 실행]을 누르세요.")
         self.show_page("raw")
-        self.status_label.setText(
-            "\ud30c\uc77c \ub4f1\ub85d \uc644\ub8cc. \uc124\ube44\uba85 \ubcc0\ud658 \uc124\uc815 \ud6c4 \ubd84\uc11d\uc744 \uc2e4\ud589\ud558\uc138\uc694."
-        )
+        self.status_label.setText("파일 등록 완료. 분석을 실행할 수 있습니다.")
+        self.update_controls()
 
-    def reload(self):
-        if self.loaded:
-            self.load_path(self.loaded.path, self.sheets.currentText(), self.header_row.value())
+    def edit_file_settings(self):
+        if self.loaded is None:
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("파일 읽기 설정")
+        layout = QVBoxLayout(dialog)
+        form = QFormLayout()
+        sheets = QComboBox()
+        sheets.addItems(self.loaded.sheet_names)
+        sheets.setCurrentText(self.loaded.sheet)
+        form.addRow("시트", sheets)
+        header = QSpinBox()
+        header.setRange(0, 250000)
+        header.setSpecialValueText("자동 감지")
+        header.setValue(self.loaded.header_row)
+        form.addRow("제목 행", header)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("취소")
+        apply_button = buttons.addButton("적용 후 읽기", QDialogButtonBox.ButtonRole.AcceptRole)
+        mapping_button = buttons.addButton("컬럼 매핑…", QDialogButtonBox.ButtonRole.ActionRole)
+        mapping_button.clicked.connect(self.edit_columns)
+        apply_button.setDefault(True)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        def update_mapping_button():
+            current = (
+                sheets.currentText() == self.loaded.sheet
+                and header.value() == self.loaded.header_row
+            )
+            mapping_button.setEnabled(current)
+            mapping_button.setToolTip(
+                "" if current else "시트와 제목 행을 적용한 뒤 매핑할 수 있습니다."
+            )
+
+        def select_sheet():
+            header.setValue(
+                self.loaded.header_row if sheets.currentText() == self.loaded.sheet else 0
+            )
+            update_mapping_button()
+
+        sheets.currentIndexChanged.connect(select_sheet)
+        header.valueChanged.connect(update_mapping_button)
+        dialog.setMinimumWidth(370)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.load_path(self.loaded.path, sheets.currentText(), header.value() or None)
 
     def clear_results(self):
         self.result = None
@@ -698,22 +748,8 @@ class MainWindow(QMainWindow):
         for label in self.card_labels.values():
             label.setText("-")
         self.clear_chart()
+        self.navigation.set_product_available(False)
         self.navigation.update_counts()
-
-    def reset(self):
-        self.clear_results()
-        self.loaded = None
-        self._refresh_organization_filters(reset=True)
-        self.drop.set_compact(False)
-        self.source_toggle.setChecked(True)
-        self.condition_summary.setText("Excel 파일을 등록하세요.")
-        self.condition_summary.setToolTip("")
-        self.file_label.setText(K["ready"])
-        self.notes.setPlainText(K["ready"])
-        self.sheets.clear()
-        self.status_label.setText(K["ready"])
-        self.progress.setValue(0)
-        self.update_controls()
 
     def options(self):
         begin = (
@@ -739,13 +775,6 @@ class MainWindow(QMainWindow):
     def analysis_inputs(self):
         if self.loaded is None:
             raise UserError(K["ready"])
-        if (
-            self.sheets.currentText() != self.loaded.sheet
-            or self.header_row.value() != self.loaded.header_row
-        ):
-            raise UserError(
-                "\uc2dc\ud2b8/\uc81c\ubaa9 \ud589\uc744 \ubcc0\uacbd\ud55c \ud6c4\uc5d0\ub294 \uc2dc\ud2b8 \uc77d\uae30\ub97c \ub20c\ub7ec\uc8fc\uc138\uc694."
-            )
         config = self.store.load()
         self._refresh_organization_filters(settings=config)
         self._update_condition_summary()
@@ -862,7 +891,8 @@ class MainWindow(QMainWindow):
             self.chart_equipment.setCurrentText(previous)
         self.chart_equipment.blockSignals(False)
         has_product = result.metrics["product_count"] > 0
-        self.panes["cross"].set_frame(result.tables["triple" if has_product else "equipment_type"])
+        self.panes["cross"].set_frame(result.tables["triple"] if has_product else pd.DataFrame())
+        self.navigation.set_product_available(has_product)
         for key, frame in (("detail", result.selected), ("review", result.tables["review"])):
             self.panes[key].set_frame(self.classification_frame(frame, review=key == "review"))
             self._grid_columns(self.panes[key], self.panes[key].extra_columns.isChecked())
@@ -883,9 +913,9 @@ class MainWindow(QMainWindow):
         self.draw_chart()
         self.navigation.update_counts(result.metrics["review_rows"], len(result.selected))
         if not preserve_navigation:
+            if self.navigation.history_choice.currentData() == "raw":
+                self.navigation.history_choice.setCurrentIndex(0)
             self.show_page("summary")
-            self.source_toggle.setChecked(False)
-        self._update_condition_summary()
         self.status_label.setText(K["done"])
         self.update_controls()
 
@@ -984,6 +1014,32 @@ class MainWindow(QMainWindow):
         pane.table.setCurrentIndex(original)
         pane.table.selectRow(original.row())
         pane.table.scrollTo(original)
+
+    def _update_original_button(self, pane):
+        record = pane.selected_record()
+        pane.original_button.setEnabled(
+            self.loaded is not None
+            and self.task is None
+            and record is not None
+            and pd.notna(record.get("source_row"))
+        )
+
+    def _open_original_row(self, pane):
+        record = pane.selected_record()
+        if self.loaded is None or record is None:
+            return
+        source_rows = self.loaded.frame["__source_row"]
+        matches = source_rows.index[source_rows.eq(record.get("source_row"))]
+        if matches.empty:
+            return
+        raw = self.panes["raw"]
+        raw.search.clear()
+        position = source_rows.index.get_loc(matches[0])
+        original = raw.proxy.mapFromSource(raw.model.index(position, 0))
+        self.show_page("raw")
+        raw.table.setCurrentIndex(original)
+        raw.table.selectRow(original.row())
+        raw.table.scrollTo(original)
 
     def save_report(self):
         if self.loaded is None:
@@ -1447,6 +1503,11 @@ class MainWindow(QMainWindow):
         if hasattr(self, "chart_empty"):
             self.chart_empty.setText(K["empty"])
             self.chart_empty.show()
+
+    def _select_table_chart(self, key):
+        index = self.chart_choice.findData(key)
+        if index != -1:
+            self.chart_choice.setCurrentIndex(index)
 
     def draw_chart(self, *_):
         if not hasattr(self, "chart_layout"):

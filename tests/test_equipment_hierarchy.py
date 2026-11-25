@@ -47,11 +47,14 @@ def hierarchy_classifier():
     normalization = json.loads((ROOT / "config/normalization.json").read_text("utf-8"))
     classifier = FaultClassifier(read_rules(ROOT / "config/classification_config.xlsx"))
 
-    def classify(source, middle="", registered=""):
+    def classify(source, middle="", registered="", *, part_code=""):
         return classifier.classify(
             prepare_text(source, normalization),
+            part_code,
+            prepare_text(part_code, normalization),
             equipment_context=middle,
             registered_equipment=registered,
+            source_text=source,
         )
 
     return classify
@@ -112,6 +115,139 @@ def test_named_pump_is_the_precise_module_without_inventing_an_internal_part(hie
     assert result["middle"] == UNKNOWN_PART
     assert result["component_count"] == 1 and result["part_count"] == 0
     assert result["minor"] == "누설"
+
+
+@pytest.mark.parametrize(
+    "source, code_mid, expected",
+    [
+        ("필러 밸브 누설", "", ("분야 미상", "필러·충진기", "밸브(종류 미상)", "누설")),
+        ("밸브 누설", "필러", ("분야 미상", "필러·충진기", "밸브(종류 미상)", "누설")),
+        ("밸브 누설", "밸브", ("분야 미상", UNKNOWN_EQUIPMENT, "밸브(종류 미상)", "누설")),
+        ("탱크 버터밸브 누설", "", ("유체·배관", "탱크", "버터플라이밸브", "누설")),
+        ("탱크 버터플라이밸브 누설", "", ("유체·배관", "탱크", "버터플라이밸브", "누설")),
+        ("탱크 buttervalve 누설", "", ("유체·배관", "탱크", "버터플라이밸브", "누설")),
+        ("밸브 모듈 본체 파손", "", ("기계", "밸브", UNKNOWN_PART, "손상·파손")),
+        ("밸브 모듈 내부 밸브 누설", "", ("분야 미상", "밸브", "밸브(종류 미상)", "누설")),
+        ("아웃밸브 씽크탑 고장", "", ("전기·제어", "밸브", "밸브 제어헤드", "고장·이상")),
+        ("제대기 포머 손상", "", ("기계", "제대기", "포머", "손상·파손")),
+        ("탱크 냉각수공급라인 누설", "", ("유체·배관", "탱크", "배관", "누설")),
+        ("냉각수 공급부 누설", "", ("유체·배관", "냉각수 공급부", UNKNOWN_PART, "누설")),
+    ],
+)
+def test_fault_subject_and_its_location_have_distinct_roles(
+    hierarchy_classifier, source, code_mid, expected
+):
+    result = hierarchy_classifier(source, code_mid)
+    assert result["status"] in (K["auto"], K["partial"])
+    assert tuple(result[key] for key in CATEGORY_FIELDS) == expected
+    assert result["part_count"] == int(expected[2] != UNKNOWN_PART)
+
+
+def test_source_equipment_observation_precedes_mes_part_inference(hierarchy_classifier):
+    result = hierarchy_classifier("필러 진동", part_code="베어링")
+    assert result["status"] == K["partial"]
+    assert tuple(result[key] for key in CATEGORY_FIELDS) == (
+        "분야 미상",
+        "필러·충진기",
+        UNKNOWN_PART,
+        "소음·진동",
+    )
+    assert result["detail_equipment_source"] == "원문"
+    candidates = parse_candidates(result["classification_candidates"], strict=True)
+    assert any(item["middle"] == "베어링(종류 미상)" for item in candidates)
+
+
+@pytest.mark.parametrize(
+    "source, code_mid, equipment, part, symptom",
+    [
+        ("HT-300 로딩 어터치 작동불", "동결설비 HT-300", "동결설비", "아타치(현장명)", "동작불량"),
+        ("로딩 오작동", "동결설비 HT-300", "동결설비", UNKNOWN_PART, "동작불량"),
+        ("프리져 과동결 30분", "", "프리저", UNKNOWN_PART, "온도이상"),
+        (
+            "주입구압력낮음 오류 / 제상 후 생산 시작",
+            "FREEZER (WS24)",
+            "프리저",
+            UNKNOWN_PART,
+            "압력이상",
+        ),
+        ("카톤머신 날개 캠 틀어짐", "", "카토닝머신", "캠", "위치·설정이상"),
+        ("포장기 리미트 스위치 접점 불량", "", "포장기", "리미트 스위치", "고장·이상"),
+        ("엔드씰러 온도헌팅", "", "엔드씰러", UNKNOWN_PART, "온도이상"),
+        ("wago29 발생으로 pc전원 종료", "", UNKNOWN_EQUIPMENT, UNKNOWN_PART, "에러코드 발생"),
+        ("멀티포장기 타이밍 조정", "", "멀티포장기", UNKNOWN_PART, "현상 미기재"),
+    ],
+)
+def test_report_review_records_keep_literal_equipment_and_failure_evidence(
+    hierarchy_classifier, source, code_mid, equipment, part, symptom
+):
+    result = hierarchy_classifier(source, code_mid)
+    assert result["status"] in (K["auto"], K["partial"])
+    assert (result["detail_equipment"], result["middle"], result["minor"]) == (
+        equipment,
+        part,
+        symptom,
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "어퍼 익스트로바 걸림",
+        "엔드씰러 온도헌팅 / 무접점홀더 소손",
+        "카톤머신 루프 미세조정",
+        "인피드 레카 교체",
+        "멀티포장기 타이밍 조정 예정",
+        "프리저 과동결 없음",
+    ],
+)
+def test_unresolved_terminology_and_unobserved_conditions_stay_pending(
+    hierarchy_classifier, source
+):
+    result = hierarchy_classifier(source)
+    assert result["status"] not in (K["auto"], K["partial"])
+
+
+def test_same_fault_with_conflicting_source_locations_requires_review(hierarchy_classifier):
+    result = hierarchy_classifier("포장기와 필러 베어링 손상")
+    assert result["status"] == K["review"]
+    assert set(
+        item["detail_equipment"]
+        for item in parse_candidates(result["classification_candidates"], strict=True)
+    ) == {"포장기", "필러·충진기"}
+    assert hierarchy_classifier("인터락 센서 고장", "필러 제함기")["status"] == K["auto"]
+
+
+@pytest.mark.parametrize(
+    "source, symptom, actions",
+    [
+        ("탱크 버터밸브 닫힘 확인", "현상 미기재", "점검"),
+        ("탱크 버터밸브가 열리지 않음", "동작불량", ""),
+        ("탱크 버터밸브 닫힘 지연", "동작불량", ""),
+    ],
+)
+def test_valve_operation_distinguishes_observed_failure_and_inspection(
+    hierarchy_classifier, source, symptom, actions
+):
+    result = hierarchy_classifier(source)
+    assert result["minor"] == symptom
+    assert result["repair_actions"] == actions
+    assert result["detail_equipment"] == "탱크" and result["middle"] == "버터플라이밸브"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "탱크 버터밸브 열림 후 정상 생산",
+        "탱크 버터밸브가 열리지 않는지 확인",
+        "탱크 버터밸브가 열리지 않음 확인 예정",
+    ],
+)
+def test_valve_state_or_check_to_be_performed_does_not_confirm_a_fault(
+    hierarchy_classifier, source
+):
+    result = hierarchy_classifier(source)
+    assert result["status"] != K["auto"]
+    assert result["minor"] != "동작불량"
 
 
 def test_specific_machine_subpart_is_not_replaced_by_unknown(hierarchy_classifier):

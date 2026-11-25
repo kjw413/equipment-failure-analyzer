@@ -17,6 +17,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from core.equipment_taxonomy import SUCTION_COMPONENT_SUFFIX
+from core.failure_modes import (
+    POSITION_FAILURE,
+    PRESSURE_FAILURE,
+    PRINT_FAILURE,
+    PRODUCT_DELIVERY_FAILURE,
+    TEMPERATURE_FAILURE,
+    VALVE_MOVEMENT_FAILURE,
+)
 from core.parsing import prepare_text
 from core.rules import validate_rules, write_rules
 
@@ -33,14 +41,11 @@ LOOSE = "풀림|풀려|풀어|풀리면|풀리며|풀리고|이탈|빠짐|빠져
 ELEC = "단선|소손|단락|쇼트|short|합선|누전|과부하|과전류|접촉불량|접촉|타버|나감|발열"
 LEAK = "누설|누수|누출|리크|leak|누유"
 JAM = "걸림|걸리|끼임|끼어|끼여|막힘|막혀|고착|적체|정체|충돌|간섭"
-POSITION_FAILURE = (
-    "(?:원점|타이밍|위치|정렬|텐션)(?:이|가)?(?:틀어짐|틀어|틀려|이상|불량|밀림|밀려)"
-)
-TEMPERATURE_FAILURE = "온도(?:저하|상승|이상|불량|불안정|안올|안내)|과열"
 ACT = (
     "교체|교환|수리(?!크)|정비|조정|재조정|조절|점검|청소|보수|가공|용접|체결|고정|재조임|세팅|리셋|reset|재부팅|"
     "보강|수정|교정|calibration|영점|분해|조립|급유|도포|윤활(?!유)|a급|신규|온오프|전원종료|전원차단"
 )
+VALVE_STATUS_CHECK = r"(?<=열림|닫힘|개방|폐쇄)확인|(?<=(?:열림|닫힘|개방|폐쇄)[을를])확인"
 
 
 def symptom_pattern(major: str, middle: str) -> str:
@@ -61,7 +66,7 @@ def symptom_pattern(major: str, middle: str) -> str:
         elif middle == "히터·온도제어":
             groups += [WEAR, TEMPERATURE_FAILURE]
         elif middle == "날인·인쇄장치":
-            groups += ["번짐|인쇄불|날인불|과다|부족|막힘", TEMPERATURE_FAILURE]
+            groups += ["번짐|과다|부족|막힘", PRINT_FAILURE, TEMPERATURE_FAILURE]
         elif middle == "로봇":
             groups += [JAM, POSITION_FAILURE, "원점|정렬|티칭"]
     elif major == "기계":
@@ -78,16 +83,16 @@ def symptom_pattern(major: str, middle: str) -> str:
             ]
         if middle == "성형기구":
             groups += [LEAK]
-        if middle in {"가이드·레일", "스틱공급기구", "인계·정렬기구"}:
+        if middle in {"가이드·레일", "스틱공급기구", "인계·정렬기구", "캠"}:
             groups += [POSITION_FAILURE, "틀어|틀려|원점|타이밍"]
         if middle == "컨베어":
-            groups += [POSITION_FAILURE]
+            groups += [POSITION_FAILURE, "슬립|미끄러짐"]
         if middle == "충진·분사기구":
-            groups += [LEAK, "분사불|충진불|과투입|미투입"]
+            groups += [LEAK, PRODUCT_DELIVERY_FAILURE, "분사불|충진불|과투입|미투입"]
     elif major == "공압·진공":
-        groups += [LEAK, LOOSE, "압력저하|압력불량|공급불|안걸|약함|약해|부족|막힘"]
+        groups += [LEAK, LOOSE, PRESSURE_FAILURE, "공급불|안걸|약함|약해|부족|막힘"]
         if middle in {"솔레노이드밸브", "공압밸브·조절기"}:
-            groups += [ELEC, "닫힘|열림|안열|안닫|미동작"]
+            groups += [ELEC, VALVE_MOVEMENT_FAILURE, VALVE_STATUS_CHECK, "미동작"]
         if middle == "실린더":
             groups += [WEAR, JAM, "동작불|작동불|스트로크불"]
     elif major == "유체·배관":
@@ -95,11 +100,11 @@ def symptom_pattern(major: str, middle: str) -> str:
         if middle == "펌프":
             groups += [ELEC, "소음|진동|공급불|토출불|압력저하"]
         elif middle == "밸브·액추에이터":
-            groups += ["닫힘|열림|안열|안닫|오조작|피드백|과투입"]
+            groups += [VALVE_MOVEMENT_FAILURE, VALVE_STATUS_CHECK, "오조작|피드백|과투입"]
         elif middle == "필터":
             groups += ["오염|자력|차압|압력저하"]
     elif major == "온도·냉각":
-        groups += [LEAK, ELEC, "냉동불|냉각불|냉기부족|냉매부족|온도이상|온도저하|과열|핀홀|막힘"]
+        groups += [LEAK, ELEC, TEMPERATURE_FAILURE, "냉동불|냉각불|냉기부족|냉매부족|핀홀|막힘"]
     elif major == "공정·운전":
         groups += [JAM, "오염|주름|접착불"]
     else:
@@ -203,6 +208,8 @@ def _alias_pattern(alias: str, category: dict) -> str:
         pattern = r"병(?=(?:이|가)?(?:걸림|걸리|끼임|끼어|끼여|막힘|막혀|고착|적체|정체|충돌|간섭))"
     if alias == "축":
         return r"(?<!압)축(?!소|적)"
+    if alias == "캠":
+        return r"캠(?!페인|코더|베어링|팔로[우워])"
     if alias == "키":
         return r"(?:키(?=홈|고정|이탈|마모|파손|교체)|(?<=축)키|(?<=커플링)키)"
     if alias == "풀리":
@@ -228,6 +235,8 @@ def _alias_pattern(alias: str, category: dict) -> str:
         # 'plcerror'. Permit a recognized English symptom while excluding APC/PCB.
         pattern = r"(?<![a-z])" + pattern
         pattern += r"(?:(?![a-z])|(?=error|fault|trip|alarm|reset|calibration))"
+    if alias == "buttervalve":
+        pattern = r"(?<![a-z])" + pattern + r"(?:(?![a-z])|(?=leak|error|fault|replace|inspect))"
     if alias == "tc":
         pattern = r"(?<![a-z])tc(?![a-z]|선|센서)"
     return pattern

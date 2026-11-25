@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from core.failure_modes import UNKNOWN_EQUIPMENT
 from core.fault_components import CATEGORY_FIELDS
 from core.public_taxonomy import REPAIR_ACTIONS
 
@@ -72,10 +73,22 @@ def choose_ranked_representative(
             highest = max(raw["_priority"] for raw in same_span)
             strongest = [raw for raw in same_span if raw["_priority"] == highest]
             parts = {str(raw.get("middle") or "").strip() for raw in strongest}
+            # A compound MES location label is contextual evidence. Competing
+            # locations stated for the same fault in the description are ambiguous.
+            locations = {
+                raw["detail_equipment"]
+                for raw in strongest
+                if raw.get("detail_equipment") not in (None, "", UNKNOWN_EQUIPMENT)
+                and raw.get("detail_equipment_source", "").startswith("원문")
+            }
             domains_by_mode = {}
             for raw in strongest:
                 domains_by_mode.setdefault(raw.get("minor"), set()).add(raw.get("major"))
-            if len(parts) > 1 or any(len(domains) > 1 for domains in domains_by_mode.values()):
+            if (
+                len(parts) > 1
+                or len(locations) > 1
+                or any(len(domains) > 1 for domains in domains_by_mode.values())
+            ):
                 return None
 
     return {**chosen, "selection_method": "top_ranked_representative", "selected_rank": 1}

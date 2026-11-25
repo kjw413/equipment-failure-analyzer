@@ -160,7 +160,7 @@ class EquipmentResolver:
             "detail_equipment_evidence": evidence,
         }
 
-    def resolve(self, chunks, pairs, code_mid="", registered="") -> list[dict]:
+    def resolve(self, chunks, pairs, code_mid="", registered="", *, locations=None) -> list[dict]:
         """Bind machine names to the same clause as this part's fault/action.
 
         A bare preceding machine label is also accepted (컨베어 / 베어링 파손).
@@ -172,8 +172,9 @@ class EquipmentResolver:
         conflicting_later_location = False
         excluded = set()
         active = set()
-        for chunk in chunks:
-            mentions = self.mentions(chunk)
+        if locations is None:
+            locations = [self.mentions(chunk) for chunk in chunks]
+        for chunk, mentions in zip(chunks, locations, strict=True):
             for position, (start, end, name) in enumerate(mentions):
                 tail = _compact(chunk)[
                     end : mentions[position + 1][0]
@@ -195,7 +196,7 @@ class EquipmentResolver:
         excluded.difference_update(active)
         for pair in pairs:
             chunk = chunks[pair.clause]
-            mentions = [mention for mention in self.mentions(chunk) if mention[2] not in excluded]
+            mentions = [mention for mention in locations[pair.clause] if mention[2] not in excluded]
             before = [mention for mention in mentions if mention[0] <= pair.c0]
             if before:
                 nearest = max(before, key=lambda mention: mention[0])
@@ -223,7 +224,7 @@ class EquipmentResolver:
                     mentions = [nearest]
             elif pair.clause:
                 previous = chunks[pair.clause - 1]
-                previous_mentions = self.mentions(previous)
+                previous_mentions = locations[pair.clause - 1]
                 if len(previous_mentions) == 1:
                     start, end, name = previous_mentions[0]
                     remainder = _compact(previous)[:start] + _compact(previous)[end:]

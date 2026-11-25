@@ -23,8 +23,8 @@ def test_public_master_covers_approved_axes_without_repeating_machine_bodies_as_
     equipment = {row["name"] for row in catalog["equipment_types"]}
     assert catalog["output_schema"] == "equipment_part_failure_v3"
     assert catalog["catalog_version"] == "1.18.0"
-    assert len(equipment) == 68 and len(parts) == 201
-    assert len({row["family"] for row in parts.values()}) == 29
+    assert len(equipment) == 68 and len(parts) == 203
+    assert len({row["family"] for row in parts.values()}) == 30
     assert len(public["domains"]) == 7 and "분야 미상" in public["domains"]
     assert len(public["modes"]) == 26 and {"현상 미기재", "점도이상"} <= set(public["modes"])
     assert len(public["actions"]) == 7 and "교체" not in public["modes"]

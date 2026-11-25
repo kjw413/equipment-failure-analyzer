@@ -144,15 +144,11 @@ def test_review_corner_copies_the_actual_grid_without_saving_corrections(app, gr
 
 def test_requested_tabs_reach_every_page_without_manual_correction_button(grid_window):
     window = grid_window
-    assert window.tabs.count() == 7
-    assert [window.tabs.tabText(index).split(" (")[0] for index in range(7)] == [
+    assert [window.tabs.tabText(index).split(" (")[0] for index in range(window.tabs.count())] == [
         "종합현황",
         "검토필요",
+        "고장이력",
         "상세분석",
-        "설비별 유형순위",
-        "부품별 포함 건수",
-        "월별 부품 추이",
-        "그래프",
     ]
     assert not hasattr(window, "correct_button")
     assert all(K["correct"] not in button.text() for button in window.findChildren(QPushButton))
@@ -183,8 +179,10 @@ def test_requested_tabs_reach_every_page_without_manual_correction_button(grid_w
         "summary",
         "review",
         "detail",
+        "fault_detail",
         "equipment",
         "line",
+        "detailed_equipment",
         "type",
         "cross",
         "equipment_types",
@@ -196,6 +194,42 @@ def test_requested_tabs_reach_every_page_without_manual_correction_button(grid_w
         window.show_page(key)
         assert window.current_page_key() == key
     assert window.panes["raw"].table.editTriggers().value == 0
+
+
+def test_analysis_selectors_switch_to_graph_and_back_and_gate_product_table(grid_window):
+    window = grid_window
+    navigation = window.navigation
+    window.tabs.setCurrentWidget(navigation.analysis)
+    navigation.analysis_choice.setCurrentIndex(navigation.analysis_choice.findData("line"))
+    assert window.current_page_key() == "line"
+    navigation.chart_button.click()
+    assert window.current_page_key() == "chart"
+    assert window.chart_choice.currentData() == "line"
+    navigation.chart_button.click()
+    assert window.current_page_key() == "line"
+    navigation.analysis_choice.setCurrentIndex(navigation.analysis_choice.findData("parts"))
+    navigation.part_choice.setCurrentIndex(navigation.part_choice.findData("component_trend"))
+    assert window.current_page_key() == "component_trend"
+    window.show_page("cross")
+    assert window.current_page_key() == "cross"
+    window.loaded_ready(window.loaded)
+    assert navigation.analysis_choice.findData("cross") == -1
+
+
+def test_review_original_row_follows_filtered_selection(grid_window):
+    window = grid_window
+    pane = window.panes["review"]
+    raw = window.panes["raw"]
+    assert not pane.original_button.isEnabled()
+    raw.search.setText("ALPHA")
+    pane.search.setText("GAMMA")
+    pane.table.selectRow(0)
+    assert pane.original_button.isEnabled()
+    pane.original_button.click()
+    assert window.current_page_key() == "raw"
+    assert raw.search.text() == ""
+    assert raw.selected_record()["설비명"] == "GAMMA"
+    assert pane.search.text() == "GAMMA"
 
 
 def test_filtered_sorted_grid_edit_saves_the_visible_event_and_retains_context(grid_window):
@@ -291,7 +325,7 @@ def test_classification_waits_for_standardize_before_removing_review_row(grid_wi
     assert event_ids(pane) == before_ids
     assert cell(pane, "middle", 1).data() == "메카니칼씰"
     assert cell(pane, "status", 1).data() == "확정 대기"
-    assert "1건" in window.pending_label.text()
+    assert window.analyze_button.text() == "분류 1건 적용 및 재분석"
     assert window.result.metrics["review_rows"] == 3
     QTest.mouseClick(window.analyze_button, Qt.MouseButton.LeftButton)
     wait_refreshed(window, previous)
@@ -336,7 +370,7 @@ def test_multiple_pending_choices_survive_scalar_refresh_and_apply_as_one_batch(
     assert window.store.override_path.read_bytes() == before
     assert window.result is original and window.result.metrics["review_rows"] == 3
     assert len(window._pending_classifications) == 2
-    assert "2건" in window.pending_label.text()
+    assert window.analyze_button.text() == "분류 2건 적용 및 재분석"
     # Reopening the dialog restores the staged choice, without selecting a candidate automatically.
     editor = pane.open_classification_editor(cell(pane, "major", 0))
     assert editor.single_picker.value() == categories[0]
@@ -379,7 +413,7 @@ def test_pending_classification_is_discarded_after_reopening_the_program(grid_wi
         record = restored.panes["review"].model.frame.set_index("event_id").loc[event_id]
         assert all(not record[key] for key in category)
         assert record["status"] != "확정 대기"
-        assert not restored.pending_label.text()
+        assert restored.analyze_button.text() == "분석 실행"
         assert restored.result.metrics["review_rows"] == 3
         assert not restored.store.override(event_id)
     finally:
@@ -499,7 +533,7 @@ def test_failed_batch_save_keeps_pending_choices_and_confirmed_analysis(grid_win
     assert window.result is previous and window.task is None
     assert window.store.override_path.read_bytes() == before
     assert window._pending_classifications == drafts
-    assert "1건" in window.pending_label.text()
+    assert window.analyze_button.text() == "분류 1건 적용 및 재분석"
     assert any("batch locked" in error for error in window.grid_test_errors)
 
 

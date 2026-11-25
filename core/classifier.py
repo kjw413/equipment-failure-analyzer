@@ -7,6 +7,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
+from core.failure_modes import VALVE_MOVEMENT_FAILURE
 from core.fault_components import combination_category, component_payload
 from core.i18n import K
 from core.rules import (
@@ -118,6 +119,11 @@ LISTED_COMPONENTS_REASON = "나열 부품의 공통 고장·교체 근거로 복
 # Suspected or guessed parts are not recorded facts and keep a combination under review.
 UNCERTAIN = re.compile(r"의심|추정|추측|예상|가능성|것같|듯")
 PREVENTIVE_FAILURE = re.compile(r"^(?:이|가|을|를)?(?:예방|방지|대비|우려|예상|가능성|예정)")
+VALVE_MOVEMENT = re.compile(VALVE_MOVEMENT_FAILURE)
+UNCONFIRMED_MOVEMENT = re.compile(
+    r"(?:(?:는|은|을)?지|여부|유무)(?:를)?(?:확인|점검|조사)"
+    r"|(?:을|를)?(?:확인|점검)(?:예정|필요|계획|요망|요청)"
+)
 # A following subject-less clause may continue a part, but an unrecognized
 # subject ('브라인교체') must never be attributed to that previous part.
 CONTINUATION_PREFIX = re.compile(
@@ -247,6 +253,12 @@ class RuleClassifier:
             if any(a <= s.start() and s.end() <= b for a, b in nouns):
                 continue
             kind = self.kind(s.group())
+            if (
+                kind == "F"
+                and VALVE_MOVEMENT.fullmatch(s.group())
+                and UNCONFIRMED_MOVEMENT.match(text[s.end() : limit])
+            ):
+                continue
             if kind == "F" and s.group() == "이상" and re.match(r"유무|여부", text[s.end() :]):
                 continue
             if kind in {"R", "A"}:

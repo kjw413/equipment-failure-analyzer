@@ -16,6 +16,27 @@ UNKNOWN_EQUIPMENT = "상세설비 미상"
 UNKNOWN_PART = "세부 부품 미기재"
 UNKNOWN_SYMPTOM = "현상 미기재"
 
+VALVE_MOVEMENT_FAILURE = (
+    r"안(?:열리|열려|열림|닫히|닫혀|닫힘)"
+    r"|(?:열리|닫히)지(?:않|안)(?:았음|았|음|고|는|아|어)?"
+    r"|(?:열림|닫힘|개방|폐쇄)(?:이|가|은|는)?(?:불량|불능|이상|실패|지연|안됨|안되|못함)"
+)
+
+TEMPERATURE_FAILURE = (
+    r"과열|과냉|과동결|온도(?:가|이|는)?"
+    r"(?:저하|상승|이상|불량|불안정|헌팅|hunting|다운|높음|낮음|안올|안내)"
+)
+PRESSURE_FAILURE = (
+    r"(?:공압|에어압|압력)(?:이|가)?(?:저하|상승|이상|불량|과다|부족|낮음|높음|낮아|높아)"
+)
+POSITION_FAILURE = (
+    r"(?:원점|타이밍|위치|정렬|텐션|센터)(?:이|가)?"
+    r"(?:틀어짐|틀어|틀려|이탈|이상|불량|밀림|밀려|안맞음|쳐짐)"
+)
+PRINT_FAILURE = r"인쇄불(?:량)?|날인불(?:량)?|날인(?:이|가)?안됨|날짜(?:가|이)?[잘짤]림"
+PRODUCT_DELIVERY_FAILURE = r"(?:토출|분사|충진|충전)(?:이|가)?불량"
+POWER_INTERRUPTION = r"꺼짐|전원(?:이|가)?차단(?:됨|발생)|전원(?:이|가)?꺼짐"
+
 # Only observed failures appear here; completed work is a separate action axis.
 SYMPTOM_PATTERNS = (
     (
@@ -35,7 +56,12 @@ SYMPTOM_PATTERNS = (
     ("과부하·과전류", r"과부하|과전류|overload|overcurrent"),
     (
         "동작불량",
-        r"오작동|작동불|작동안|미작동|미가동|미구동|구동불|동작불|미동작|멈춤|멈춰|정지|불능|안됨|안되|먹통|반응없|닫힘|열림|안열|안닫",
+        r"오작동|작동불|작동안|미작동|미가동|미구동|구동불|동작불|미동작|멈춤|멈춰|정지|불능|안됨|안되|먹통|반응없|"
+        + VALVE_MOVEMENT_FAILURE
+        + "|"
+        + POWER_INTERRUPTION
+        + "|"
+        + PRODUCT_DELIVERY_FAILURE,
     ),
     (
         "감지불량",
@@ -43,17 +69,17 @@ SYMPTOM_PATTERNS = (
     ),
     (
         "통신·입출력 이상",
-        r"통신|접속불|network\s*station\s*in\s*defect|입출력.{0,5}(?:이상|오류|불량)|inputs.?outputs\s*network",
+        r"통신(?:오류|에러|불량)|통신|접속불|network\s*station\s*in\s*defect|입출력.{0,5}(?:이상|오류|불량)|inputs.?outputs\s*network",
     ),
     ("소음·진동", r"소음|진동"),
     (
         "온도이상",
-        r"과열|과냉|발열|동결|결빙|냉동불|냉각불|냉기부족|냉매부족|온도(?:저하|상승|이상|불량|불안정|안올|안내)",
+        TEMPERATURE_FAILURE + r"|발열|동결|결빙|냉동불|냉각불|냉기부족|냉매부족",
     ),
-    ("압력이상", r"압력(?:저하|상승|이상|불량|과다|부족)|공급불|토출불|안걸|약함|약해"),
+    ("압력이상", PRESSURE_FAILURE + r"|공급불|토출불|안걸|약함|약해"),
     ("점도이상", r"점도(?:가|이|는)?(?:헌팅|hunting|불량|이상|불안정|저하|상승|변동|편차)"),
     ("오염", r"오염|이물|혼입"),
-    ("위치·설정이상", r"틀어|틀려|원점|타이밍|늘어|미끄|텐션|정렬|티칭"),
+    ("위치·설정이상", POSITION_FAILURE + r"|틀어|틀려|원점|타이밍|늘어|미끄|슬립|텐션|정렬|티칭"),
     ("낙하", r"떨어|낙하|넘어|쓰러"),
     ("자재 불량", r"자재불량"),
     (
@@ -62,7 +88,8 @@ SYMPTOM_PATTERNS = (
     ),
     (
         "고장·이상",
-        r"고장|이상|불량|오류|에러|error|트러블|비정상|알람|alarm|fault|failed|문제|다운|나감|망가",
+        PRINT_FAILURE
+        + r"|고장|이상|불량|오류|에러|error|트러블|비정상|알람|alarm|fault|failed|문제|다운|나감|망가",
     ),
 )
 SYMPTOM_NAMES = tuple(name for name, _ in SYMPTOM_PATTERNS) + (UNKNOWN_SYMPTOM,)
@@ -116,6 +143,10 @@ def canonical_symptom(value: str) -> str:
 def symptom_names(words: list[str], context: str = "") -> list[str]:
     names = {name for word in words for name, pattern in COMPILED_SYMPTOMS if pattern.search(word)}
     if "점도이상" in names:
+        names.discard("감지불량")
+    if "온도이상" in names and any(
+        re.search(r"온도.{0,2}(?:헌팅|hunting)", word) for word in words
+    ):
         names.discard("감지불량")
     if "낙하" in names and re.search(r"차단기.{0,12}떨어", context):
         names.discard("낙하")

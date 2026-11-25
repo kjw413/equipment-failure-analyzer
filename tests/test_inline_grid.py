@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 
 from core.corrections import COMPONENT_FIELD
 from gui.inline_editor import ClassificationCellEditor, field_patch
-from gui.widgets import DropArea, FrameModel, TablePane
+from gui.widgets import FrameModel, TablePane
 
 PATHS = [
     ("유체·배관", "도징설비", "도징펌프", "손상"),
@@ -300,21 +300,6 @@ def test_failed_complete_draft_retries_same_minor_without_confirming_unchanged_a
     assert pane.proxy.setData(index(pane, "minor"), "누설")
     assert attempts == [dict(zip(FIELDS, PATHS[1]))] * 2
     assert not pane._classification_drafts
-
-
-def test_drop_area_compacts_after_load_and_restores_original_prompt(app):
-    drop = DropArea()
-    original = drop.browse_button.text()
-    drop.set_compact(True)
-    assert drop.title.isHidden() and drop.subtitle.isHidden()
-    assert drop.minimumHeight() == 56 and drop.maximumHeight() == 60
-    assert drop.browse_button.text() == "다른 파일 선택"
-    assert drop.acceptDrops()
-    drop.set_compact(False)
-    assert not drop.title.isHidden() and not drop.subtitle.isHidden()
-    assert drop.minimumHeight() == 126
-    assert drop.browse_button.text() == original
-    drop.close()
 
 
 def test_invalid_category_path_rejected_and_escape_cancels_pending_row(app, pane):

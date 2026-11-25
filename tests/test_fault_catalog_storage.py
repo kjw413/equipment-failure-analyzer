@@ -29,7 +29,7 @@ def test_catalogue_documents_internal_parts_and_output_axes():
         "actions": "조치 내역",
     }
     assert catalogue["part_axes"]["minor"] == "세부 부품 종류"
-    assert len(catalogue["categories"]) == 248
+    assert len(catalogue["categories"]) == 250
     original = catalog_signature(catalogue)
     changed = {**catalogue, "output_axes": {**catalogue["output_axes"], "minor": "증상"}}
     assert catalog_signature(changed) != original

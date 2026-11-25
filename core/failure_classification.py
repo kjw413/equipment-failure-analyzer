@@ -37,6 +37,30 @@ from core.public_taxonomy import UNKNOWN_DOMAIN, PublicTaxonomy, default_catalog
 from core.ranked_representative import choose_ranked_representative
 from core.representative_fault import choose_direct_fault
 
+MODULE_DESIGNATION = re.compile(r"(?:의)?(?:모듈|유닛|뱅크|클러스터|조립체|본체)")
+FLUID_MEDIUM = re.compile(
+    r"(?:냉매|에어|공압|진공|냉각수|공정수|용수|스팀|증기|온수|냉수|원유|오일|유체)"
+    r"(?:용|공급|회수|이송|입구|출구|순환|측)?$"
+)
+OBSERVED_WITHOUT_PART = frozenset(
+    (
+        "누설",
+        "소음·진동",
+        "압력이상",
+        "온도이상",
+        "손상·파손",
+        "터짐",
+        "마모",
+        "변형",
+        "동작불량",
+        "고장·이상",
+        "과부하·과전류",
+        "통신·입출력 이상",
+        "위치·설정이상",
+        "에러코드 발생",
+    )
+)
+
 
 class FaultClassifier:
     """Classify one representative type while retaining all source candidates."""
@@ -73,6 +97,8 @@ class FaultClassifier:
             code = re.search(r"wago#?\d+(?:번)?$", prefix, re.I)
             if code and word == "발생":
                 return symptom.clause, start - len(code.group()), symptom.end, code.group() + word
+            if word in {"오류", "에러", "불량"} and prefix.endswith("통신"):
+                return symptom.clause, start - len("통신"), symptom.end, "통신" + word
             qualifier = re.search(
                 r"(?:품온|온도|진공도|압력|점도)(?:가|이|는)?(?:\d+(?:\.\d+)?(?:도|℃|bar|mpa|%)?)?$",
                 prefix,
@@ -141,7 +167,7 @@ class FaultClassifier:
             return modes[0]
         return names
 
-    def _members(self, item, pairs, equipment_values, chunks=None):
+    def _members(self, item, pairs, equipment_values, chunks=None, *, part_role=None):
         failures = [
             symptom
             for pair in pairs
@@ -169,9 +195,7 @@ class FaultClassifier:
         if chunks is not None:
             for pair in pairs:
                 prefix = chunks[pair.clause][max(0, pair.c0 - 12) : pair.c0]
-                medium = re.search(
-                    r"(?:냉매|에어|공압|진공)(?:용|공급|회수|이송|입구|출구|순환|측)?$", prefix
-                )
+                medium = FLUID_MEDIUM.search(prefix)
                 if medium:
                     context += " " + medium.group()
         names = symptom_names(failure_words, context) or [UNKNOWN_SYMPTOM]
@@ -193,7 +217,9 @@ class FaultClassifier:
                 public_part = self.taxonomy.component_name(
                     item["minor"], equipment["detail_equipment"]
                 )
-                if item.get("rule_id", "").endswith("_NOPART"):
+                if part_role is True:
+                    public_part = self.taxonomy.canonical_part(item["minor"])
+                if part_role is False or item.get("rule_id", "").endswith("_NOPART"):
                     public_part = UNKNOWN_PART
                 major = self.taxonomy.major_for(
                     public_part, name, context, item["major"], equipment["detail_equipment"]
@@ -246,28 +272,81 @@ class FaultClassifier:
             "classification_reason": reason.strip(),
         }
 
-    def _bound_members(self, item, pairs, chunks, equipment_context, registered_equipment):
+    def _source_locations(self, chunks, pairs):
+        """Reserve each matched noun for its part or its equipment role."""
+        parts_by_clause = defaultdict(list)
+        for pair in pairs:
+            part = self.taxonomy.canonical_part(pair.rule["minor"])
+            if (
+                pair.symptoms
+                and pair.rule["role"] in {"component", "override"}
+                and part in self.taxonomy.names
+                and self.taxonomy.canonical_part(pair.context) == part
+            ):
+                parts_by_clause[pair.clause].append((pair, part))
+
+        locations, roles = [], {}
+        for index, chunk in enumerate(chunks):
+            mentions = self.equipment.mentions(chunk)
+            resolved = []
+            for start, end, name in mentions:
+                sharing = [
+                    (pair, part)
+                    for pair, part in parts_by_clause[index]
+                    if pair.c0 <= start < end <= pair.c1 and (pair.c0 < start or pair.c1 == end)
+                ]
+                if not sharing:
+                    resolved.append((start, end, name))
+                    continue
+                explicit_module = MODULE_DESIGNATION.match(chunk, end)
+                if explicit_module:
+                    roles.update((id(pair), False) for pair, _ in sharing)
+                    resolved.append((start, end, name))
+                elif all(part == "포머" for _, part in sharing) and not any(
+                    other_end <= start for _, other_end, _ in mentions
+                ):
+                    # A bare former remains the forming module unless a parent is stated.
+                    resolved.append((start, end, name))
+                else:
+                    roles.update((id(pair), True) for pair, _ in sharing)
+            locations.append(resolved)
+        return locations, roles
+
+    def _bound_members(
+        self, item, pairs, chunks, locations, part_roles, equipment_context, registered_equipment
+    ):
         """Keep each machine's own symptom evidence together across repeated parts."""
         grouped = {}
         if not pairs:
-            values = self.equipment.resolve(chunks, [], equipment_context, registered_equipment)
+            values = self.equipment.resolve(
+                chunks, [], equipment_context, registered_equipment, locations=locations
+            )
             yield from self._members(item, [], values, chunks)
             return
         for pair in pairs:
+            role = part_roles.get(id(pair))
             for equipment in self.equipment.resolve(
-                chunks, [pair], equipment_context, registered_equipment
+                chunks, [pair], equipment_context, registered_equipment, locations=locations
             ):
-                name = equipment["detail_equipment"]
-                if name not in grouped:
-                    grouped[name] = (equipment, [])
-                grouped[name][1].append(pair)
-        known = [name for name in grouped if name != "상세설비 미상"]
-        if len(known) == 1 and "상세설비 미상" in grouped:
+                if (
+                    role is True
+                    and equipment["detail_equipment_source"] == "비가동코드(중)"
+                    and re.sub(r"\s+", "", equipment_context).casefold() == pair.context.casefold()
+                ):
+                    # A code repeating the same part supplies no separate installation location.
+                    equipment = self.equipment._value(UNKNOWN_EQUIPMENT, "미기재", "")
+                key = (equipment["detail_equipment"], role)
+                if key not in grouped:
+                    grouped[key] = (equipment, [])
+                grouped[key][1].append(pair)
+        known = [key for key in grouped if key[0] != UNKNOWN_EQUIPMENT]
+        unknown = (UNKNOWN_EQUIPMENT, known[0][1]) if len(known) == 1 else None
+        if unknown in grouped:
             # Repeated mentions of the same part may omit the machine after a
             # sentence boundary. Keep its sole stated location and own evidence.
-            grouped[known[0]][1].extend(grouped.pop("상세설비 미상")[1])
-        for equipment, own_pairs in grouped.values():
-            yield from self._members(item, own_pairs, [equipment], chunks)
+            grouped[known[0]][1].extend(grouped.pop(unknown)[1])
+        for (_, role), (equipment, own_pairs) in grouped.items():
+            yield from self._members(item, own_pairs, [equipment], chunks, part_role=role)
 
     def _unresolved_shared_action(self, live, chunks, *, unknown_only=False):
         """An explicit part list cannot silently confirm only its nearest member.
@@ -311,7 +390,14 @@ class FaultClassifier:
         return False
 
     def _recommendations(
-        self, live, chunks, part_code, equipment_context="", registered_equipment=""
+        self,
+        live,
+        chunks,
+        locations,
+        part_roles,
+        part_code,
+        equipment_context,
+        registered_equipment,
     ):
         explicit = {id(pair) for pair, _ in self.parts.explicit_cause_pairs(live, chunks)}
         compatible = self.parts.part_majors.get(re.sub(r"\s+", "", part_code or ""), set())
@@ -362,7 +448,7 @@ class FaultClassifier:
                 reasons.append("부품명 문맥만 일치한 약한 근거: 고장·증상 확인 필요")
             item = self.parts.component_value(pair)
             for member in self._bound_members(
-                item, [pair], chunks, equipment_context, registered_equipment
+                item, [pair], chunks, locations, part_roles, equipment_context, registered_equipment
             ):
                 observed = member["_observed_failure"]
                 member_reasons = [
@@ -467,7 +553,7 @@ class FaultClassifier:
             if "_span" in member
         )
 
-    def _retain_known(self, result, raw, chunks, equipment_context):
+    def _retain_known(self, result, raw, chunks, equipment_context, locations_by_clause):
         """Keep consensus facts without turning a pending path into a final part."""
         known = {}
         fallback_location = {}
@@ -511,7 +597,9 @@ class FaultClassifier:
                         known[key] = value
         else:
             # MES middle code is a location source; the registered asset is not.
-            locations = self.equipment.resolve(chunks, [], equipment_context)
+            locations = self.equipment.resolve(
+                chunks, [], equipment_context, locations=locations_by_clause
+            )
             if len(locations) == 1 and locations[0]["detail_equipment"] != UNKNOWN_EQUIPMENT:
                 known["detail_equipment"] = locations[0]["detail_equipment"]
                 fallback_location = locations[0]
@@ -525,21 +613,24 @@ class FaultClassifier:
                     or PLANNED_BEFORE.search(chunk)
                     or re.search(r"예정|계획|예방|방지|유무|여부", chunk)
                 )
-                for match in re.finditer(r"터짐|터져|파열|파손|부러짐|빠짐|걸림|막힘", chunk)
+                for match in re.finditer(
+                    r"터짐|터져|파열|파손|부러짐|빠짐|걸림|막힘|누설|누수|누출|누유|리크",
+                    chunk,
+                )
             ]
             modes = symptom_names(observations)
             if len(modes) == 1:
                 known["minor"] = modes[0]
         source_locations = {
             name: chunk
-            for chunk in chunks
+            for chunk, mentions in zip(chunks, locations_by_clause, strict=True)
             if not (
                 NEGATION.search(chunk)
                 or NEGATED_PART.search(chunk)
                 or PLANNED_BEFORE.search(chunk)
                 or re.search(r"정상|예정|계획|미실시|요망", chunk)
             )
-            for _, _, name in self.equipment.mentions(chunk)
+            for _, _, name in mentions
         }
         if len(source_locations) > 1:
             known.pop("detail_equipment", None)
@@ -635,6 +726,111 @@ class FaultClassifier:
             "detail_equipment_evidence": chunk,
         }
 
+    def _explicit_observation(self, chunks, locations, equipment_context, source_text):
+        """Retain one directly stated symptom even when the failed part is omitted."""
+        if not chunks:
+            return None
+        chunk, mentions = chunks[0], locations[0]
+        if len(mentions) > 1 or any(
+            cites
+            or not re.fullmatch(
+                r"(?:재가동|재부팅)(?:후(?:오류|에러)재발생)?|(?:제상|리셋)(?:작업|진행)?(?:후(?:생산시작|재가동))?",
+                continuation,
+            )
+            for continuation, cites in zip(chunks[1:], locations[1:], strict=True)
+        ):
+            return None
+        if mentions:
+            start, end, name = mentions[0]
+            if not re.fullmatch(r"[\d번호기:#\-]*", chunk[:start]):
+                return None
+            tail = re.sub(r"^(?:에서|본체|측|[에의가는은이]|#?\d+(?:번|호기)?)*", "", chunk[end:])
+            location = self.equipment.refine(
+                self.equipment._value(name, "원문", chunk), equipment_context
+            )
+        else:
+            tail = chunk
+            values = self.equipment.resolve(chunks, [], equipment_context, locations=locations)
+            if len(values) != 1:
+                return None
+            location = values[0]
+        tail = re.sub(r"^(?:주입구|입구|출구)(?=(?:공압|에어압|압력))", "", tail)
+        if location["detail_equipment"] == "동결설비":
+            tail = re.sub(r"^(?:언로딩|로딩)부?(?=오작동|동작불량|작동불량|동작이상)", "", tail)
+        # A code reported before the PC was shut down is the observation.
+        tail = re.sub(r"(?<=발생)(?:으로|로)(?:pc|컴퓨터)전원(?:종료|차단)$", "", tail, flags=re.I)
+        matches = {
+            mode: evidence.group()
+            for mode, pattern in COMPILED_SYMPTOMS
+            if mode in OBSERVED_WITHOUT_PART
+            and (evidence := pattern.match(tail))
+            and re.fullmatch(
+                r"(?:이|가)?(?:오류|에러)?(?:발생(?:함|했음|됨)?|임|됨|현상|상태)?"
+                r"(?:\d+분|으로운휴|로중단|정지|운휴)?",
+                tail[evidence.end() :],
+            )
+        }
+        if len(matches) > 1:
+            matches.pop("고장·이상", None)
+        if len(matches) == 1:
+            mode, evidence = next(iter(matches.items()))
+        elif (
+            not matches
+            and mentions
+            and re.fullmatch(
+                r"(?:정비|수리|(?:타이밍|센터링|센터|위치|각도|높이)(?:재)?조정)(?:완료|후(?:가동|생산재개))?",
+                tail,
+            )
+        ):
+            mode, evidence = UNKNOWN_SYMPTOM, tail
+        else:
+            return None
+        if mode == "압력이상" and not tail.startswith(("압력", "공압", "에어압")):
+            return None
+        if mode == "위치·설정이상" and not (
+            re.match(r"(?:원점|타이밍|위치|정렬|텐션|센터).+", evidence) or evidence == "슬립"
+        ):
+            return None
+        if (
+            mode in {"동작불량", "고장·이상"}
+            and not mentions
+            and (
+                location["detail_equipment"] == UNKNOWN_EQUIPMENT
+                or evidence in {"고장", "이상", "문제"}
+            )
+        ):
+            return None
+        if (
+            mode in {"과부하·과전류", "위치·설정이상"}
+            and location["detail_equipment"] == UNKNOWN_EQUIPMENT
+        ) or (mode == "통신·입출력 이상" and evidence == "통신"):
+            return None
+        if (
+            source_text is not None
+            and mode != UNKNOWN_SYMPTOM
+            and mode not in symptom_names([re.sub(r"\s+", "", source_text)])
+        ):
+            return None
+        major = self.taxonomy.major_for(
+            UNKNOWN_PART, mode, chunk, UNKNOWN_DOMAIN, location["detail_equipment"]
+        )
+        if mode == "압력이상" and tail.startswith(("공압", "에어압")):
+            major = "공압·진공"
+        if mode == "과부하·과전류" and evidence.casefold() in {"과부하", "overload"}:
+            major = UNKNOWN_DOMAIN
+        return {
+            **location,
+            "major": major,
+            "middle": UNKNOWN_PART,
+            "minor": mode,
+            "schema": CLASSIFICATION_SCHEMA,
+            "part_group": "미기재",
+            "rule_id": "observed_symptom_without_part",
+            "evidence": chunk,
+            "symptom_evidence": evidence if mode != UNKNOWN_SYMPTOM else "",
+            "actions": extract_actions(" / ".join(chunks)),
+        }
+
     def classify(
         self,
         text: str,
@@ -669,7 +865,8 @@ class FaultClassifier:
                 text = supplemented
         selected = parse_components(original.get("component_details"))
         source = text
-        if "부품명으로 판정" in original.get("classification_reason", ""):
+        part_from_code = "부품명으로 판정" in original.get("classification_reason", "")
+        if part_from_code:
             source = f"{part_code if code_text is None else code_text} {text}"
         chunks = clauses(source)
         nopart_ids = {rule["id"] for rule, *_ in self.parts.nopart_rules}
@@ -680,8 +877,9 @@ class FaultClassifier:
         )
         matched = self.parts.pairs(chunks, stage_rules)
         live = self.parts.eligible_pairs(matched, chunks)
+        locations, part_roles = self._source_locations(chunks, live)
         candidates, raw_candidates = self._recommendations(
-            live, chunks, part_code, equipment_context, registered_equipment
+            live, chunks, locations, part_roles, part_code, equipment_context, registered_equipment
         )
         result = {
             **original,
@@ -701,6 +899,48 @@ class FaultClassifier:
             "classification_missing_fields": "",
             KNOWN_FIELDS: "",
         }
+        record_text = "".join(
+            chunk
+            for chunk in clauses(text)
+            if not (
+                NEGATION.search(chunk)
+                or NEGATED_PART.search(chunk)
+                or PLANNED_BEFORE.search(chunk)
+            )
+        )
+        shop_terms = set(re.findall(r"무접점홀더", record_text))
+        if "익스트랙터바" in record_text and "익스트로바" in (source_text or ""):
+            shop_terms.update(re.findall(r"어퍼(?:드라이브)?", record_text))
+        if "멤브레인교체" in record_text:
+            shop_terms.add("멤브레인")
+        unconfirmed = sorted(
+            term for term in shop_terms if not any(pair.context == term for pair in live)
+        )
+        observations = [member for member in raw_candidates if member.get("_observed_failure")]
+        if (
+            unconfirmed
+            and observations
+            and all(
+                member["middle"] == UNKNOWN_PART or "멤브레인" in unconfirmed
+                for member in observations
+            )
+        ):
+            return self._retain_known(
+                {
+                    **result,
+                    **component_payload([], "ambiguous"),
+                    **{key: "" for key in CATEGORY_FIELDS},
+                    "status": K["review"],
+                    "review_code": "unmapped_fault_context",
+                    "classification_reason": (
+                        "현장 명칭과 대상의 대응 확인 필요: " + ", ".join(unconfirmed)
+                    ),
+                },
+                raw_candidates,
+                chunks,
+                equipment_context,
+                locations,
+            )
         if re.search(r"(?:동일|같은)문제", "".join(chunks)) and all(
             member["middle"] == UNKNOWN_PART and member["minor"] in {"고장·이상", UNKNOWN_SYMPTOM}
             for member in raw_candidates
@@ -717,6 +957,7 @@ class FaultClassifier:
                 raw_candidates,
                 chunks,
                 equipment_context,
+                locations,
             )
         observed = [member for member in raw_candidates if member.get("_observed_failure")]
         if any(member["minor"] == "점도이상" for member in observed) and all(
@@ -737,6 +978,7 @@ class FaultClassifier:
                 raw_candidates,
                 chunks,
                 equipment_context,
+                locations,
             )
         known_before_suspicion = self._known_first_before_suspicion(
             candidates, raw_candidates, chunks
@@ -763,16 +1005,12 @@ class FaultClassifier:
             and observed_network
             and not any(c["minor"] == "통신·입출력 이상" for c in candidates)
         ):
-            names = list(
-                dict.fromkeys(
-                    name for chunk in chunks for _, _, name in self.equipment.mentions(chunk)
-                )
-            )
+            names = list(dict.fromkeys(name for mentions in locations for _, _, name in mentions))
             if not names:
                 names = [
                     value["detail_equipment"]
                     for value in self.equipment.resolve(
-                        chunks, [], equipment_context, registered_equipment
+                        chunks, [], equipment_context, registered_equipment, locations=locations
                     )
                 ]
             network_members = [
@@ -814,6 +1052,38 @@ class FaultClassifier:
                     },
                     {**member, "detail_equipment_evidence": network.group()},
                 )
+        if not selected or part_from_code or not observed:
+            observed_chunks = clauses(text) if part_from_code else chunks
+            observed_locations = (
+                [self.equipment.mentions(chunk) for chunk in observed_chunks]
+                if part_from_code
+                else locations
+            )
+            observation = self._explicit_observation(
+                observed_chunks, observed_locations, equipment_context, source_text
+            )
+            if observation and (
+                not part_from_code or observation["detail_equipment_source"].startswith("원문")
+            ):
+                return self._automatic(
+                    {
+                        **result,
+                        "classification_reason": (
+                            (
+                                "원문에 기록된 설비와 완료 조치를 보존했습니다."
+                                if observation["minor"] == UNKNOWN_SYMPTOM
+                                else "원문에 직접 기록된 고장 현상을 보존했습니다. "
+                                "현상에 연결되는 세부 부품이 확인되지 않았습니다."
+                            )
+                            + (
+                                " 비가동코드(소)의 부품은 후보에 보존했습니다."
+                                if part_from_code
+                                else ""
+                            )
+                        ),
+                    },
+                    observation,
+                )
         if not selected:
             machine = self._machine_problem(chunks, raw_candidates)
             if source_text is not None and not re.search(
@@ -839,6 +1109,7 @@ class FaultClassifier:
                 raw_candidates,
                 chunks,
                 equipment_context,
+                locations,
             )
         by_type = defaultdict(list)
         for pair in live:
@@ -851,6 +1122,8 @@ class FaultClassifier:
                 item,
                 by_type[tuple(item[key] for key in ("major", "middle", "minor"))],
                 chunks,
+                locations,
+                part_roles,
                 equipment_context,
                 registered_equipment,
             )
@@ -881,6 +1154,8 @@ class FaultClassifier:
                 self.parts.component_value(own_pairs[0]),
                 own_pairs,
                 chunks,
+                locations,
+                part_roles,
                 equipment_context,
                 registered_equipment,
             )
@@ -1065,5 +1340,6 @@ class FaultClassifier:
                 raw_candidates,
                 chunks,
                 equipment_context,
+                locations,
             )
         return self._automatic(result, actual[0])
