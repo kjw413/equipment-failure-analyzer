@@ -17,7 +17,6 @@ class WorkspaceNavigation(QWidget):
 
     HISTORY_PAGES = (
         ("detail", "전체 기록"),
-        ("fault_detail", "부품·증상"),
         ("raw", "원본 미리보기"),
     )
     ANALYSIS_PAGES = (
@@ -26,11 +25,6 @@ class WorkspaceNavigation(QWidget):
         ("detailed_equipment", "상세설비별"),
         ("type", "유형별"),
         ("equipment_types", "설비별 유형순위"),
-        ("parts", "부품 분석"),
-    )
-    PART_PAGES = (
-        ("component", "부품별 포함 건수"),
-        ("component_trend", "월별 부품 추이"),
     )
 
     def __init__(self, pages, parent=None):
@@ -49,13 +43,6 @@ class WorkspaceNavigation(QWidget):
             history_bar, history_layout, "고장이력 보기", self.HISTORY_PAGES
         )
         history_bar.addStretch()
-
-        parts, parts_layout, parts_bar = self._section()
-        self.part_choice, self.part_stack = self._add_selector(
-            parts_bar, parts_layout, "부품 분석표", self.PART_PAGES
-        )
-        parts_bar.addStretch()
-        self.pages["parts"] = parts
 
         self.analysis, analysis_layout, analysis_bar = self._section()
         self.analysis_choice, self.analysis_stack = self._add_selector(
@@ -130,10 +117,6 @@ class WorkspaceNavigation(QWidget):
             self.history_choice.setCurrentIndex(index)
             self.tabs.setCurrentWidget(self.history)
             return
-        index = self.part_choice.findData(key)
-        if index != -1:
-            self.part_choice.setCurrentIndex(index)
-            key = "parts"
         if key != "chart":
             index = self.analysis_choice.findData(key)
             self.analysis_choice.setCurrentIndex(max(0, index))
@@ -146,8 +129,6 @@ class WorkspaceNavigation(QWidget):
             page = self.history_stack.currentWidget()
         elif page is self.analysis:
             page = self.analysis_stack.currentWidget()
-            if page is self.pages["parts"]:
-                page = self.part_stack.currentWidget()
         return next(key for key, widget in self.pages.items() if widget is page)
 
     def update_counts(self, review_rows=None, detail_rows=None):

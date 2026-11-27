@@ -32,7 +32,12 @@ PATHS = [
     ("전기·제어", "검사기", "광전센서", "고장·이상"),
     ("전기·제어", "검사기", "모터", "고장·이상"),
 ]
-FIELDS = ("major", "detail_equipment", "middle", "minor")
+FIELDS = ("major", "detail_equipment", "minor")
+LEGACY_FIELDS = ("major", "detail_equipment", "middle", "minor")
+
+
+def category(path):
+    return dict(zip(FIELDS, (*path[:2], path[-1])))
 
 
 @pytest.fixture(scope="module")
@@ -56,7 +61,7 @@ def record():
         "minor": PATHS[0][3],
         "component_types": "도징펌프",
         "classification_mode": "single",
-        "component_details": json.dumps([dict(zip(FIELDS, PATHS[0]))]),
+        "component_details": json.dumps([dict(zip(LEGACY_FIELDS, PATHS[0]))]),
         "raw_description": "도징펌프 파손 교체",
         "status": "규칙분류",
     }
@@ -76,9 +81,7 @@ def index(pane, column, row=0):
 
 
 def select(picker, path):
-    for field, value in zip(FIELDS, path):
-        if field == "middle":
-            picker.group_combo.setCurrentIndex(0)
+    for field, value in category(path).items():
         combo = picker.combos[field]
         combo.setCurrentIndex(combo.findData(value))
 
@@ -184,13 +187,14 @@ def test_classification_dialog_compares_exact_raw_and_analyzed_text(app, record)
     comparison = dialog.text_comparison
     assert comparison.raw.toPlainText() == raw
     assert comparison.normalized.toPlainText() == normalized
-    assert comparison.raw.isReadOnly() and comparison.normalized.isReadOnly()
+    assert comparison.raw.isReadOnly() and not comparison.normalized.isReadOnly()
     assert (
         comparison.raw.mapToGlobal(QPoint()).x() < comparison.normalized.mapToGlobal(QPoint()).x()
     )
-    assert not submitted
+    comparison.normalized.setPlainText("저장하지 않을 수정")
     dialog.close()
     app.processEvents()
+    assert not submitted
     assert values["raw_description"] == raw and values["normalized"] == normalized
 
 
@@ -260,18 +264,18 @@ def test_other_fields_never_confirm_observed_multiple_types(record):
     multi = {
         **record,
         "classification_mode": "multiple",
-        "component_details": json.dumps([dict(zip(FIELDS, p)) for p in PATHS[:2]]),
+        "component_details": json.dumps([dict(zip(LEGACY_FIELDS, p)) for p in PATHS[:2]]),
     }
     assert field_patch(multi, {}, "minutes", "50") == {"minutes": "50"}
     assert field_patch(multi, {}, "date", "2026-11-01") == {"work_date": "2026-11-01"}
     assert field_patch(multi, {}, "product", "신제품") == {"product": "신제품"}
 
 
-def test_major_change_saves_once_and_preserves_equipment_part_and_symptom(pane):
+def test_major_change_saves_once_and_preserves_equipment_and_symptom(pane):
     saved = []
     configure(pane, saved)
     assert pane.proxy.setData(index(pane, "major"), "전기·제어")
-    assert saved == [(saved[0][0], dict(zip(FIELDS, ("전기·제어", *PATHS[0][1:]))))]
+    assert saved == [(saved[0][0], {**category(PATHS[0]), "major": "전기·제어"})]
     assert index(pane, "detail_equipment").data() == PATHS[0][1]
     assert not pane._classification_drafts
 
@@ -282,7 +286,7 @@ def test_leaf_change_is_atomic_but_same_selection_does_not_confirm(pane):
     assert pane.proxy.setData(index(pane, "minor"), "손상")
     assert not saved
     assert pane.proxy.setData(index(pane, "minor"), "누설")
-    assert saved[0][1] == dict(zip(FIELDS, PATHS[1]))
+    assert saved[0][1] == category(PATHS[1])
 
 
 def test_failed_complete_draft_retries_same_minor_without_confirming_unchanged_auto_value(pane):
@@ -298,7 +302,7 @@ def test_failed_complete_draft_retries_same_minor_without_confirming_unchanged_a
     assert not pane.proxy.setData(index(pane, "minor"), "누설")
     assert len(attempts) == 1 and pane._classification_drafts
     assert pane.proxy.setData(index(pane, "minor"), "누설")
-    assert attempts == [dict(zip(FIELDS, PATHS[1]))] * 2
+    assert attempts == [category(PATHS[1])] * 2
     assert not pane._classification_drafts
 
 
@@ -307,8 +311,8 @@ def test_invalid_category_path_rejected_and_escape_cancels_pending_row(app, pane
     configure(pane, saved)
     assert not pane.proxy.setData(index(pane, "minor"), "임의 입력")
     pane.model.frame.at[0, "minor"] = ""
-    assert pane.proxy.setData(index(pane, "middle"), "근접센서")
-    pane.table.setCurrentIndex(index(pane, "middle"))
+    assert pane.proxy.setData(index(pane, "detail_equipment"), "검사기")
+    pane.table.setCurrentIndex(index(pane, "detail_equipment"))
     QTest.keyClick(pane.table, Qt.Key.Key_Escape)
     assert not pane._classification_drafts and not saved
     assert index(pane, "major").data() == "유체·배관"
@@ -335,7 +339,7 @@ def test_combo_delegate_uses_current_parent_choices_and_scalar_delegate_uses_tex
 def test_popup_single_confirmation_replaces_legacy_multiple_without_changing_other_fields(pane):
     saved = []
     existing = {
-        COMPONENT_FIELD: json.dumps([dict(zip(FIELDS, path)) for path in PATHS[:2]]),
+        COMPONENT_FIELD: json.dumps([dict(zip(LEGACY_FIELDS, path)) for path in PATHS[:2]]),
         "minutes": "12",
         "product": "제품 A",
     }
@@ -347,7 +351,7 @@ def test_popup_single_confirmation_replaces_legacy_multiple_without_changing_oth
     select(popup.single_picker, PATHS[1])
     popup.apply_button.click()
     patch = saved[0][1]
-    assert patch == {**dict(zip(FIELDS, PATHS[1])), COMPONENT_FIELD: None}
+    assert patch == {**category(PATHS[1]), COMPONENT_FIELD: None}
     assert "minutes" not in patch and "product" not in patch
 
 
@@ -366,7 +370,7 @@ def test_incomplete_classification_is_not_saved_until_valid(pane):
 def test_clear_classification_only_preserves_non_classification_overrides(pane):
     saved = []
     existing = {
-        **dict(zip(FIELDS, PATHS[0])),
+        **dict(zip(LEGACY_FIELDS, PATHS[0])),
         "minutes": "12",
         "work_date": "2026-10-20",
         "target": "내 대상",
@@ -374,7 +378,7 @@ def test_clear_classification_only_preserves_non_classification_overrides(pane):
     configure(pane, saved, existing)
     popup = pane.open_classification_editor(index(pane, "major"))
     popup.clear_button.click()
-    assert saved[0][1] == dict.fromkeys(FIELDS)
+    assert saved[0][1] == dict.fromkeys(LEGACY_FIELDS)
 
 
 def test_popup_cancel_and_busy_disable_cannot_persist(app, pane):
@@ -395,7 +399,7 @@ def test_popup_cancel_and_busy_disable_cannot_persist(app, pane):
 def test_set_frame_preserves_edit_capability_and_discloses_incomplete_draft(pane):
     configure(pane, [])
     pane.model.frame.at[0, "minor"] = ""
-    pane.proxy.setData(index(pane, "middle"), "근접센서")
+    pane.proxy.setData(index(pane, "detail_equipment"), "검사기")
     pane.set_frame(pane.model.frame)
     assert not pane._classification_drafts
     assert "저장되지 않았습니다" in pane.edit_status.text()
@@ -423,7 +427,7 @@ def test_supplier_refreshes_only_when_opened_and_legacy_paths_stay_local(pane, r
     pane.configure_editing(lambda: list(current), lambda record, patch: True)
     current.append(("기계", "이송기", "타이밍벨트", "마모"))
     popup = pane.open_classification_editor(index(pane, "type"))
-    assert ("기계", "이송기", "타이밍벨트", "마모") in popup.single_picker.categories
+    assert ("기계", "이송기", "마모") in popup.single_picker.categories
     pane.cancel_editing()
     old = {**record, "minor": "펌프 이상"}
     pane.set_frame(pd.DataFrame([old]))
@@ -431,10 +435,9 @@ def test_supplier_refreshes_only_when_opened_and_legacy_paths_stay_local(pane, r
     assert tuple(popup.single_picker.value().values()) == (
         "유체·배관",
         "도징설비",
-        "도징펌프",
         "펌프 이상",
     )
-    assert ("유체·배관", "도징설비", "도징펌프", "펌프 이상") not in popup.single_picker.categories
+    assert ("유체·배관", "도징설비", "펌프 이상") not in popup.single_picker.categories
     assert "펌프 이상" not in {p[-1] for p in current}
 
 

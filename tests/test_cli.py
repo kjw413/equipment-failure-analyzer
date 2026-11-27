@@ -50,7 +50,7 @@ def test_name_assignments_and_export_options(input_file, tmp_path, monkeypatch, 
 
     def export(result, output, *, overwrite):
         seen.update(result=result, output=output, overwrite=overwrite)
-        return ReportFiles(output, output.with_suffix(".pdf"))
+        return ReportFiles(output)
 
     monkeypatch.setattr(analyze_cli, "export_bundle", export)
     status = analyze_cli.main(

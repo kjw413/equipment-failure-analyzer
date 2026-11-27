@@ -1,7 +1,7 @@
 """Keep missing classification data separate from competing interpretations."""
 
 from core.failure_modes import UNKNOWN_EQUIPMENT, UNKNOWN_PART, UNKNOWN_SYMPTOM
-from core.fault_components import CATEGORY_FIELDS
+from core.fault_components import PUBLIC_CATEGORY_FIELDS
 from core.i18n import K
 from core.public_taxonomy import UNKNOWN_DOMAIN
 
@@ -16,7 +16,7 @@ MISSING_VALUES = {
 def missing_fields(category: dict) -> tuple[str, ...]:
     return tuple(
         key
-        for key in CATEGORY_FIELDS
+        for key in PUBLIC_CATEGORY_FIELDS
         if not category.get(key) or category[key] in MISSING_VALUES[key]
     )
 

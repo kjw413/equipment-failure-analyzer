@@ -15,12 +15,12 @@ from report.export_bundle import export_bundle
 from report.review_overview import SOURCE_SHEET
 
 
-def test_pair_has_one_workbook_with_review_summary_and_annotated_input(store, input_file, tmp_path):
+def test_one_workbook_has_review_summary_and_annotated_input(store, input_file, tmp_path):
     result = analyze_file(store, input_file)
     digest = hashlib.sha256(input_file.read_bytes()).hexdigest()
-    paths = export_bundle(result, tmp_path / "pair/analysis.xlsm")
+    paths = export_bundle(result, tmp_path / "reports/analysis.xlsm")
     assert paths.source_review is None
-    assert {p.name for p in paths.excel.parent.iterdir()} == {paths.excel.name, paths.pdf.name}
+    assert list(paths.excel.parent.iterdir()) == [paths.excel]
     book = load_workbook(paths.excel, data_only=True)
     try:
         visible = [s.title for s in book if s.sheet_state == "visible"]

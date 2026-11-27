@@ -3,78 +3,57 @@ Private Sub PeriodCheck(ByVal valid As Boolean, ByVal message As String)
     If Not valid Then Err.Raise vbObjectError + 1901, "Period QA", message
 End Sub
 
-Private Sub VerifyPeriodMouse(ByVal sheet As Worksheet)
-    ' Exercise Excel's real Select event: a single click must only select the point.
-    ' The drill runs on double-click (EFADrillChart.BeforeDoubleClick -> FollowChart).
-    Dim chart As Chart, selected As Long, expected As String, previousEvents As Boolean, boundCharts As Long
-    boundCharts = ThisWorkbook.Worksheets("02.팀별 주요이슈").ChartObjects.Count + _
-                  ThisWorkbook.Worksheets("04.고장비교").ChartObjects.Count + sheet.ChartObjects.Count
-    PeriodCheck EFASearch.ProbeChartBindingCount() = boundCharts, "All current native chart handlers bound"
-    Application.Visible = True
-    sheet.Activate
-    Set chart = sheet.ChartObjects(1).Chart
-    chart.Parent.Activate
-    selected = (chart.SeriesCollection(1).Points.Count + 1) \ 2
-    expected = CStr(ThisWorkbook.Names("_Period_Rows").RefersToRange.Cells(selected, 1).Value2)
-    previousEvents = Application.EnableEvents
-    Application.EnableEvents = True
-    chart.SeriesCollection(1).Points(selected).Select
-    Application.EnableEvents = previousEvents
-    PeriodCheck ThisWorkbook.Names("_Period_Mode").RefersToRange.Value2 = "월별", "Single click (Select event) does not drill"
-    PeriodCheck EFASearch.ProbeChartDoubleClick(sheet.Name, 1, selected), "Double-click handler cancels Excel's default and drills"
-    PeriodCheck ThisWorkbook.Names("_Period_Mode").RefersToRange.Value2 = "일별" And ThisWorkbook.Names("_Period_Month").RefersToRange.Value2 = expected, "Drill commits exactly the selected month"
-    PeriodCheck EFASearch.BackToMonths(), "Restore monthly after point drill"
-    ' Excel otherwise exports an active selected chart instead of the worksheet.
-    sheet.Range("A1").Select
-End Sub
-
 Public Function VerifyPeriod() As String
     Dim previousEvents As Boolean
     previousEvents = Application.EnableEvents
     On Error GoTo Failed
     Application.EnableEvents = False
     Dim sheet As Worksheet, labels As Range, months As Range, modeCell As Range, monthCell As Range
-    Dim key As Variant, saved(0 To 4) As String, index As Long, point As Long, count As Long
+    Dim key As Variant, saved(0 To 3) As String, index As Long, point As Long, count As Long
     Dim nMonths As Long, nDays As Long, firstMonth As String, nextMonth As String, scopedMonth As String
-    Dim monthCount As Double, monthTime As Variant, scopedCount As Double
+    Dim monthCount As Double, monthTime As Variant, scopedCount As Double, chartLabels As Variant
     Set sheet = ThisWorkbook.Worksheets("03.월별 주요이슈")
     Set labels = ThisWorkbook.Names("_Period_Rows").RefersToRange
     Set months = ThisWorkbook.Names("_Period_Months").RefersToRange
     Set modeCell = ThisWorkbook.Names("_Period_Mode").RefersToRange.Cells(1, 1)
     Set monthCell = ThisWorkbook.Names("_Period_Month").RefersToRange.Cells(1, 1)
     EFASearch.Initialize
-    For Each key In Array("factory", "team", "asset", "module", "part")
+    For Each key In Array("factory", "team", "asset", "module")
         PeriodCheck EFASearch.CommitSelection(EFASearch.ControlCell(sheet, CStr(key)), "(전체)"), "Initial period filter reset"
     Next key
-    PeriodCheck EFASearch.BackToMonths(), "Initial monthly mode"
+    Application.EnableEvents = True
+    modeCell.Value2 = "월별"
     nMonths = CLng(ThisWorkbook.Names("_Period_ActiveCount").RefersToRange.Value2)
     PeriodCheck nMonths > 0, "Monthly calendar exists"
-    VerifyPeriodMouse sheet
+    PeriodCheck Not EFASearch.ProbeChartDoubleClick(sheet.Name, 1, 1), "The month chart has no double-click navigation"
+    PeriodCheck Not ThisWorkbook.ProbeSheetDoubleClick(labels.Cells(1, 1)), "The month table has no double-click navigation"
+    PeriodCheck modeCell.Value2 = "월별", "Month data clicks keep the view"
     If Len(PreviewDirectory) > 0 Then sheet.ExportAsFixedFormat 0, PreviewDirectory & "\monthly_native.pdf"
     PeriodCheck sheet.ChartObjects(1).Chart.SeriesCollection(1).Points.Count = nMonths, "Monthly chart point count"
     firstMonth = CStr(labels.Cells(1, 1).Value2)
     monthCount = sheet.Cells(labels.Row, 2).Value2
     monthTime = sheet.Cells(labels.Row, 3).Value2
-    PeriodCheck EFASearch.FollowChart(sheet.ChartObjects(1).Chart, 1), "Month point click drills into daily"
+    monthCell.Value2 = "'" & firstMonth
+    modeCell.Value2 = "일별"
     nDays = Day(DateSerial(CLng(Left$(firstMonth, 4)), CLng(Right$(firstMonth, 2)) + 1, 0))
-    PeriodCheck modeCell.Value2 = "일별" And monthCell.Value2 = firstMonth, "Clicked month committed"
+    PeriodCheck modeCell.Value2 = "일별" And monthCell.Value2 = firstMonth, "Selected month committed"
     PeriodCheck ThisWorkbook.Names("_Period_ActiveCount").RefersToRange.Value2 = nDays, "All calendar days represented"
     PeriodCheck sheet.ChartObjects(1).Chart.SeriesCollection(1).Points.Count = nDays, "Daily chart has all days"
     PeriodCheck sheet.ChartObjects(2).Chart.SeriesCollection(1).Points.Count = nDays, "Both daily charts refresh"
     PeriodCheck labels.Cells(1, 1).Value2 = firstMonth & "-01", "First daily label"
-    PeriodCheck sheet.ChartObjects(1).Chart.Axes(xlCategory).AxisTitle.Text = "일", "Daily axis unit follows view"
+    chartLabels = sheet.ChartObjects(1).Chart.SeriesCollection(1).XValues
+    PeriodCheck CStr(chartLabels(LBound(chartLabels))) = "01", "Daily chart labels follow the view"
     PeriodCheck labels.Cells(nDays, 1).Value2 = firstMonth & "-" & Format$(nDays, "00"), "Last daily label"
     If Len(PreviewDirectory) > 0 Then sheet.ExportAsFixedFormat 0, PreviewDirectory & "\daily_native.pdf"
-    PeriodCheck Application.Sum(sheet.Range(sheet.Cells(labels.Row, 2), sheet.Cells(labels.Row + nDays - 1, 2))) = monthCount, "Daily counts reconcile to clicked month"
+    PeriodCheck Application.Sum(sheet.Range(sheet.Cells(labels.Row, 2), sheet.Cells(labels.Row + nDays - 1, 2))) = monthCount, "Daily counts reconcile to selected month"
     If IsNumeric(monthTime) Then
-        PeriodCheck Application.Sum(sheet.Range(sheet.Cells(labels.Row, 3), sheet.Cells(labels.Row + nDays - 1, 3))) = CDbl(monthTime), "Daily minutes reconcile to clicked month"
+        PeriodCheck Application.Sum(sheet.Range(sheet.Cells(labels.Row, 3), sheet.Cells(labels.Row + nDays - 1, 3))) = CDbl(monthTime), "Daily minutes reconcile to selected month"
     End If
-    PeriodCheck Not EFASearch.FollowChart(sheet.ChartObjects(1).Chart, 1), "A daily point does not invent another drill level"
-    PeriodCheck EFASearch.FollowPeriodTarget(ThisWorkbook.Names("_Period_Back").RefersToRange.Cells(1, 1)), "Return control works"
+    PeriodCheck Not EFASearch.ProbeChartDoubleClick(sheet.Name, 1, 1), "The daily chart has no navigation"
+    modeCell.Value2 = "월별"
     PeriodCheck modeCell.Value2 = "월별" And ThisWorkbook.Names("_Period_ActiveCount").RefersToRange.Value2 = nMonths, "Monthly calendar restored"
-    PeriodCheck sheet.ChartObjects(1).Chart.Axes(xlCategory).AxisTitle.Text = "월", "Monthly axis unit restored"
-    PeriodCheck EFASearch.FollowPeriodTarget(labels.Cells(1, 1)), "Month table double click drills too"
-    PeriodCheck EFASearch.BackToMonths(), "Return after table drill"
+    chartLabels = sheet.ChartObjects(1).Chart.SeriesCollection(1).XValues
+    PeriodCheck CStr(chartLabels(LBound(chartLabels))) = "'" & Right$(firstMonth, 5), "Monthly chart labels restored"
 
     ' Native change events handle mode/month dropdowns, invalid edits and short months.
     Application.EnableEvents = True
@@ -92,12 +71,11 @@ Public Function VerifyPeriod() As String
     PeriodCheck monthCell.Value2 = nextMonth And modeCell.Value2 = "월별", "Invalid month reverts to prior valid selection"
     modeCell.Value2 = "잘못된 단위"
     PeriodCheck modeCell.Value2 = "월별", "Invalid mode reverts"
-    PeriodCheck Not EFASearch.FollowPeriodMonth("2099-99"), "Invalid programmatic month rejected"
     Application.EnableEvents = False
 
-    ' Select one actual five-field hierarchy, then drill its nonzero month.
+    ' Select one actual hierarchy, then query a month with a record.
     index = 0
-    For Each key In Array("factory", "team", "asset", "module", "part")
+    For Each key In Array("factory", "team", "asset", "module")
         Dim control As Range, source As Range
         Set control = EFASearch.ControlCell(sheet, CStr(key))
         Set source = EFASearch.SourceRange(control)
@@ -107,7 +85,7 @@ Public Function VerifyPeriod() As String
         saved(index) = CStr(control.Value2)
         index = index + 1
     Next key
-    PeriodCheck modeCell.Value2 = "월별", "Changing parent conditions resets monthly mode"
+    PeriodCheck modeCell.Value2 = "월별", "Monthly mode is retained while filtering"
     point = 0
     For index = 1 To nMonths
         If sheet.Cells(labels.Row + index - 1, 2).Value2 > 0 Then
@@ -117,25 +95,26 @@ Public Function VerifyPeriod() As String
     PeriodCheck point > 0, "Scoped history has an observed month"
     scopedMonth = CStr(labels.Cells(point, 1).Value2)
     scopedCount = sheet.Cells(labels.Row + point - 1, 2).Value2
-    PeriodCheck EFASearch.FollowChart(sheet.ChartObjects(2).Chart, point), "Time chart month drill"
-    PeriodCheck modeCell.Value2 = "일별" And monthCell.Value2 = scopedMonth, "Scoped clicked month shown"
+    Application.EnableEvents = True
+    monthCell.Value2 = "'" & scopedMonth
+    PeriodCheck modeCell.Value2 = "일별" And monthCell.Value2 = scopedMonth, "Scoped selected month shown"
     index = 0
-    For Each key In Array("factory", "team", "asset", "module", "part")
-        PeriodCheck CStr(EFASearch.ControlCell(sheet, CStr(key)).Value2) = saved(index), "All five categorical filters preserved through drill"
+    For Each key In Array("factory", "team", "asset", "module")
+        PeriodCheck CStr(EFASearch.ControlCell(sheet, CStr(key)).Value2) = saved(index), "All categorical filters preserved when changing the month"
         index = index + 1
     Next key
     count = CLng(ThisWorkbook.Names("_Period_ActiveCount").RefersToRange.Value2)
     PeriodCheck Application.Sum(sheet.Range(sheet.Cells(labels.Row, 2), sheet.Cells(labels.Row + count - 1, 2))) = scopedCount, "Scoped day totals reconcile"
     PeriodCheck EFASearch.CommitSelection(EFASearch.ControlCell(sheet, "factory"), "(전체)"), "Parent filter changed from daily"
-    PeriodCheck modeCell.Value2 = "월별" And monthCell.Value2 = scopedMonth, "Parent reset keeps remembered month"
-    For Each key In Array("team", "asset", "module", "part")
+    PeriodCheck modeCell.Value2 = "일별" And monthCell.Value2 = scopedMonth, "Parent reset keeps the period filters"
+    For Each key In Array("team", "asset", "module")
         PeriodCheck EFASearch.CommitSelection(EFASearch.ControlCell(sheet, CStr(key)), "(전체)"), "Final period filter reset"
     Next key
-    PeriodCheck EFASearch.FollowPeriodMonth(firstMonth), "Restore default remembered month"
-    PeriodCheck EFASearch.BackToMonths(), "Final monthly mode"
+    monthCell.Value2 = "'" & firstMonth
+    modeCell.Value2 = "월별"
 
     Application.EnableEvents = previousEvents
-    VerifyPeriod = "PASS; month=" & firstMonth & "; monthly_count=" & CStr(monthCount) & "; daily_days=" & CStr(nDays) & "; scoped_count=" & CStr(scopedCount) & "; single_click=select_only; categorical_filters=preserved; invalid_input=reverted; back=ok"
+    VerifyPeriod = "PASS; month=" & firstMonth & "; monthly_count=" & CStr(monthCount) & "; daily_days=" & CStr(nDays) & "; scoped_count=" & CStr(scopedCount) & "; no_click_navigation; categorical_and_period_filters_preserved; invalid_input_reverted"
     Exit Function
 Failed:
     Application.EnableEvents = previousEvents

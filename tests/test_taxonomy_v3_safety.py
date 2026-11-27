@@ -144,10 +144,7 @@ def test_network_fault_is_preserved_after_recovery(classify_current):
     member = parse_components(result["component_details"])[0]
     assert (member["middle"], member["minor"]) == (UNKNOWN_PART, "통신·입출력 이상")
     assert member["detail_equipment"] == UNKNOWN_EQUIPMENT
-    assert set(result["classification_missing_fields"].split(", ")) == {
-        "상세설비·모듈",
-        "세부 부품",
-    }
+    assert result["classification_missing_fields"] == "상세설비·모듈"
     assert parse_repair_actions(result["repair_actions"]) == ["리셋·재가동"]
 
 
@@ -159,7 +156,7 @@ def test_hot_air_dryer_body_does_not_become_a_replacement_part(classify_current)
     assert member["middle"] == UNKNOWN_PART and member["minor"] == "고장·이상"
     assert member["major"] == "분야 미상"
     assert result["part_count"] == 0
-    assert set(result["classification_missing_fields"].split(", ")) == {"고장 분야", "세부 부품"}
+    assert result["classification_missing_fields"] == "고장 분야"
     assert result["repair_actions"] == "" and member["actions"] == []
     candidates = parse_candidates(result["classification_candidates"])
     assert any(

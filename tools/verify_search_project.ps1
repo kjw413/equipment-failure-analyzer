@@ -44,11 +44,12 @@ try {
     $searchModule = $book.VBProject.VBComponents.Item('EFASearch').CodeModule
     $searchModule.DeleteLines(1, $searchModule.CountOfLines)
     $searchModule.AddFromString($searchCode)
-    $searchModule.AddFromString("`r`nPublic Function ProbeChartBindingCount() As Long`r`nInitialize`r`nProbeChartBindingCount = ChartHandlers.Count`r`nEnd Function")
     $chartModule = $book.VBProject.VBComponents.Item('EFADrillChart').CodeModule
     $chartModule.AddFromString("`r`nPublic Function ProbeDoubleClick(ByVal point As Long) As Boolean`r`nDim cancelled As Boolean`r`nWatched_BeforeDoubleClick xlSeries, 1, point, cancelled`r`nProbeDoubleClick = cancelled`r`nEnd Function")
     # Route a probe through the bound handler so the real BeforeDoubleClick procedure runs.
     $searchModule.AddFromString("`r`nPublic Function ProbeChartDoubleClick(ByVal sheetName As String, ByVal chartIndex As Long, ByVal point As Long) As Boolean`r`nInitialize`r`nDim handler As EFADrillChart`r`nFor Each handler In ChartHandlers`r`nIf handler.Watched.Parent.Parent.Name = sheetName And handler.Watched.Parent.Index = chartIndex Then ProbeChartDoubleClick = handler.ProbeDoubleClick(point): Exit Function`r`nNext handler`r`nEnd Function")
+    $workbookModule = $book.VBProject.VBComponents.Item($book.CodeName).CodeModule
+    $workbookModule.AddFromString("`r`nPublic Function ProbeSheetDoubleClick(ByVal target As Range) As Boolean`r`nDim cancelled As Boolean`r`nWorkbook_SheetBeforeDoubleClick target.Parent, target, cancelled`r`nProbeSheetDoubleClick = cancelled`r`nEnd Function")
     $excel.CalculateFull()
     $excel.Run("'" + $book.Name + "'!NativeSearchQA.ConfigureEvidence", $evidencePath, [bool]$PreviewPdf)
     $result = $excel.Run("'" + $book.Name + "'!NativeSearchQA.VerifySearch")

@@ -106,7 +106,9 @@ def test_review_settings_entry_and_source_output_open(app, tmp_path, monkeypatch
     assert not hasattr(window, "source_review_button")
     window.open_excel()
     assert opened == [paths.excel]
-    assert "2개" in notices[0] and paths.source_review is None
+    assert notices == [f"Excel 보고서를 저장했습니다.\n\n{paths.excel}"]
+    assert window.last_results_button.menu().actions() == [window.open_button, window.output_button]
+    assert paths.source_review is None
     window.task = object()
     window.update_controls()
     assert not window.review_colors_action.isEnabled()
@@ -115,13 +117,13 @@ def test_review_settings_entry_and_source_output_open(app, tmp_path, monkeypatch
     window.close()
 
 
-def test_source_output_collision_participates_in_overwrite_confirmation(app, tmp_path, monkeypatch):
+def test_workbook_collision_requires_overwrite_confirmation(app, tmp_path, monkeypatch):
     window = MainWindow(ConfigStore(tmp_path / "profile"))
     source = tmp_path / "original.xlsm"
     window.loaded = SimpleNamespace(path=source)
     destination = tmp_path / "analysis.xlsx"
     paths = report_paths(destination, source_path=source)
-    paths.pdf.write_text("existing PDF", encoding="utf-8")
+    paths.excel.write_text("existing workbook", encoding="utf-8")
     monkeypatch.setattr(
         QFileDialog, "getSaveFileName", lambda *args, **kwargs: (str(destination), "")
     )
@@ -137,6 +139,6 @@ def test_source_output_collision_participates_in_overwrite_confirmation(app, tmp
     )
     window.save_report()
     assert len(questions) == 1
-    assert str(paths.pdf) in questions[0]
-    assert paths.pdf.read_text(encoding="utf-8") == "existing PDF"
+    assert str(paths.excel) in questions[0]
+    assert paths.excel.read_text(encoding="utf-8") == "existing workbook"
     window.close()

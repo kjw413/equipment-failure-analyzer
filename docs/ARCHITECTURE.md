@@ -7,11 +7,11 @@ START.bat → scripts/run.bat → main.py → gui/
 analyze_cli.py ───────────────────────┐
                                      ↓
 core/excel_loader.py → core/service.py → AnalysisResult → report/export_bundle.py
-                       ├─ preprocessing.py                   ├─ excel_report.py
-                       └─ analyzer.py                        └─ pdf_report.py
+                       ├─ preprocessing.py                   └─ excel_report.py
+                       └─ analyzer.py
 ```
 
-화면과 CLI는 같은 분석 서비스를 호출합니다. 입력 시트에서 열을 매핑하고 본문을 표준화한 뒤 분류와 집계를 수행합니다. 두 보고서는 같은 분석 결과에서 생성되며, 저장 도중 한쪽 파일을 쓰지 못하면 기존 결과 복구를 시도합니다.
+화면과 CLI는 같은 분석 서비스를 호출합니다. 입력 시트에서 열을 매핑하고 본문을 표준화한 뒤 분류와 집계를 수행합니다. Excel 보고서 작성을 마친 뒤 완성된 파일을 지정한 위치에 저장합니다.
 
 ## 폴더별 책임
 
@@ -22,7 +22,7 @@ core/excel_loader.py → core/service.py → AnalysisResult → report/export_bu
 | 진입점 | `main.py`, `analyze_cli.py`, `START.bat`, `BUILD_EXE.bat` | 앱, CLI, Windows 실행과 빌드의 시작 |
 | 분석 | `core/` | 입력 해석, 표준화, 분류, 집계, 사용자 설정 |
 | 화면 | `gui/` | 입력·설정 화면, 분류 검수, 분석·저장 작업 호출 |
-| 보고서 | `report/` | Excel·PDF, 차트와 표, Excel 검색·드릴다운용 VBA |
+| 보고서 | `report/` | Excel 보고서, 차트와 표, 검색·드릴다운용 VBA |
 | 배포 기본값 | `config/` | 규칙, 열 매핑, 보고서 양식과 검색용 VBA 리소스 |
 | 실행 절차 | `scripts/` | Windows 설치·실행·시험·빌드와 분류 체계 검증 명령 |
 | 유지보수 | `tools/` | 양식·VBA·사용자 안내 재생성, Excel 검증, 캐시 정리 |
@@ -47,7 +47,7 @@ core/excel_loader.py → core/service.py → AnalysisResult → report/export_bu
 | 화면 검수·사용자 설정 | `gui/main_window.py`, `gui/dialogs.py`, `core/config.py` | 원문과 표준화 결과, 이전 프로필에서 가져온 사용자 규칙 |
 | Excel 양식·표·차트 | `config/report_template.xlsx`, `report/locked_template.py`, `report/issue_workbook.py` | 필터 기본값, 병합·테두리·행 높이, 내림차순·천 단위 |
 | Excel 드릴다운·검색·비교 | `report/vba/`, `report/search_project.py`, `report/fault_comparison.py` | VBA 프로젝트 재생성, Excel에서 실제 필터 연동 |
-| PDF 형식과 결과 파일 저장 | `report/pdf_report.py`, `report/export_bundle.py` | Excel과 동일한 분석 범위, 두 파일 저장과 복구 |
+| 결과 파일 저장 | `report/export_bundle.py` | Excel 단일 파일 저장, 원본 보호와 덮어쓰기 확인 |
 
 ## 파일을 둘 위치
 

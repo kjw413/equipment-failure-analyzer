@@ -24,7 +24,7 @@ def test_monthly_daily_view_keeps_periods_and_exact_data(organization_result, tm
         assert sum(ws.cell(row, 3).value or 0 for row in range(25, 56)) == 144
         assert ws["G25"].value in ("", None)
         assert ws["K26"].value in ("", None)
-        assert len(formulas[ws.title].data_validations.dataValidation) == 7
+        assert len(formulas[ws.title].data_validations.dataValidation) == 6
         assert values["_period_daily"]["A32"].value == "2026-01-31"
         assert values["_period_daily"]["B2"].value == 1
         assert values["_period_daily"]["C2"].value == 10
@@ -35,13 +35,13 @@ def test_monthly_daily_view_keeps_periods_and_exact_data(organization_result, tm
             for name in (
                 "_Period_Mode",
                 "_Period_Month",
-                "_Period_Back",
                 "_Period_Rows",
                 "_Period_ActiveCount",
             )
         )
         assert formulas.defined_names["_Period_Mode"].attr_text.endswith("!$B$8")
         assert formulas.defined_names["_Period_Month"].attr_text.endswith("!$D$8")
+        assert "_Period_Back" not in formulas.defined_names
         axis_labels = formulas[ws.title]._charts[0].series[0].cat.strRef
         assert axis_labels.f.endswith("!_Period_ChartLabels")
         assert axis_labels.strCache.pt[0].v == "'26-01"
@@ -54,8 +54,7 @@ def test_monthly_daily_view_keeps_periods_and_exact_data(organization_result, tm
         formulas.close()
 
 
-def test_month_day_view_replaces_the_period_appendix(organization_result, tmp_path):
-    """별첨. 기간별추이 is gone; 04 keeps only the month view and its day drill."""
+def test_month_day_view_uses_the_top_selectors(organization_result, tmp_path):
     path = export_report(organization_result, tmp_path / "period_units.xlsm")
     values, formulas = load_workbook(path, data_only=True), load_workbook(path)
     try:
@@ -65,8 +64,9 @@ def test_month_day_view_replaces_the_period_appendix(organization_result, tmp_pa
         source = formulas["03.월별 주요이슈"]
         mode = next(v for v in source.data_validations.dataValidation if str(v.sqref) == "B8")
         assert mode.formula1 == '"월별,일별"'
-        assert values["03.월별 주요이슈"]["L7"].value == "월별로\n돌아가기"
-        assert "더블클릭" in values["03.월별 주요이슈"]["A4"].value
+        assert values[source.title]["L7"].value is None
+        assert "L7:L8" not in source.merged_cells
+        assert "상단 필터와 조회 단위" in values[source.title]["A4"].value
         assert formulas["_period_state"]["B4"].value.startswith("=IF('_period_state'!$B$3=\"일별\"")
     finally:
         values.close()

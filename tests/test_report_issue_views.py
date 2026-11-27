@@ -44,7 +44,7 @@ def test_chart_labels_retain_module_for_unknown_parts():
     robot = tidy_label("분야 미상 / 로봇 / 세부 부품 미기재 / 고장·이상")
     assert "날인기" in printer and "로봇" in robot
     assert printer != robot
-    assert brief_type("펌프 / 씰 / 누설") == "펌프 / 씰 / 누설"
+    assert brief_type("펌프 / 누설") == "펌프 / 누설"
 
 
 @pytest.fixture
@@ -116,7 +116,7 @@ def test_facts_use_retained_axes_and_actual_asset_independent_of_grouping(organi
     assert facts.minutes.sum() == 144
     assert set(facts.asset) == {"실제설비A", "실제설비B"}
     pending = facts.loc[facts.record_id.eq("test-4")].iloc[0]
-    assert pending["case"] == "펌프 / 세부 부품 미기재 / 현상 미기재"
+    assert pending["case"] == "펌프 / 현상 미기재"
     assert pending.review_count == 1
     summary = issue_summary(facts, ["module"])
     pump = summary.loc[summary.module.eq("펌프")].iloc[0]
@@ -138,7 +138,7 @@ def test_all_stop_scope_still_uses_only_faults_in_case_views(organization_result
 def test_case_trend_keeps_zero_separate_from_unavailable_duration(organization_result):
     facts = issue_facts(organization_result.selected)
     calendar = case_months(facts)
-    case = select_issues(facts, case="펌프 / 씰 / 누설")
+    case = select_issues(facts, case="펌프 / 누설")
     months = case_months(case, calendar.period).set_index("period")
     assert list(months.index) == ["2026-01", "2026-02", "2026-03", "2026-04"]
     assert months.loc["2026-01", "count"] == 3
@@ -196,9 +196,9 @@ def test_excel_selectors_share_fact_formulas_and_native_charts(organization_resu
         assert trend["B27"].value == 1 and trend["C27"].value in (None, "")
         assert trend["B28"].value == 2 and trend["C28"].value == 14
         for key, validation_count in (
-            ("organization_issues", 5),
+            ("organization_issues", 4),
             ("issue_comparison", 6),
-            ("issue_trends", 7),
+            ("issue_trends", 6),
         ):
             sheet = formulas[ISSUE_SHEETS[key]]
             assert len(sheet.data_validations.dataValidation) == validation_count
@@ -227,7 +227,7 @@ def test_pdf_comparisons_and_case_trends_precede_equipment_appendix(organization
     assert "동일 설비·사례의 조직 간 비교" in text
     assert "고장사례별 월간 변화" in text
     assert text.index("05 고장사례별 월간 변화") < text.index("부록 A 라인별 상세 분석")
-    assert "부록 C 개별 분류 이력" not in text
+    assert "부록 B 개별 분류 이력" not in text
     assert len(PdfReader(path).outline) >= 6
     assert any("실제설비A" in entry.get("/Title", "") for entry in PdfReader(path).outline)
     appendix = text[text.index("부록 A 라인별 상세 분석") :]
@@ -242,7 +242,7 @@ def test_excel_starts_with_all_cases_without_changing_saved_case(organization_re
     wb = load_workbook(path, data_only=True)
     try:
         trend = wb[ISSUE_SHEETS["issue_trends"]]
-        assert trend["J8"].value == "(전체)"
+        assert trend["J7"].value == "(전체)"
         assert [trend.cell(row, 2).value for row in range(25, 29)] == [3, 0, 1, 2]
         assert result.config_snapshot["final_report"]["focus_case"] == "선택 사례 없음"
     finally:
@@ -281,24 +281,20 @@ def test_pdf_record_appendix_can_be_requested(organization_result, tmp_path):
         replace(organization_result, config_snapshot=config), tmp_path / "appendix.pdf"
     )
     text = "\n".join(page.extract_text() or "" for page in PdfReader(path).pages)
-    assert "부록 C 개별 분류 이력" in text
-    assert text.index("07 관리 검토사항") < text.index("부록 C 개별 분류 이력")
+    assert "부록 B 개별 분류 이력" in text
+    assert text.index("07 관리 검토사항") < text.index("부록 B 개별 분류 이력")
 
 
-def test_report_case_selection_and_appendix_setting_survive_save(store, organization_result):
-    from PySide6.QtWidgets import QWidget
-
+def test_workbook_settings_save_department_with_legacy_profile(store):
     from gui.report_settings import ReportSettingsDialog
 
-    parent = QWidget()
-    parent.result = organization_result
-    dialog = ReportSettingsDialog(store, parent)
-    selected = "컨베어 / 씰 / 누설"
-    dialog.case.setCurrentIndex(dialog.case.findData(selected))
-    dialog.appendix.setChecked(True)
+    selected = "컨베어 / 누설"
+    store.save_report_settings({"focus_case": selected, "include_record_appendix": True})
+    dialog = ReportSettingsDialog(store)
+    dialog.department.setText("생산기술팀")
     dialog.save()
     saved = store.read("final_report.json")
+    assert saved["department"] == "생산기술팀"
     assert saved["focus_case"] == selected
     assert saved["include_record_appendix"] is True
     dialog.close()
-    parent.close()

@@ -190,6 +190,7 @@ class ConfigStore:
         from core.fault_components import (
             CATEGORY_FIELDS,
             COMPONENT_OVERRIDE,
+            PUBLIC_CATEGORY_FIELDS,
             parse_components,
         )
 
@@ -209,8 +210,8 @@ class ConfigStore:
         single_selection = any(str(patch.get(key) or "").strip() for key in CATEGORY_FIELDS)
         classification_changed = multiple not in (None, "") or single_selection
         if single_selection and current.get("classification_schema") != CLASSIFICATION_SCHEMA:
-            if not all(str(patch.get(key) or "").strip() for key in CATEGORY_FIELDS):
-                raise UserError("새 분류는 대분류·상세설비·세부 부품·소분류를 모두 입력하세요.")
+            if not all(str(patch.get(key) or "").strip() for key in PUBLIC_CATEGORY_FIELDS):
+                raise UserError("고장 분야·상세설비·고장 현상을 모두 입력하세요.")
         if multiple not in (None, ""):
             if single_selection:
                 raise UserError("단일 유형과 복수 유형을 동시에 확정할 수 없습니다.")
@@ -218,17 +219,18 @@ class ConfigStore:
             if len(members) != 1:
                 raise UserError("고장이력 한 건에는 최종 분류 하나만 확정할 수 있습니다.")
             if not all(members[0].get(key) for key in CATEGORY_FIELDS):
-                raise UserError("새 분류는 대분류·상세설비·세부 부품·소분류를 모두 입력하세요.")
+                raise UserError("저장된 분류 형식을 확인하세요.")
             patch.update({key: members[0][key] for key in CATEGORY_FIELDS})
             patch[COMPONENT_OVERRIDE] = None
             single_selection = True
             current.pop(COMPONENT_OVERRIDE, None)
         elif single_selection and current.get(COMPONENT_OVERRIDE):
             if not all(
-                str(patch.get(key, current.get(key, "")) or "").strip() for key in CATEGORY_FIELDS
+                str(patch.get(key, current.get(key, "")) or "").strip()
+                for key in PUBLIC_CATEGORY_FIELDS
             ):
                 raise UserError(
-                    "단일 유형으로 바꾸려면 대분류·상세설비·세부 부품·소분류를 모두 입력하세요."
+                    "단일 유형으로 바꾸려면 고장 분야·상세설비·고장 현상을 모두 입력하세요."
                 )
             current.pop(COMPONENT_OVERRIDE, None)
         for key, value in patch.items():

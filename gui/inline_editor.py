@@ -40,7 +40,6 @@ EDITABLE_COLUMNS = {
     "component_types": "classification",
     "major": "classification",
     "detail_equipment": "classification",
-    "middle": "classification",
     "minor": "classification",
     "repair_actions": "repair_actions",
 }
@@ -100,7 +99,7 @@ def classification_patch(
             return {}
         return field_patch(record, existing, "repair_actions", repair_actions)
     if not all(single.get(key) for key in FIELDS):
-        raise UserError("분야·상세설비·세부 부품·고장 현상을 모두 선택하세요.")
+        raise UserError("고장 분야·상세설비·고장 현상을 모두 선택하세요.")
     values.update(single)
     if repair_actions is not None:
         values["repair_actions"] = repair_actions
@@ -114,7 +113,7 @@ def classification_patch(
     return {
         key: value
         for key, value in patch.items()
-        if key in (*FIELDS, COMPONENT_FIELD, "repair_actions")
+        if key in (*FIELDS, COMPONENT_FIELD, "middle", "repair_actions")
     }
 
 
@@ -143,7 +142,8 @@ class ClassificationCellEditor(QDialog):
         heading = QLabel("최종 분류 한 건 선택")
         heading.setStyleSheet("font-weight: 700; font-size: 15px;")
         outer.addWidget(heading)
-        self.text_comparison = ClassificationTextComparison(record)
+        self.text_comparison = ClassificationTextComparison(record, editable=True)
+        self.initial_normalized = self.text_comparison.normalized.toPlainText().strip()
         outer.addWidget(self.text_comparison)
         initial = initial_values(record, self.existing)
         self.initial_classification = {key: initial.get(key, "") for key in FIELDS}
@@ -158,18 +158,17 @@ class ClassificationCellEditor(QDialog):
         ):
             initial = {**initial, **dict.fromkeys(FIELDS, "")}
         self.single_picker = ClassificationPicker(categories, initial)
+        self.initial_selection = self.single_picker.value()
         self.candidate_picker = CandidateListPicker(record_candidates(record, self.existing))
         self.candidate_list = self.candidate_picker.table
         self.candidate_picker.selected.connect(self.choose_candidate)
         outer.addWidget(self.candidate_picker, 1)
-        outer.addWidget(
-            QLabel("직접 선택 · 설비 → 부품 → 고장 현상 → 분야 확인 / 각 항목 독립 선택")
-        )
+        outer.addWidget(QLabel("직접 선택 · 상세설비, 고장 현상, 고장 분야"))
         outer.addWidget(self.single_picker)
         if record.get("classification_known_fields"):
             note = QLabel(
                 "검토 중에도 확인된 항목은 유지됩니다. 빈 항목과 의심·대안 후보를 확인하세요. "
-                "확인된 상세설비는 상세설비별 고장이력에 포함하며, 부품 후보를 확정 고장으로 집계하지 않습니다."
+                "확인된 상세설비는 상세설비별 고장이력에 포함합니다."
             )
             note.setWordWrap(True)
             outer.addWidget(note)
@@ -194,9 +193,9 @@ class ClassificationCellEditor(QDialog):
         self.error.setStyleSheet("color: #a52a2a;")
         outer.addWidget(self.error)
         help_label = QLabel(
-            "후보는 더블클릭이나 Enter로 선택할 수 있습니다. 표준화 버튼을 눌러 일괄 확정합니다."
+            "수기 입력은 선택을 누르면 저장하고 다시 분석합니다. 최종 분류는 분석 실행에서 일괄 확정합니다."
             if deferred
-            else "적용하면 이 기록의 분류와 조치 내역을 저장합니다. 취소·Esc는 변경 내용을 저장하지 않습니다."
+            else "적용하면 수정한 내용을 저장합니다. 취소·Esc로 변경을 취소할 수 있습니다."
         )
         help_label.setWordWrap(True)
         help_label.setObjectName("muted")
@@ -277,20 +276,38 @@ class ClassificationCellEditor(QDialog):
 
     def apply(self):
         try:
+            normalized = self.text_comparison.normalized.toPlainText().strip()
+            text_edited = normalized != self.initial_normalized
+            patch = {}
+            if text_edited and (normalized or "normalized" in self.existing):
+                error = validate({"normalized": normalized})
+                if error:
+                    raise UserError(error)
+                patch["normalized"] = normalized or None
             single = self.single_picker.value()
+            if text_edited and single == self.initial_selection:
+                patch.update(
+                    field_patch(
+                        self.record, self.existing, "repair_actions", self.actions_picker.value()
+                    )
+                )
+                self._save(patch)
+                return
             keep_partial = (
                 self.record.get("status") == "부분분류"
                 or self.record.get("classification_known_fields")
             ) and single == self.initial_classification
             if not keep_partial:
                 single = self.single_picker.validate_path()
-            patch = classification_patch(
-                self.record,
-                self.existing,
-                "single",
-                single,
-                [],
-                repair_actions=self.actions_picker.value(),
+            patch.update(
+                classification_patch(
+                    self.record,
+                    self.existing,
+                    "single",
+                    single,
+                    [],
+                    repair_actions=self.actions_picker.value(),
+                )
             )
             self._save(patch)
         except (UserError, ValueError, TypeError) as exc:
@@ -298,7 +315,7 @@ class ClassificationCellEditor(QDialog):
             self.error.setText(str(exc))
 
     def clear_classification(self):
-        patch = {key: None for key in (*FIELDS, COMPONENT_FIELD) if key in self.existing}
+        patch = {key: None for key in (*FIELDS, "middle", COMPONENT_FIELD) if key in self.existing}
         self._save(patch)
 
     def _save(self, patch):

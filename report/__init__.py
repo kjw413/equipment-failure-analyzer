@@ -1,1 +1,1 @@
-"""Excel and PDF reports, shared charts, and paired exports."""
+"""Analysis workbook export and shared report components."""

@@ -66,14 +66,14 @@ def test_unmatched_faults_are_labelled_by_source_downtime_codes(store, unmatched
     # The source code names the whole conveyor, without inventing its failed subpart.
     coded = records.loc["이탈로 인해 정비및교체"]
     assert (coded["status"], coded["middle"], coded["minor"]) == (
-        K["partial"],
+        K["auto"],
         "세부 부품 미기재",
         "이탈·풀림",
     )
     assert coded["detail_equipment"] == "컨베어"
     assert coded["part_count"] == 0
     assert coded["component_count"] == 1
-    assert coded["classification_missing_fields"] == "세부 부품"
+    assert coded["classification_missing_fields"] == ""
     assert "비가동코드(소)" in coded["classification_reason"]
     assert result.metrics["code_missing_rows"] == 1
     assert result.metrics["rule_unmatched_rows"] == 1

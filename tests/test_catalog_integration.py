@@ -9,7 +9,6 @@ from openpyxl.utils import column_index_from_string, get_column_letter
 from core.failure_modes import UNKNOWN_PART
 from core.fault_components import parse_components
 from core.i18n import K
-from core.public_taxonomy import default_taxonomy
 from report.excel_report import SHEETS, D, export_report
 
 OUTPUT_D = {
@@ -24,7 +23,7 @@ def test_current_catalog_types_and_ranked_candidates_survive_report_export(
     result = analyze_file(store, catalog_input)
     rows = result.selected.set_index("source_row")
     expected_missing = {
-        5: "세부 부품",  # A pump body establishes the module, not its inner failed part.
+        5: "",  # A pump body establishes the complete public classification.
         6: "상세설비·모듈",
         8: "상세설비·모듈",
     }
@@ -34,14 +33,17 @@ def test_current_catalog_types_and_ranked_candidates_survive_report_export(
         8: ("공압·진공", "로드리스실린더", "손상·파손"),
     }.items():
         assert tuple(rows.loc[source_row, ["major", "middle", "minor"]]) == path
-        assert rows.loc[source_row, "status"] == K["partial"]
+        assert (
+            rows.loc[source_row, "status"]
+            == K["partial" if expected_missing[source_row] else "auto"]
+        )
         assert rows.loc[source_row, "classification_missing_fields"] == expected_missing[source_row]
         assert rows.loc[source_row, "component_count"] == 1
     representative = rows.loc[4]
     assert representative.classification_mode == "single"
-    assert representative.status == K["partial"]
+    assert representative.status == K["auto"]
     assert representative.component_count == 1 and representative.part_count == 0
-    assert representative.classification_missing_fields == "세부 부품"
+    assert representative.classification_missing_fields == ""
     assert "1순위 대표 자동선택" in representative.classification_reason
     source_parts = {
         ("유체·배관", "펌프", "도징펌프"),
@@ -69,14 +71,14 @@ def test_current_catalog_types_and_ranked_candidates_survive_report_export(
     assert selected[0]["selection_method"] == "top_ranked_representative"
     assert source_parts <= approved_catalog_paths
     assert result.metrics["selected_rows"] == 4 and result.metrics["total_minutes"] == 95
-    assert result.metrics["auto_rows"] == 0
-    assert result.metrics["partial_rows"] == result.metrics["auto_processed_rows"] == 4
+    assert result.metrics["auto_rows"] == result.metrics["partial_rows"] == 2
+    assert result.metrics["auto_processed_rows"] == 4
     assert result.metrics["classification_review_rows"] == 0
     assert result.metrics["review_rows"] == 1  # The unrelated missing-time record stays in review.
-    assert result.tables["component"]["count"].sum() == 2
+    assert "component" not in result.tables
     assert rows.loc[5, "detail_equipment"] == "펌프" and rows.loc[5, "part_count"] == 0
-    assert result.tables["fault_detail"].record_id.is_unique
-    assert len(result.tables["fault_detail"]) == 4
+    assert result.selected.loc[result.selected.kind.eq(K["fault"])].record_id.is_unique
+    assert len(result.selected.loc[result.selected.kind.eq(K["fault"])]) == 4
 
     workbook = load_workbook(export_report(result, tmp_path / "catalog.xlsx"), data_only=True)
     try:
@@ -92,32 +94,21 @@ def test_current_catalog_types_and_ranked_candidates_survive_report_export(
             "1순위 대표 자동선택"
             in detail[f"{OUTPUT_D['classification_reason']}{representative_row}"].value
         )
-        assert (
-            parse_components(
-                detail[f"{OUTPUT_D['classification_candidates']}{representative_row}"].value
-            )
-            == candidates
-        )
-        assert (
-            parse_components(detail[f"{OUTPUT_D['component_details']}{representative_row}"].value)
-            == selected
-        )
-        for row in range(7, detail.max_row + 1):
-            for member in parse_components(detail[f"{OUTPUT_D['component_details']}{row}"].value):
-                assert (
-                    member["middle"] == UNKNOWN_PART or member["middle"] in default_taxonomy().names
-                )
-                assert member["part_group"] == default_taxonomy().group(member["middle"])
-        component_labels = {
-            member["middle"]
-            for value in result.selected.component_details
-            for member in parse_components(value)
-        }
+        assert detail[f"{OUTPUT_D['detail_equipment']}{representative_row}"].value == "펌프"
+        assert detail[f"{OUTPUT_D['candidate_evidence']}{representative_row}"].value
+        assert {
+            "middle",
+            "part_group",
+            "classification_candidates",
+            "component_details",
+        }.isdisjoint(OUTPUT_D)
         assert "별첨. 부품별분석" not in workbook.sheetnames
         facts = workbook["_issue_facts"]
-        part_column = [c.value for c in facts[1]].index("part") + 1
-        parts = {facts.cell(row, part_column).value for row in range(2, facts.max_row + 1)}
-        assert (parts - {"세부 부품 미기재"}) <= component_labels
+        headers = {cell.value: cell.column for cell in facts[1]}
+        assert "part" not in headers
+        assert "펌프" in {
+            facts.cell(row, headers["module"]).value for row in range(2, facts.max_row + 1)
+        }
         assert all(cell.data_type != "e" for sheet in workbook for row in sheet for cell in row)
     finally:
         workbook.close()

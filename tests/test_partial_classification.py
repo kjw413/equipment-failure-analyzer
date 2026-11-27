@@ -223,9 +223,9 @@ def test_partial_is_complete_for_workflow_but_missing_data_is_explicit(classify)
 
 
 def test_partial_editor_keeps_known_axes_and_action_change_does_not_confirm(classify):
-    row = classify("베어링 교체")
+    row = classify("컨베어 베어링 교체")
     initial = initial_values(row, {})
-    assert initial["middle"] == "베어링(종류 미상)"
+    assert initial["detail_equipment"] == "컨베어"
     assert initial["major"] == "기계"
     assert initial["minor"] == ""
     values = {**initial, "repair_actions": "교체, 점검"}
@@ -242,7 +242,7 @@ def test_partial_keeps_event_accounting_and_action_overrides(store, input_file):
     row = first.selected.loc[first.selected.source_row.eq(4)].iloc[0]
     assert row.status == K["partial"]
     assert row.classification_missing_fields == "고장 현상"
-    assert row.record_id in set(first.tables["fault_detail"].record_id)
+    assert row.record_id in set(first.selected.loc[first.selected.kind.eq(K["fault"])].record_id)
     assert row.event_id not in set(first.tables["review"].event_id)
     store.update_override(row.event_id, {"repair_actions": "", "minutes": "17"})
     second = analyze_file(store, input_file)

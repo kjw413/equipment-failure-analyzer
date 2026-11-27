@@ -140,6 +140,33 @@ def fault_catalog_categories(
     return list(_fault_paths(tuple(catalog_categories(rules)), types))
 
 
+def equipment_classification_categories(rules, equipment_types=None):
+    """Project the selectable fault fields onto the detailed-equipment hierarchy."""
+    from core.equipment_taxonomy import equipment_types as checked_types
+    from core.failure_modes import UNKNOWN_EQUIPMENT
+    from core.public_taxonomy import UNKNOWN_DOMAIN, default_catalog
+
+    if equipment_types is None:
+        equipment_types = default_catalog().get("equipment_types")
+    equipment = sorted(
+        {UNKNOWN_EQUIPMENT, *(row["name"] for row in checked_types(equipment_types))}
+    )
+    domains = tuple(sorted({UNKNOWN_DOMAIN, *(path[0] for path in catalog_categories(rules))}))
+    return _equipment_classification_paths(domains, tuple(equipment))
+
+
+@lru_cache(maxsize=4)
+def _equipment_classification_paths(domains, equipment):
+    from core.failure_modes import SYMPTOM_NAMES
+
+    return tuple(
+        (domain, module, symptom)
+        for domain in domains
+        for module in equipment
+        for symptom in SYMPTOM_NAMES
+    )
+
+
 @lru_cache(maxsize=4)
 def _fault_paths(parts, types):
     """Reuse the full menu across editor openings without sharing mutable lists."""

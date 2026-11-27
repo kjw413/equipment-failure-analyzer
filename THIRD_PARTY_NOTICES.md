@@ -1,7 +1,8 @@
 # Third-party components
 
 The application uses Python, PySide6/Qt, pandas, NumPy, openpyxl, Matplotlib,
-Pillow, ReportLab, and PyInstaller. Their original licenses continue to apply.
+and Pillow. Development tools use PyInstaller and ReportLab. Their original
+licenses continue to apply.
 No font files are redistributed in this project. Charts use installed system fonts.
 
 Before internal deployment, retain the original third-party license files and

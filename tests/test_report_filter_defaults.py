@@ -40,7 +40,7 @@ def test_excel_filter_values_start_at_first_list_item(store, input_file, tmp_pat
                     value = sheet.cell(target_range.min_row, target_range.min_col).value
                     assert value in (ALL, first_choice), (sheet_name, str(target_range), value)
                     checked += 1
-        assert checked == 18
+        assert checked == 16
         assert result.config_snapshot == original_config
         assert store.read("final_report.json")["focus_case"] == saved_case
     finally:
@@ -73,16 +73,15 @@ def test_main_window_filters_start_at_first_choice(store, input_file):
         window.deleteLater()
 
 
-def test_report_settings_reopens_saved_explicit_case(store):
+def test_report_settings_reopens_saved_department(store):
     pytest.importorskip("PySide6")
     from gui.report_settings import ReportSettingsDialog
 
-    selected_case = "사용자가 선택한 고장사례"
-    store.save_report_settings({"focus_case": selected_case})
+    department = "생산기술팀"
+    store.save_report_settings({"department": department})
     dialog = ReportSettingsDialog(store)
     try:
-        assert dialog.case.currentData() == selected_case
-        assert store.read("final_report.json")["focus_case"] == selected_case
+        assert dialog.department.text() == department
     finally:
         dialog.close()
         dialog.deleteLater()

@@ -1,9 +1,4 @@
-"""A single filtered month/day view for Excel 2019/2021.
-
-Monthly results drill into the days of one month (double-click a month on the
-chart or in the table); 월별로 돌아가기 returns. The former 별첨. 기간별추이 is
-retired: its month/day units are covered here under the five category filters.
-"""
+"""A single filtered month/day view for Excel 2019/2021."""
 
 from copy import copy
 from datetime import timedelta
@@ -42,10 +37,6 @@ CALENDARS = {
         "lags": ((1, "전월"), (12, "전년동월")),
     },
 }
-
-
-MONTH_GUIDE = "월 차트의 점 또는 표의 월을 더블클릭하면 해당 월의 일별 실적을 볼 수 있습니다."
-DAY_GUIDE = "선택한 월의 일별 실적입니다. 월별로 돌아가기를 더블클릭하세요."
 
 
 def _choose(monthly, daily):
@@ -107,14 +98,17 @@ def install_period_view(builder):
         ws.merge_cells(merge)
         target.value = value
         target.number_format = "@"
-    ws["L7"] = "월별로\n돌아가기"
+    if "L7:L8" in ws.merged_cells:
+        ws.unmerge_cells("L7:L8")
+    ws["L7"].value = None
+    ws["L7"]._style = None
     for address, formula in (("B8", '"' + ",".join(MODES) + '"'), ("D8", "=_Period_Months")):
         dv = DataValidation(type="list", formula1=formula, allow_blank=False)
         dv.showErrorMessage = True
         dv.error = "목록에서 선택하세요."
         ws.add_data_validation(dv)
         dv.add(ws[address])
-    for name, address in (("Mode", "B8"), ("Month", "D8"), ("Back", "L7:L8")):
+    for name, address in (("Mode", "B8"), ("Month", "D8")):
         named("_Period_" + name, f"{ref(SHEET)}!{absolute_coordinate(address)}")
     named("_Period_ActiveCount", "'_period_state'!$B$4")
     b.cache.set(
@@ -124,12 +118,7 @@ def install_period_view(builder):
         "월별 주요이슈",
     )
     ws.merge_cells("A4:K4")
-    b.cache.set(
-        ws,
-        "A4",
-        "=" + _choose(_text(MONTH_GUIDE), _text(DAY_GUIDE)),
-        MONTH_GUIDE,
-    )
+    ws["A4"] = "상단 필터와 조회 단위에 따라 차트와 표가 갱신됩니다. 일별 조회는 월을 선택하세요."
     dates = pd.to_datetime(facts.date, errors="coerce").dropna()
     start = (
         pd.Timestamp(b.r.options.date_from).normalize()

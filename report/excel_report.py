@@ -16,6 +16,7 @@ from openpyxl.utils.cell import range_boundaries
 from openpyxl.workbook.properties import CalcProperties
 from openpyxl.worksheet.views import Selection
 
+from core.component_analysis import final_component
 from core.equipment_names import active_name_mapping
 from core.fault_components import mode_label
 from core.i18n import DISPLAY, UNMATCHED, K
@@ -56,8 +57,6 @@ _DETAIL_DATA_FIELDS = [
     "raw_description",
     "major",
     "detail_equipment",
-    "part_group",
-    "middle",
     "minor",
     "repair_actions",
     "evidence",
@@ -93,6 +92,9 @@ _DETAIL_DATA_FIELDS = [
         not in (
             "classification_schema",
             "part_group",
+            "part_count",
+            "component_details",
+            "combination_key",
             "repair_actions",
             "classification_known_fields",
         )
@@ -102,8 +104,6 @@ _DETAIL_DATA_FIELDS = [
     "equipment_group",
     "factory",
     "team",
-    "classification_candidates",
-    "classification_known_fields",
 ]
 VISIBLE_DETAIL_COLS = (
     "date",
@@ -111,8 +111,6 @@ VISIBLE_DETAIL_COLS = (
     "team",
     "report_equipment",
     "detail_equipment",
-    "part_group",
-    "middle",
     "minor",
     "minutes",
     "normalized",
@@ -361,16 +359,15 @@ class ReportBuilder:
         )
         ws.row_dimensions[5].height = 34
         self.header(ws, 6, [self.display_header(c) for c in DETAIL_COLS])
-        fault_details = self.r.tables.get("fault_detail", pd.DataFrame())
-        evidence = (
-            fault_details.set_index("record_id")[["actions", "evidence"]].to_dict("index")
-            if not fault_details.empty
-            else {}
-        )
         for index, record in enumerate(frame.to_dict("records"), 7):
-            detail = evidence.get(record.get("record_id"), {})
-            record["recorded_actions"] = detail.get("actions")
-            record["fault_detail_evidence"] = detail.get("evidence")
+            final = final_component(record) or {}
+            record["recorded_actions"] = ", ".join(final.get("actions", ()))
+            record["fault_detail_evidence"] = (
+                final.get("symptom_evidence")
+                or final.get("evidence")
+                or record.get("candidate_evidence")
+                or record.get("classification_reason")
+            )
             for col, name in enumerate(DETAIL_COLS, 1):
                 role = (
                     "review"
@@ -386,7 +383,7 @@ class ReportBuilder:
                 c = self.put(ws, index, col, value, role)
                 if name in ("minutes", "elapsed_minutes", "duration_delta"):
                     c.number_format = NUM
-                if name in ("component_count", "part_count"):
+                if name == "component_count":
                     c.number_format = INT
                 if name == "date":
                     c.number_format = "yyyy-mm-dd"
@@ -424,8 +421,6 @@ class ReportBuilder:
             "classification_reason",
             "candidate_evidence",
             "component_types",
-            "component_details",
-            "classification_candidates",
         ):
             ws.column_dimensions[D[name]].width = (
                 48
@@ -441,8 +436,6 @@ class ReportBuilder:
                     "classification_reason",
                     "candidate_evidence",
                     "component_types",
-                    "component_details",
-                    "classification_candidates",
                 )
                 else 40
             )
@@ -452,8 +445,6 @@ class ReportBuilder:
             "date",
             "factory",
             "team",
-            "part_group",
-            "middle",
             "minor",
             "major",
             "status",
@@ -722,9 +713,8 @@ class ReportBuilder:
         # Codes remain available in the original workbook and in the name editor,
         # not in this human-readable report projection.
         return {
-            "classification_candidates": "검토 후보 목록(순위·근거 JSON)",
             "recorded_actions": "기록된 조치",
-            "fault_detail_evidence": "부품·현상 근거",
+            "fault_detail_evidence": "고장 현상 근거",
             "line_code": "라인명(코드 변환)",
             "raw_line_name": "원본 라인명(변환)",
             "equipment_code": "\uc124\ube44\uba85(\ucf54\ub4dc \ubcc0\ud658)",

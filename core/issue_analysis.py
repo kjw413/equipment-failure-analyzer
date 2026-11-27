@@ -19,7 +19,6 @@ FACT_COLUMNS = [
     "asset",
     "line",
     "module",
-    "part",
     "symptom",
     "domain",
     "case",
@@ -27,7 +26,7 @@ FACT_COLUMNS = [
     "review_count",
     "period",
 ]
-MISSING = {"module": "상세설비 미상", "part": "세부 부품 미기재", "symptom": "현상 미기재"}
+MISSING = {"module": "상세설비 미상", "symptom": "현상 미기재"}
 
 
 def _label(value, fallback):
@@ -45,7 +44,6 @@ def issue_facts(records: pd.DataFrame) -> pd.DataFrame:
             axis: _label(category.get(field), MISSING[axis])
             for axis, field in (
                 ("module", "detail_equipment"),
-                ("part", "middle"),
                 ("symptom", "minor"),
             )
         }
@@ -61,7 +59,7 @@ def issue_facts(records: pd.DataFrame) -> pd.DataFrame:
                 "line": _label(record.get("line"), K["missing"]),
                 **axes,
                 "domain": _label(category.get("major"), "분야 미상"),
-                "case": " / ".join(axes[key] for key in ("module", "part", "symptom")),
+                "case": " / ".join(axes[key] for key in ("module", "symptom")),
                 "minutes": record.get("minutes"),
                 "review_count": int(
                     record.get("status") in (K["review"], *UNMATCHED, K["manual_multi"])

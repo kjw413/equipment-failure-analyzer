@@ -8,8 +8,6 @@ SOURCE_FIELDS = ("raw_equipment_name", "raw_mid", "raw_small", "raw_description"
 PRIMARY_FIELDS = (
     "major",
     "detail_equipment",
-    "part_group",
-    "middle",
     "minor",
     "repair_actions",
     "classification_missing_fields",
@@ -20,8 +18,6 @@ PRIMARY_FIELDS = (
 LABELS = {
     "major": "고장 분야\n분야 확인",
     "detail_equipment": "상세설비·모듈\n고장 대상",
-    "part_group": "부품군\n자동 표시",
-    "middle": "세부 부품\n설비 내 부품",
     "minor": "고장 현상\n관찰 증상",
     "repair_actions": "조치 내역\n복수 입력",
     "classification_missing_fields": "미기재 분류 항목\n원문에 없음",
@@ -68,7 +64,6 @@ class GroupedHeader(QHeaderView):
         if self._field(logical) in (
             "major",
             "detail_equipment",
-            "middle",
             "minor",
             "component_types",
         ):

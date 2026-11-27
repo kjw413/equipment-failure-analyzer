@@ -5,7 +5,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from core.classification_catalog import fault_catalog_categories
+from core.classification_catalog import equipment_classification_categories
 from core.failure_classification import FaultClassifier
 from gui.category_index import ClassificationPathIndex
 from gui.dialogs import CorrectionDialog
@@ -26,13 +26,13 @@ def test_review_grid_and_editors_preserve_known_equipment(qt_application_lifetim
     }
     frame = MainWindow.classification_frame(pd.DataFrame([row]), review=True)
     assert frame.loc[0, "detail_equipment"] == "컨베어"
-    assert frame.loc[0, "middle"] == ""
-    paths = ClassificationPathIndex(fault_catalog_categories(rules))
-    editor = ClassificationCellEditor(row, {}, paths, lambda patch: None)
+    assert "middle" not in frame
+    paths = ClassificationPathIndex(equipment_classification_categories(rules))
+    editor = ClassificationCellEditor(row, {}, paths, lambda *args: None)
     correction = CorrectionDialog(row, {}, rules=rules)
     try:
         assert editor.single_picker.value()["detail_equipment"] == "컨베어"
-        assert editor.single_picker.value()["middle"] == ""
+        assert "middle" not in editor.single_picker.value()
         assert editor.single_picker.legacy is None
         assert editor.single_picker.legacy_note.isHidden()
         assert correction.classification_picker.value()["detail_equipment"] == "컨베어"

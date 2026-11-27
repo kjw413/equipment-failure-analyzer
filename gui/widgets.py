@@ -36,7 +36,6 @@ from core.fault_components import component_evidence_text, mode_label
 from core.i18n import DISPLAY, K
 from core.models import UserError
 from core.parsing import is_missing
-from core.public_taxonomy import part_group
 from core.sorting import default_metric, descending
 from gui.category_index import ClassificationPathIndex, category_index
 from gui.classification_picker import FIELDS
@@ -82,6 +81,12 @@ class DropArea(QFrame):
         buttons.addStretch()
         layout.addLayout(buttons)
 
+    def set_file_loaded(self, has_file):
+        self.title.setText("다른 Excel 파일을 여기에 끌어다 놓으세요" if has_file else K["drop"])
+        self.subtitle.setVisible(not has_file)
+        self.browse_button.setVisible(not has_file)
+        self.setMinimumHeight(48 if has_file else 126)
+
     def dragEnterEvent(self, event):
         if self.isEnabled() and event.mimeData().hasUrls():
             event.acceptProposedAction()
@@ -89,6 +94,9 @@ class DropArea(QFrame):
             event.ignore()
 
     def dropEvent(self, event):
+        if not self.isEnabled():
+            event.ignore()
+            return
         urls = event.mimeData().urls()
         if len(urls) != 1:
             self.invalid_drop.emit(K["one_file"])
@@ -106,12 +114,6 @@ class FrameModel(QAbstractTableModel):
     def __init__(self, frame: pd.DataFrame, parent=None):
         super().__init__(parent)
         self.frame = frame.reset_index(drop=True).copy()
-        if "middle" in self.frame:
-            if "part_group" not in self.frame:
-                self.frame.insert(self.frame.columns.get_loc("middle"), "part_group", "")
-            self.frame["part_group"] = self.frame["middle"].map(
-                lambda value: part_group(shown(value))
-            )
         self.editing_enabled = False
         self.edit_request = None
         self.draft_provider = lambda record: None
@@ -125,8 +127,6 @@ class FrameModel(QAbstractTableModel):
 
     def set_classification_preview(self, event_id, values):
         """Repaint only this event's rows; retain the model, editors and view position."""
-        if values is not None and "middle" in values and "part_group" in self.frame:
-            values = {**values, "part_group": part_group(values["middle"])}
         for row in self._event_rows.get(event_id, []):
             if values is None:
                 changes = self._classification_originals.pop(row, {})
@@ -154,15 +154,6 @@ class FrameModel(QAbstractTableModel):
         value = self.frame.iat[index.row(), index.column()]
         missing = is_missing(value)
         column = self.frame.columns[index.column()]
-        if column == "part_group" and role in (
-            Qt.ItemDataRole.DisplayRole,
-            Qt.ItemDataRole.ToolTipRole,
-            Qt.ItemDataRole.EditRole,
-            Qt.ItemDataRole.UserRole,
-        ):
-            record = self.frame.iloc[index.row()].to_dict()
-            draft = self.draft_provider(record)
-            return part_group(shown((draft or record).get("middle")))
         record = None
         if (
             role
@@ -218,9 +209,9 @@ class FrameModel(QAbstractTableModel):
             instruction = "더블클릭 또는 F2로 수정 · Esc로 취소"
             if column in FIELDS:
                 instruction += (
-                    "\n분야·상세설비·세부 부품·고장 현상은 독립 선택합니다. 네 항목을 모두 선택하면 임시 보관됩니다. 표준화 버튼으로 일괄 적용하세요."
+                    "\n고장 분야·상세설비·고장 현상은 독립 선택합니다. 네 항목을 모두 선택하면 임시 보관됩니다. 표준화 버튼으로 일괄 적용하세요."
                     if self.classification_deferred
-                    else "\n분야·상세설비·세부 부품·고장 현상은 독립 선택합니다. 네 항목을 모두 선택하면 저장됩니다. 노란 셀은 선택 중입니다."
+                    else "\n고장 분야·상세설비·고장 현상은 독립 선택합니다. 네 항목을 모두 선택하면 저장됩니다. 노란 셀은 선택 중입니다."
                 )
                 instruction += "\n선택 중 Esc를 누르면 이 행의 분류 선택을 취소합니다. 재분석 시 미완성 선택은 초기화됩니다."
             elif column in ("type", "component_types"):
@@ -427,7 +418,7 @@ class TablePane(QWidget):
         self.cancel_editing()
         if self._classification_drafts:
             self.edit_status.setText(
-                "완료하지 않은 분류 선택은 저장되지 않았습니다. 분야·상세설비·세부 부품·고장 현상을 모두 선택하면 저장됩니다."
+                "완료하지 않은 분류 선택은 저장되지 않았습니다. 고장 분야·상세설비·고장 현상을 모두 선택하면 저장됩니다."
             )
             self.edit_status.show()
         self._classification_drafts.clear()
@@ -676,13 +667,13 @@ class TablePane(QWidget):
         draft = self._active_categories().changed_selection(current, column, value)
         self._classification_drafts[key] = draft
         self.edit_status.setText(
-            f"분류 선택 중 {len(self._classification_drafts)}행 · 분야·설비·부품·고장 현상은 독립 선택입니다. 네 항목을 확인하세요. Esc로 이 행 선택을 취소할 수 있습니다."
+            f"분류 선택 중 {len(self._classification_drafts)}행 · 고장 분야·상세설비·고장 현상을 확인하세요. Esc로 이 행 선택을 취소할 수 있습니다."
         )
         self.edit_status.show()
         if not all(draft.values()):
             return True
         if tuple(draft[field] for field in FIELDS) not in self._active_categories():
-            raise UserError("분야·상세설비·세부 부품·고장 현상의 선택값을 확인하세요.")
+            raise UserError("고장 분야·상세설비·고장 현상의 선택값을 확인하세요.")
         patch = classification_patch(record, existing, "single", draft, [])
         saved = self._submit_patch(record, patch)
         if saved:
@@ -714,7 +705,7 @@ class TablePane(QWidget):
         elif field == "detail_equipment" and not shown(draft.get("major")):
             field = "major"
         elif field == "major" and shown(draft.get("detail_equipment")):
-            field = "middle"
+            field = "minor"
         else:
             field = FIELDS[(level + 1) % len(FIELDS)]
         target = self.proxy.index(row, self.model.frame.columns.get_loc(field))

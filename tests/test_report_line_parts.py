@@ -1,4 +1,4 @@
-"""Line/part reporting aggregates unreliable symptom wording without losing facts."""
+"""Line and detailed-equipment reporting aggregate retained facts."""
 
 from copy import deepcopy
 
@@ -17,22 +17,23 @@ def test_different_symptoms_share_one_reporting_case(organization_result):
     category = {
         "major": "유체·배관",
         "detail_equipment": "펌프",
-        "middle": "씰",
+        "middle": "메카니칼씰",
         "minor": "마모",
         "schema": records.loc[index, "classification_schema"],
     }
     for field, value in component_payload([category], "single").items():
         records.at[index, field] = value
     records.at[index, "minor"] = "마모"
+    records.at[index, "middle"] = category["middle"]
     facts = report_issue_facts(records)
-    seals = facts.loc[facts["case"].eq("펌프 / 씰")]
-    assert len(seals) == 4 and seals.minutes.sum() == 130
-    assert set(seals.symptom) == {"마모", "누설"}
-    assert "펌프 / 세부 부품 미기재" in set(facts["case"])
+    pumps = facts.loc[facts["case"].eq("펌프")]
+    assert len(pumps) == 5 and pumps.minutes.sum() == 135
+    assert set(pumps.symptom) == {"마모", "누설", "현상 미기재"}
+    assert "part" not in facts
     assert organization_result.selected.equals(before)
 
 
-def test_selectable_appendices_and_part_controls_preserve_original_rows(
+def test_selectable_appendices_and_equipment_controls_preserve_original_rows(
     organization_result, tmp_path
 ):
     source = organization_result.loaded.path.read_bytes()
@@ -48,13 +49,13 @@ def test_selectable_appendices_and_part_controls_preserve_original_rows(
         )
         assert "_source_quality" not in values
         assert values["04.고장비교"]["D7"].value == "기준 라인"
-        assert values["03.월별 주요이슈"]["I8"].value == "세부부품"
+        assert values["03.월별 주요이슈"]["I8"].value is None
         validation = next(
             v
             for v in formulas["03.월별 주요이슈"].data_validations.dataValidation
-            if str(v.sqref) == "J8"
+            if str(v.sqref) == "J7"
         )
-        assert validation.formula1 == "=_Issue_part"
+        assert validation.formula1 == "=_Issue_module"
         assert validation.showErrorMessage and validation.showInputMessage
         assert len(formulas["04.고장비교"].data_validations.dataValidation) == 6
         sheet = values["04.고장비교"]
@@ -63,6 +64,8 @@ def test_selectable_appendices_and_part_controls_preserve_original_rows(
         assert len(sheet._charts) == 2 and not sheet._images
         assert DETAIL_COLS.index("normalized") < DETAIL_COLS.index("raw_description")
         detail = values[SHEETS["detail"]]
+        assert {"middle", "part_group", "part_count"}.isdisjoint(DETAIL_COLS)
+        assert all("부품" not in str(cell.value) for cell in detail[6])
         assert detail.cell(6, DETAIL_COLS.index("normalized") + 2).value == "고장내용(표준화 후)"
         record_column = DETAIL_COLS.index("record_id") + 2
         assert {detail.cell(row, record_column).value for row in range(7, 13)} == set(

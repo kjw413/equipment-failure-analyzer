@@ -149,13 +149,13 @@ def test_rank_one_becomes_one_representative_and_preserves_other_candidates_and_
     assert result.tables["type"]["total_minutes"].sum() == 95
     assert result.tables["combination"].empty
     assert result.metrics["combination_rows"] == 0
-    parts = result.tables["component"]
+    parts = component_tables(result.selected)["component"]
     assert parts["count"].sum() == 3
     assert parts["manual_count"].sum() == parts["review_count"].sum() == 0
     assert result.metrics["partial_rows"] == 3 and result.metrics["review_rows"] == 1
     assert not any("minutes" in key for key in parts)
-    assert len(result.tables["fault_detail"]) == len(rows)
-    assert result.tables["fault_detail"].record_id.is_unique
+    assert len(result.selected.loc[result.selected.kind.eq(K["fault"])]) == len(rows)
+    assert result.selected.loc[result.selected.kind.eq(K["fault"])].record_id.is_unique
 
 
 def test_user_selects_one_ranked_candidate_and_keeps_event_totals(store, combination_input):
@@ -185,14 +185,16 @@ def test_user_selects_one_ranked_candidate_and_keeps_event_totals(store, combina
     assert after.selected.record_id.tolist() == before.selected.record_id.tolist()
     pd.testing.assert_series_equal(after.selected.minutes, before.selected.minutes)
     assert combination_input.read_bytes() == source
-    parts = after.tables["component"].set_index("component_type")
+    parts = component_tables(after.selected)["component"].set_index("component_type")
     assert (
         parts.loc[
             f"{chosen['major']} / {chosen['detail_equipment']} / {chosen['middle']}", "manual_count"
         ]
         == 1
     )
-    assert parts["count"].sum() == before.tables["component"]["count"].sum() == 3
+    assert (
+        parts["count"].sum() == component_tables(before.selected)["component"]["count"].sum() == 3
+    )
     assert after.tables["type"]["count"].sum() == len(after.selected) == 4
     store.clear_override(original.event_id)
     reset = analyze_file(store, combination_input).selected.iloc[0]
@@ -228,7 +230,7 @@ def test_time_only_change_preserves_the_automatic_representative_and_all_candida
     assert after_result.metrics["manual_rows"] == before_result.metrics["manual_rows"] == 0
     assert after_result.tables["type"]["count"].sum() == 4
     assert after_result.tables["type"].total_minutes.sum() == 110
-    assert after_result.tables["component"]["count"].sum() == 3
+    assert component_tables(after_result.selected)["component"]["count"].sum() == 3
     assert set(store.override(before.event_id)) == {"minutes", "saved_at"}
     assert combination_input.read_bytes() == source
 
@@ -325,7 +327,7 @@ def test_nonfault_records_have_no_component_types(store, combination_input):
     nonfault = result.selected.loc[result.selected.kind.ne(K["fault"])]
     assert nonfault.component_count.eq(0).all()
     assert nonfault.component_details.eq("[]").all()
-    assert len(result.tables["fault_detail"]) == len(
+    assert len(result.selected.loc[result.selected.kind.eq(K["fault"])]) == len(
         result.selected.loc[result.selected.kind.eq(K["fault"])]
     )
 

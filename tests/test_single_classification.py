@@ -63,7 +63,7 @@ def test_legacy_multiple_choices_wait_for_a_person_and_keep_other_corrections(st
     }
     assert store.override_path.read_bytes() == before
     initial = initial_values(pending.to_dict(), store.override(event))
-    assert all(initial[key] == "" for key in CATEGORY_FIELDS)
+    assert all(not initial.get(key) for key in CATEGORY_FIELDS)
     assert correction_patch(
         initial, {**initial, "minutes": "19"}, store.override(event), False
     ) == {"minutes": "19"}
@@ -86,7 +86,7 @@ def test_unresolved_classification_exports_with_compact_review(store, input_file
     target = tmp_path / "final.xlsx"
     target.write_bytes(b"previous report")
     files = bundle.export_bundle(result, target, overwrite=True)
-    assert all(path.is_file() for path in (files.excel, files.pdf))
+    assert files.excel.is_file()
     assert input_file.read_bytes() == source
     assert not list(tmp_path.glob(".efa_export_*"))
     with closing(load_workbook(files.excel, data_only=True)) as wb:
@@ -105,20 +105,18 @@ def test_unresolved_classification_exports_with_compact_review(store, input_file
             assert review.cell(row, FIELDS.index("history_link") + 2).value == "이력 보기"
         assert review.max_row == max(header + 1, header + len(expected))
         assert wb["_report_metrics"]["A2"].value == result.metrics["selected_rows"]
-    assert len(result.tables["fault_detail"]) == len(
-        result.selected.loc[result.selected.kind.eq("고장")]
-    )
+    assert {"fault_detail", "component", "component_trend"}.isdisjoint(result.tables)
 
 
 def test_completed_faults_have_one_detail_row_and_one_final_type_each(store, input_file):
     result = finalize_classifications(store, input_file, AnalysisOptions(scope="all"))
     validate_final_classifications(result)
     faults = result.selected.loc[result.selected.kind.eq("고장")]
-    detail = result.tables["fault_detail"]
+    detail = faults
     assert set(detail.record_id) == set(faults.record_id)
     assert detail.record_id.is_unique and len(detail) == len(faults)
     assert faults.component_count.eq(1).all()
-    assert result.tables["component"]["count"].sum() == len(faults)
+    assert "component" not in result.tables
     assert result.tables["type"]["count"].sum() == len(result.selected)
     assert result.tables["type"].total_minutes.sum() == result.metrics["total_minutes"]
 

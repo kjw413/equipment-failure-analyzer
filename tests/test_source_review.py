@@ -7,7 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from conftest import analyze_file, finalize_classifications
+from conftest import analyze_file
 from openpyxl import load_workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Border, Font, PatternFill, Side
@@ -176,54 +176,86 @@ def test_xlsm_extension_and_opaque_macro_part_are_preserved(store, input_file, t
 
 
 @pytest.fixture
-def fake_all_writers(monkeypatch):
-    for name, value in (
-        ("export_report", b"new Excel"),
-        ("export_pdf", b"new PDF"),
-    ):
+def fake_excel_writer(monkeypatch):
+    def write(result, path, progress):
+        path = Path(path)
+        path.write_bytes(b"new Excel")
+        return path
 
-        def write(result, path, progress, value=value):
-            Path(path).write_bytes(value)
-            return Path(path)
-
-        monkeypatch.setattr(bundle, name, write)
+    monkeypatch.setattr(bundle, "export_report", write)
 
 
-def test_previous_sidecar_is_not_an_output_or_modified(
-    store, input_file, tmp_path, fake_all_writers
+def test_previous_exports_stay_intact(store, input_file, tmp_path, fake_excel_writer):
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    target = reports / "report.xlsx"
+    old_outputs = [reports / "report_원본_검토표시.xlsx", reports / "report_최종보고서.pdf"]
+    for path in old_outputs:
+        path.write_bytes(b"keep previous file")
+
+    files = export_bundle(analyze_file(store, input_file), target)
+    assert files.excel.read_bytes() == b"new Excel"
+    assert files.source_review is None
+    assert all(path.read_bytes() == b"keep previous file" for path in old_outputs)
+    assert set(reports.iterdir()) == {target, *old_outputs}
+
+
+def test_input_overwrite_forbidden(store, input_file):
+    with pytest.raises(UserError, match="원본 파일"):
+        export_bundle(analyze_file(store, input_file), input_file, overwrite=True)
+
+
+@pytest.mark.parametrize("created_during_export", [False, True])
+def test_workbook_requires_overwrite_confirmation(
+    store, input_file, tmp_path, monkeypatch, fake_excel_writer, created_during_export
 ):
-    paths = report_paths(tmp_path / "report.xlsx", input_file)
-    old_sidecar = tmp_path / "report_원본_검토표시.xlsx"
-    old_sidecar.write_bytes(b"keep previous file")
-    export_bundle(analyze_file(store, input_file), paths.excel)
-    assert paths.source_review is None and old_sidecar.read_bytes() == b"keep previous file"
+    target = report_paths(tmp_path / "reports" / "Korean report.XLSX").excel
+    target.parent.mkdir()
+    assert target.name == "Korean report.xlsx"
+    if created_during_export:
+        write = bundle.export_report
+
+        def create_competing_file(result, path, progress):
+            staged = write(result, path, progress)
+            target.write_bytes(b"previous workbook")
+            return staged
+
+        monkeypatch.setattr(bundle, "export_report", create_competing_file)
+    else:
+        target.write_bytes(b"previous workbook")
+
+    with pytest.raises(UserError, match="파일"):
+        export_bundle(analyze_file(store, input_file), target)
+    assert target.read_bytes() == b"previous workbook"
+    assert list(target.parent.iterdir()) == [target]
 
 
-@pytest.mark.parametrize("existing", [False, True])
-def test_third_commit_failure_rolls_back_entire_bundle(
-    store, input_file, tmp_path, monkeypatch, fake_all_writers, existing
+@pytest.mark.parametrize("failure", ["write", "publish"])
+def test_workbook_save_failure_preserves_previous_workbook(
+    store, input_file, tmp_path, monkeypatch, fake_excel_writer, failure
 ):
-    paths = report_paths(tmp_path / "report.xlsx", input_file)
-    targets = [paths.excel, paths.pdf]
-    if existing:
-        for index, path in enumerate(targets):
-            path.write_bytes(f"old {index}".encode())
-    original_replace = bundle.os.replace
+    target = tmp_path / "reports" / "report.xlsx"
+    target.parent.mkdir()
+    target.write_bytes(b"previous workbook")
 
-    def fail_review(source, target):
-        if Path(target) == paths.pdf:
-            raise PermissionError("review workbook locked")
-        return original_replace(source, target)
+    def fail_write(result, path, progress):
+        Path(path).write_bytes(b"partial workbook")
+        raise PermissionError("staging file locked")
 
-    monkeypatch.setattr(bundle.os, "replace", fail_review)
-    with pytest.raises(UserError):
-        export_bundle(finalize_classifications(store, input_file), paths.excel, overwrite=existing)
-    for index, path in enumerate(targets):
-        assert path.read_bytes() == f"old {index}".encode() if existing else not path.exists()
-    assert not list(tmp_path.glob(".efa_export_*"))
+    def fail_publish(source, destination):
+        raise PermissionError("existing workbook locked")
+
+    if failure == "write":
+        monkeypatch.setattr(bundle, "export_report", fail_write)
+    else:
+        monkeypatch.setattr(bundle.os, "replace", fail_publish)
+    with pytest.raises(UserError, match="저장 권한"):
+        export_bundle(analyze_file(store, input_file), target, overwrite=True)
+    assert target.read_bytes() == b"previous workbook"
+    assert list(target.parent.iterdir()) == [target]
 
 
-def test_third_target_cannot_be_original_source(store, input_file, tmp_path, fake_all_writers):
+def test_legacy_sidecar_name_can_be_input(store, input_file, tmp_path, fake_excel_writer):
     source = input_file.with_name("report_원본_검토표시.xlsx")
     source.write_bytes(input_file.read_bytes())
     before = source.read_bytes()

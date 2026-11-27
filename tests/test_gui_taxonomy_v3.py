@@ -1,4 +1,4 @@
-"""Independent failure dimensions, searchable part groups and separate repair actions."""
+"""Independent classification fields and separate repair actions."""
 # ruff: noqa: E402
 
 import os
@@ -15,14 +15,14 @@ from core.corrections import initial_values
 from core.failure_modes import UNKNOWN_SYMPTOM
 from core.i18n import K
 from core.models import UserError
-from core.public_taxonomy import REPAIR_ACTIONS, part_group
+from core.public_taxonomy import REPAIR_ACTIONS
 from gui.classification_picker import ClassificationPicker, RepairActionsPicker
 from gui.dialogs import CorrectionDialog
 from gui.inline_editor import ClassificationCellEditor, classification_patch, field_patch
 from gui.main_window import MainWindow
 from gui.widgets import TablePane
 
-FIELDS = ("major", "detail_equipment", "middle", "minor")
+FIELDS = ("major", "detail_equipment", "minor")
 PATHS = [
     ("기계", "컨베어", "타이밍벨트", "마모"),
     ("전기·제어", "검사기", "광전센서", "감지불량"),
@@ -36,7 +36,7 @@ def app():
 
 
 def category(path):
-    return dict(zip(FIELDS, path))
+    return dict(zip(FIELDS, (*path[:2], path[-1])))
 
 
 def choose(picker, field, name):
@@ -46,48 +46,16 @@ def choose(picker, field, name):
     combo.setCurrentIndex(index)
 
 
-def test_phenomenon_is_available_first_and_survives_part_and_domain_changes(app):
+def test_phenomenon_is_available_first_and_survives_equipment_changes(app):
     picker = ClassificationPicker(PATHS)
+    assert set(picker.combos) == set(FIELDS)
     assert all(combo.isEnabled() for combo in picker.combos.values())
     choose(picker, "minor", "마모")
-    choose(picker, "middle", "광전센서")
     choose(picker, "major", "기계")
     choose(picker, "detail_equipment", "컨베어")
-    assert picker.validate_path() == {
-        "major": "기계",
-        "detail_equipment": "컨베어",
-        "middle": "광전센서",
-        "minor": "마모",
-    }
-    picker.group_combo.setCurrentIndex(0)
-    choose(picker, "middle", "타이밍벨트")
+    assert picker.validate_path() == category(PATHS[0])
+    choose(picker, "detail_equipment", "검사기")
     assert picker.value()["minor"] == "마모"
-    picker.close()
-
-
-def test_part_group_is_derived_and_global_search_bypasses_browse_filter(app):
-    picker = ClassificationPicker(PATHS, category(PATHS[0]))
-    assert picker.group_combo.currentData() == part_group("타이밍벨트")
-    assert picker.combos["middle"].isEditable()
-    selected = picker.value()
-    sensor_group = picker.group_combo.findData(part_group("광전센서"))
-    picker.group_combo.setCurrentIndex(sensor_group)
-    assert picker.value() == selected
-    assert picker.combos["middle"].findData("광전센서") >= 0
-    picker._complete_part("광전센서")
-    assert picker.value() == {**selected, "middle": "광전센서"}
-    assert picker.group_combo.currentData() == part_group("광전센서")
-    picker._complete_part("타이밍벨트")
-    assert picker.value() == selected
-    assert picker.group_combo.currentData() == part_group("타이밍벨트")
-    picker.close()
-
-
-def test_freeform_part_text_cannot_be_confirmed(app):
-    picker = ClassificationPicker(PATHS, category(PATHS[0]))
-    picker.combos["middle"].setEditText("등록되지 않은 임의 부품")
-    with pytest.raises(UserError, match="모두 선택"):
-        picker.validate_path()
     picker.close()
 
 
@@ -163,7 +131,7 @@ def test_unchanged_legacy_actions_do_not_block_new_classification(app):
     assert patch == category(PATHS[0])
 
 
-def test_grid_group_is_derived_readonly_and_action_is_separate_editable_field(app):
+def test_grid_has_only_equipment_classification_and_separate_actions(app):
     record = {
         "event_id": "grid-v3",
         "record_id": "grid-v3",
@@ -175,10 +143,8 @@ def test_grid_group_is_derived_readonly_and_action_is_separate_editable_field(ap
     pane.set_frame(pd.DataFrame([record]))
     saved = []
     pane.configure_editing(PATHS, lambda row, patch: saved.append(patch) or True)
-    group = pane.proxy.index(0, pane.model.frame.columns.get_loc("part_group"))
+    assert {"middle", "part_group"}.isdisjoint(pane.model.frame.columns)
     actions = pane.proxy.index(0, pane.model.frame.columns.get_loc("repair_actions"))
-    assert group.data() == part_group("타이밍벨트")
-    assert not (group.flags() & Qt.ItemFlag.ItemIsEditable)
     assert actions.flags() & Qt.ItemFlag.ItemIsEditable
     assert pane.proxy.setData(actions, "교체")
     assert saved == [{"repair_actions": "교체"}]
@@ -217,7 +183,7 @@ def test_partial_editor_keeps_known_axes_and_can_save_only_actions(app):
 
 def test_partial_correction_action_only_does_not_require_invented_phenomenon(app):
     dialog = CorrectionDialog(partial_record(), rules=[])
-    assert dialog.classification_picker.value()["middle"] == PATHS[0][2]
+    assert dialog.classification_picker.value()["detail_equipment"] == PATHS[0][1]
     assert not dialog.confirm.isChecked()
     dialog.actions_picker.checkboxes["교체"].setChecked(False)
     dialog.validate_and_accept()
@@ -240,7 +206,7 @@ def test_partial_unchanged_apply_does_not_request_missing_information(app):
 def test_partial_grid_presentation_keeps_known_axes_and_explicit_status():
     record = partial_record()
     frame = MainWindow.classification_frame(pd.DataFrame([record]))
-    assert frame.iloc[0]["middle"] == record["middle"]
+    assert "middle" not in frame and frame.iloc[0]["detail_equipment"] == record["detail_equipment"]
     assert frame.iloc[0]["minor"] == UNKNOWN_SYMPTOM
     assert frame.iloc[0]["combination_decision"] == K["partial"]
     assert frame.iloc[0]["classification_missing_fields"] == "고장 현상"

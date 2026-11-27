@@ -22,11 +22,12 @@ from core.equipment_names import (
     resolve_organization,
 )
 from core.failure_classification import FaultClassifier
-from core.failure_modes import CLASSIFICATION_SCHEMA, UNKNOWN_SYMPTOM, manual_category
+from core.failure_modes import CLASSIFICATION_SCHEMA, UNKNOWN_PART, UNKNOWN_SYMPTOM, manual_category
 from core.fault_components import (
     CATEGORY_FIELDS,
     COMPONENT_OVERRIDE,
     PART_CATEGORY_FIELDS,
+    PUBLIC_CATEGORY_FIELDS,
     canonical_components,
     component_payload,
     parse_components,
@@ -313,13 +314,20 @@ def standardize(
         description = text(get("description"))
         cause = text(get("cause"))
         action = text(get("action"))
-        norm = prepare_text(description, config["normalization"])
-        combined = prepare_text(
-            " | ".join(v for v in (description, cause, action) if v), config["normalization"]
-        )
-        product = normalized_name(get("product_name"), config["product_aliases"])
         event_id = event_id_for(raw, m)
         override = config.get("overrides", {}).get(event_id, {})
+        manual_text = override.get("normalized")
+        normalization = config["normalization"]
+        norm = manual_text or prepare_text(description, normalization)
+        classification_source = " | ".join(
+            v for v in (manual_text or description, cause, action) if v
+        )
+        if manual_text:
+            supplement = prepare_text(" | ".join(v for v in (cause, action) if v), normalization)
+            combined = " | ".join(v for v in (norm.casefold(), supplement) if v)
+        else:
+            combined = prepare_text(classification_source, normalization)
+        product = normalized_name(get("product_name"), config["product_aliases"])
         raw_small = text(get("code_small"))
         classification = (
             classifier.classify(
@@ -328,7 +336,7 @@ def standardize(
                 prepare_text(raw_small, config["normalization"]),
                 equipment_context=prepare_text(raw_mid, config["normalization"]),
                 registered_equipment=prepare_text(raw_equipment_name, config["normalization"]),
-                source_text=" | ".join(value for value in (description, cause, action) if value),
+                source_text=classification_source,
             )
             if kind == K["fault"]
             else {
@@ -378,12 +386,18 @@ def standardize(
             manual_components = canonical_components(manual_components)
             if not manual_components:
                 raise UserError("저장된 복수 고장 유형 목록이 비어 있습니다.")
-        elif all(override.get(k) for k in PART_CATEGORY_FIELDS):
+        elif all(override.get(k) for k in PART_CATEGORY_FIELDS) or (
+            override.get("classification_schema") == CLASSIFICATION_SCHEMA
+            and all(override.get(key) for key in PUBLIC_CATEGORY_FIELDS)
+        ):
             manual_current = override.get("classification_schema") == CLASSIFICATION_SCHEMA and all(
-                override.get(key) for key in CATEGORY_FIELDS
+                override.get(key) for key in PUBLIC_CATEGORY_FIELDS
             )
+            saved_category = {key: override[key] for key in CATEGORY_FIELDS if override.get(key)}
+            if manual_current and "middle" not in saved_category:
+                saved_category["middle"] = UNKNOWN_PART
             category = manual_category(
-                {key: override[key] for key in CATEGORY_FIELDS if override.get(key)},
+                saved_category,
                 override.get("classification_schema"),
             )
             manual_components = [category]
@@ -414,7 +428,7 @@ def standardize(
                     else (
                         "이전에 저장된 분류에 증상이 없습니다. 실제 증상을 확인해 최종 분류 하나를 선택하세요."
                         if manual_components[0]["minor"] == UNKNOWN_SYMPTOM
-                        else "이전 기준으로 저장된 분류입니다. 새 부품·고장 현상 기준을 확인해 최종 분류를 다시 선택하세요."
+                        else "이전 기준으로 저장된 분류입니다. 상세설비와 고장 현상을 확인해 최종 분류를 다시 선택하세요."
                     )
                 )
                 candidates = rank_candidates(

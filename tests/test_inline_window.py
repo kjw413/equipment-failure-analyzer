@@ -8,7 +8,7 @@ from io import StringIO
 
 import pandas as pd
 import pytest
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
@@ -21,6 +21,7 @@ from core.excel_loader import load_excel
 from core.i18n import K
 from core.service import run_analysis
 from gui.main_window import MainWindow
+from report.excel_report import DETAIL_COLS, SHEETS, export_report
 from report.export_bundle import report_paths
 
 
@@ -132,9 +133,8 @@ def test_review_corner_copies_the_actual_grid_without_saving_corrections(app, gr
         pane.proxy.headerData(column, Qt.Orientation.Horizontal).removesuffix(" · 수정")
         for column in visible
     ]
-    assert {"고장 분야", "상세설비·모듈", "부품군", "세부 부품", "고장 현상", "조치 내역"} <= set(
-        copied[0]
-    )
+    assert {"고장 분야", "상세설비·모듈", "고장 현상", "조치 내역"} <= set(copied[0])
+    assert {"부품군", "세부 부품"}.isdisjoint(copied[0])
     assert {"상세 기록 없음 ALPHA", "상세 기록 없음 BETA", "상세 기록 없음 GAMMA"} <= {
         value for row in copied[1:] for value in row
     }
@@ -155,8 +155,6 @@ def test_requested_tabs_reach_every_page_without_manual_correction_button(grid_w
     expected_columns = [
         "major",
         "detail_equipment",
-        "part_group",
-        "middle",
         "minor",
         "repair_actions",
         "classification_missing_fields",
@@ -179,15 +177,12 @@ def test_requested_tabs_reach_every_page_without_manual_correction_button(grid_w
         "summary",
         "review",
         "detail",
-        "fault_detail",
         "equipment",
         "line",
         "detailed_equipment",
         "type",
         "cross",
         "equipment_types",
-        "component",
-        "component_trend",
         "chart",
         "raw",
     ):
@@ -207,9 +202,8 @@ def test_analysis_selectors_switch_to_graph_and_back_and_gate_product_table(grid
     assert window.chart_choice.currentData() == "line"
     navigation.chart_button.click()
     assert window.current_page_key() == "line"
-    navigation.analysis_choice.setCurrentIndex(navigation.analysis_choice.findData("parts"))
-    navigation.part_choice.setCurrentIndex(navigation.part_choice.findData("component_trend"))
-    assert window.current_page_key() == "component_trend"
+    assert navigation.analysis_choice.findData("parts") == -1
+    assert navigation.history_choice.findData("fault_detail") == -1
     window.show_page("cross")
     assert window.current_page_key() == "cross"
     window.loaded_ready(window.loaded)
@@ -272,7 +266,7 @@ def test_grid_minutes_recalculates_totals_and_invalidates_old_report_links(grid_
     assert window.result.metrics["total_minutes"] == 60 - old_minutes + 12.5
     assert window.last_reports is None
     assert not window.open_button.isEnabled()
-    assert not window.pdf_button.isEnabled()
+    assert not window.output_button.isEnabled()
 
 
 @pytest.mark.parametrize("commit", ["enter", "focus_out"])
@@ -312,8 +306,8 @@ def test_classification_waits_for_standardize_before_removing_review_row(grid_wi
     editor = pane.classification_editor
     assert editor is not None
     for key, value in zip(
-        ("major", "detail_equipment", "middle", "minor"),
-        ("유체·배관", "상세설비 미상", "메카니칼씰", "손상·파손"),
+        ("major", "detail_equipment", "minor"),
+        ("유체·배관", "상세설비 미상", "손상·파손"),
     ):
         combo = editor.single_picker.combos[key]
         combo.setCurrentIndex(combo.findData(value))
@@ -323,14 +317,15 @@ def test_classification_waits_for_standardize_before_removing_review_row(grid_wi
     assert window.result is previous and window.task is None
     assert not window.store.override(event_id)
     assert event_ids(pane) == before_ids
-    assert cell(pane, "middle", 1).data() == "메카니칼씰"
+    assert cell(pane, "detail_equipment", 1).data() == "상세설비 미상"
     assert cell(pane, "status", 1).data() == "확정 대기"
     assert window.analyze_button.text() == "분류 1건 적용 및 재분석"
     assert window.result.metrics["review_rows"] == 3
     QTest.mouseClick(window.analyze_button, Qt.MouseButton.LeftButton)
     wait_refreshed(window, previous)
     assert row_for(window, event_id)["status"] == K["manual"]
-    assert row_for(window, event_id)["middle"] == "메카니칼씰"
+    assert "middle" not in window.store.override(event_id)
+    assert row_for(window, event_id)["type"] == "유체·배관 / 상세설비 미상 / 손상·파손"
     assert row_for(window, event_id)["minor"] == "손상·파손"
     assert window.result.metrics["review_rows"] == 2
     assert event_id not in event_ids(pane)
@@ -351,13 +346,11 @@ def test_multiple_pending_choices_survive_scalar_refresh_and_apply_as_one_batch(
         {
             "detail_equipment": "상세설비 미상",
             "major": "기계",
-            "middle": "베어링(종류 미상)",
             "minor": "손상·파손",
         },
         {
             "detail_equipment": "상세설비 미상",
             "major": "유체·배관",
-            "middle": "메카니칼씰",
             "minor": "누설",
         },
     ]
@@ -378,7 +371,7 @@ def test_multiple_pending_choices_survive_scalar_refresh_and_apply_as_one_batch(
     assert pane.proxy.setData(cell(pane, "minutes", 0), "17")
     wait_refreshed(window, original)
     assert len(window._pending_classifications) == 2
-    assert pane.model.frame.set_index("event_id").loc[ids[0], "middle"] == "베어링(종류 미상)"
+    assert pane.model.frame.set_index("event_id").loc[ids[0], "minor"] == "손상·파손"
     assert "major" not in window.store.override(ids[0])
     previous = window.result
     pane.search.setText("ALPHA")
@@ -390,13 +383,81 @@ def test_multiple_pending_choices_survive_scalar_refresh_and_apply_as_one_batch(
     assert not window._pending_classifications
 
 
+def test_manual_normalized_text_reanalyzes_and_can_be_restored(grid_window, tmp_path):
+    window = grid_window
+    pane = window.panes["detail"]
+    window.show_page("detail")
+    event_id = event_ids(pane)[0]
+    pane.search.setText(event_id)
+    original = row_for(window, event_id)
+    source = window.loaded.path.read_bytes()
+    corrected = "베어링 파손\n베어링 교체"
+    editor = pane.open_classification_editor(cell(pane, "type"))
+    assert not any(editor.single_picker.value().values())
+    editor.text_comparison.normalized.setPlainText(corrected)
+    previous = window.result
+    editor.apply_button.click()
+    wait_refreshed(window, previous)
+
+    row = row_for(window, event_id)
+    assert row["normalized"] == corrected
+    assert row["raw_description"] == original["raw_description"]
+    assert "교체" in row["repair_actions"]
+    assert ConfigStore(window.store.root).override(event_id)["normalized"] == corrected
+    assert not window._pending_classifications
+
+    result_path = export_report(window.result, tmp_path / "manual-text.xlsx")
+    book = load_workbook(result_path, read_only=True)
+    try:
+        detail = book[SHEETS["detail"]]
+        column = DETAIL_COLS.index("normalized") + 2
+        assert (corrected,) in detail.iter_rows(min_col=column, max_col=column, values_only=True)
+    finally:
+        book.close()
+
+    editor = pane.open_classification_editor(cell(pane, "type"))
+    assert editor.text_comparison.normalized.toPlainText() == corrected
+    editor.text_comparison.normalized.clear()
+    previous = window.result
+    editor.apply_button.click()
+    wait_refreshed(window, previous)
+    assert row_for(window, event_id)["normalized"] == original["normalized"]
+    assert "normalized" not in window.store.override(event_id)
+    assert window.loaded.path.read_bytes() == source
+
+
+def test_manual_normalized_text_with_final_selection_keeps_choice_pending(grid_window):
+    window = grid_window
+    pane = window.panes["review"]
+    event_id = event_ids(pane)[0]
+    editor = pane.open_classification_editor(cell(pane, "type"))
+    category = {
+        "detail_equipment": "상세설비 미상",
+        "major": "기계",
+        "minor": "손상·파손",
+    }
+    corrected = "점검 중 추가 기록"
+    editor.text_comparison.normalized.setPlainText(corrected)
+    editor.single_picker.set_value(category)
+    previous = window.result
+    editor.apply_button.click()
+    wait_refreshed(window, previous)
+    assert window.store.override(event_id)["normalized"] == corrected
+    assert "major" not in window.store.override(event_id)
+    assert window._pending_classifications[event_id] == category
+    previous = window.result
+    QTest.mouseClick(window.analyze_button, Qt.MouseButton.LeftButton)
+    wait_refreshed(window, previous)
+    assert row_for(window, event_id)["status"] == K["manual"]
+    assert row_for(window, event_id)["normalized"] == corrected
+
+
 def test_pending_classification_is_discarded_after_reopening_the_program(grid_window):
     window = grid_window
     pane = window.panes["review"]
     category = {
         "detail_equipment": "상세설비 미상",
         "major": "기계",
-        "middle": "베어링(종류 미상)",
         "minor": "손상·파손",
     }
     editor = pane.open_classification_editor(cell(pane, "major", 0))
@@ -426,8 +487,8 @@ def test_completed_grid_cascade_is_staged_until_standardize(grid_window):
     event_id = event_ids(pane)[0]
     previous = window.result
     for field, value in zip(
-        ("major", "detail_equipment", "middle", "minor"),
-        ("기계", "상세설비 미상", "베어링(종류 미상)", "누설"),
+        ("major", "detail_equipment", "minor"),
+        ("기계", "상세설비 미상", "누설"),
     ):
         assert pane.proxy.setData(cell(pane, field, 0), value)
     QTest.qWait(10)
@@ -462,8 +523,8 @@ def test_fast_cell_entry_advances_without_io_or_rebuilding_the_grid(grid_window,
     pane.table.setCurrentIndex(cell(pane, "major", 0))
     pane.table.edit(cell(pane, "major", 0))
     for field, value in zip(
-        ("major", "detail_equipment", "middle", "minor"),
-        ("기계", "상세설비 미상", "베어링(종류 미상)", "누설"),
+        ("major", "detail_equipment", "minor"),
+        ("기계", "상세설비 미상", "누설"),
     ):
         assert pane.table.currentIndex().column() == pane.model.frame.columns.get_loc(field)
         editor = pane.edit_delegate.active_editor
@@ -490,14 +551,14 @@ def test_row_preview_retains_other_incomplete_choices_and_cancels_in_place(grid_
     ids = event_ids(pane)
     assert pane.proxy.setData(cell(pane, "major", 1), "유체·배관")
     for field, value in zip(
-        ("major", "detail_equipment", "middle", "minor"),
-        ("기계", "상세설비 미상", "베어링(종류 미상)", "손상·파손"),
+        ("major", "detail_equipment", "minor"),
+        ("기계", "상세설비 미상", "손상·파손"),
     ):
         assert pane.proxy.setData(cell(pane, field, 0), value)
     QTest.qWait(10)
     assert pane.model is original_model
     assert cell(pane, "major", 1).data() == "유체·배관"
-    assert cell(pane, "middle", 1).data().endswith("선택")
+    assert cell(pane, "detail_equipment", 1).data().endswith("선택")
     assert window._pending_classifications[ids[0]]["minor"] == "손상·파손"
     window._pending_classifications.pop(ids[0])
     window._queue_pending_row(ids[0])
@@ -515,7 +576,6 @@ def test_failed_batch_save_keeps_pending_choices_and_confirmed_analysis(grid_win
         {
             "detail_equipment": "상세설비 미상",
             "major": "기계",
-            "middle": "베어링(종류 미상)",
             "minor": "손상·파손",
         }
     )

@@ -93,22 +93,15 @@ def test_excel_single_final_counts_exclude_pending_candidates(component_result, 
         assert "별첨. 부품별분석" not in values.sheetnames
         facts = values["_issue_facts"]
         headers = [cell.value for cell in facts[1]]
-        parts = [facts.cell(row, headers.index("part") + 1).value for row in range(2, 6)]
-        assert parts.count("모터*?#1") == 2
-        assert "센서*?#10" not in parts
-        assert len(parts) == 4  # Pending records remain, without adopting candidate parts.
+        assert "part" not in headers
+        assert facts.max_row == 5
         detail = values[SHEETS["detail"]]
-        rows = {detail[f"{OUTPUT_D['record_id']}{row}"].value: row for row in range(7, 11)}
-        for record in original.to_dict("records"):
-            row = rows[record["record_id"]]
-            members = json.loads(detail[f"{OUTPUT_D['component_details']}{row}"].value)
-            assert len(members) <= 1
-            if record["status"] == K["review"]:
-                assert members == []
-                assert (
-                    len(json.loads(detail[f"{OUTPUT_D['classification_candidates']}{row}"].value))
-                    == 2
-                )
+        assert {
+            "part_group",
+            "middle",
+            "component_details",
+            "classification_candidates",
+        }.isdisjoint(OUTPUT_D)
         faults = detail
         assert faults.max_row == 10
         assert len({faults[f"{OUTPUT_D['record_id']}{row}"].value for row in range(7, 11)}) == 4
@@ -120,11 +113,9 @@ def test_excel_single_final_counts_exclude_pending_candidates(component_result, 
             row for row in range(7, 11) if faults.cell(row, status_column).value == K["review"]
         )
         classification_columns = [
-            headers.index(DISPLAY[key]) + 1
-            for key in ("major", "detail_equipment", "middle", "minor")
+            headers.index(DISPLAY[key]) + 1 for key in ("major", "detail_equipment", "minor")
         ]
         assert [faults.cell(review_row, column).value for column in classification_columns] == [
-            None,
             None,
             None,
             None,
@@ -152,7 +143,7 @@ def test_pdf_explains_single_selection_and_preserves_candidate_evidence(componen
         "미확정 후보",
         "모터*?#1",
         "센서*?#10",
-        "100%보다 작을 수",
+        "이력 건수와 정지시간은 기록당 한 번 집계합니다",
     ):
         assert "".join(phrase.split()) in compact
     assert "100%를초과" not in compact
@@ -198,9 +189,9 @@ def test_legacy_multiple_classification_is_candidates_only_and_one_detail_row(
     assert pending.status == K["review"]
     assert pending.component_details == "[]" and pending.component_count == 0
     assert len(json.loads(pending.classification_candidates)) == 40
-    assert snapshot.tables["fault_detail"].record_id.is_unique
-    assert len(snapshot.tables["fault_detail"]) == len(selected)
-    assert snapshot.tables["component"]["count"].sum() == 1
+    assert snapshot.selected.record_id.is_unique
+    assert len(snapshot.selected) == len(selected)
+    assert {"fault_detail", "component"}.isdisjoint(snapshot.tables)
     workbook = load_workbook(
         export_report(result, tmp_path / "older_multiple.xlsx"), data_only=True
     )
@@ -211,11 +202,8 @@ def test_legacy_multiple_classification_is_candidates_only_and_one_detail_row(
             for row in range(7, 11)
             if detail[f"{OUTPUT_D['record_id']}{row}"].value == pending.record_id
         )
-        candidates = json.loads(detail[f"{OUTPUT_D['classification_candidates']}{row}"].value)
-        assert {member["middle"] for member in candidates} == {
-            member["middle"] for member in members
-        }
-        assert detail[f"{OUTPUT_D['component_details']}{row}"].value == "[]"
+        assert detail[f"{OUTPUT_D['status']}{row}"].value == K["review"]
+        assert detail[f"{OUTPUT_D['candidate_evidence']}{row}"].value
         assert workbook["_report_metrics"]["A3"].value == 95
     finally:
         workbook.close()
@@ -234,9 +222,8 @@ def test_manual_single_confirmation_adds_only_selected_part_and_keeps_event_tota
     selected.loc[2, "status"] = K["manual"]
     selected.loc[2, "classification_candidates"] = "[]"
     result = classification_result(replace(component_result, selected=selected))
-    assert result.tables["component"]["count"].sum() == 3
-    assert result.tables["component"]["count_share"].sum() == 0.75
-    assert result.tables["component"]["manual_count"].sum() == 2
+    assert result.metrics["manual_rows"] == 2
+    assert "component" not in result.tables
     assert result.tables["type"]["count"].sum() == 4
     assert result.tables["type"]["total_minutes"].sum() == 95
-    assert len(result.tables["fault_detail"]) == 4
+    assert len(result.selected) == 4

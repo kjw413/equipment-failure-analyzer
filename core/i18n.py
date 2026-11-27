@@ -275,7 +275,7 @@ DISPLAY.update(DECISION_LABELS)
 COMPONENT_LABELS = {
     "manual_multi": "복수유형확정",
     "classification_mode": "유형 구성 방식",
-    "component_count": "부품·증상 분류 수",
+    "component_count": "확정 분류 수",
     "part_count": "구성 부품 수",
     "component_types": "구성 고장 유형",
     "component_details": "구성 유형별 근거(JSON)",
@@ -344,7 +344,6 @@ K.update(
         "equipment": "분석 라인",
         "equipment_tab": "라인별 분석",
         "line_tab": "상세설비별 분석",
-        "module_part": "상세설비·세부부품",
         "report_equipment": "보고서 라인명",
     }
 )

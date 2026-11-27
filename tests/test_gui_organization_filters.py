@@ -170,13 +170,11 @@ def test_filter_changes_mark_results_stale_and_invalidate_report_links(
     analyze_current(window)
     window.last_reports = SimpleNamespace(
         excel=tmp_path / "old.xlsx",
-        pdf=tmp_path / "old.pdf",
         source_review=tmp_path / "old_review.xlsx",
     )
     window.update_controls()
     buttons = (
         window.open_button,
-        window.pdf_button,
         window.output_button,
     )
     assert all(button.isEnabled() for button in buttons)
@@ -188,7 +186,6 @@ def test_filter_changes_mark_results_stale_and_invalidate_report_links(
     assert not any(button.isEnabled() for button in buttons)
     for open_report in (
         window.open_excel,
-        window.open_pdf,
         window.open_source_review,
         window.open_output,
     ):

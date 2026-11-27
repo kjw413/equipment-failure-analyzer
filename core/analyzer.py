@@ -19,8 +19,8 @@ from core.aggregation import (
     trend as trend,
 )
 from core.classification_policy import unresolved_classifications
-from core.component_analysis import component_tables, detailed_equipment_table
-from core.failure_modes import UNKNOWN_EQUIPMENT, UNKNOWN_PART
+from core.component_analysis import detailed_equipment_table
+from core.failure_modes import UNKNOWN_EQUIPMENT
 from core.i18n import UNMATCHED, K
 from core.models import AnalysisOptions, AnalysisResult, LoadedData
 from core.preprocessing import review_target
@@ -69,7 +69,6 @@ def analyze(
         **{f"trend_{f}": trend(d, f) for f in ("day", "week", "month", "year")},
         "long_stops": descending(d, "minutes").head(options.top_n).copy(),
     }
-    tables.update(component_tables(d))
     tables["detailed_equipment"] = detailed_equipment_table(d)
     component_counts = pd.to_numeric(
         d.get("component_count", pd.Series(0, index=d.index)), errors="coerce"
@@ -144,7 +143,6 @@ def analyze(
         "missing_detail_equipment_rows": int(
             d.get("detail_equipment", pd.Series("", index=d.index)).eq(UNKNOWN_EQUIPMENT).sum()
         ),
-        "missing_part_rows": int(d["middle"].eq(UNKNOWN_PART).sum()),
         "alternative_type_rows": issue_rows("alternative_types"),
         "multiple_fault_rows": issue_rows("multiple_faults"),
         "auto_resolved_rows": int(
@@ -169,7 +167,7 @@ def analyze(
         K["fuzzy_note"],
     ]
     notes.append(
-        "분류는 고장 분야 / 상세설비·모듈 / 세부 부품 / 고장 현상입니다. 네 항목은 독립 선택하며 부품군은 부품 선택을 돕습니다. 교체 등 7개 조치는 별도 저장합니다. 명시 고장·완료 조치 근거가 있는 추천 1순위는 이력의 대표 분류로 자동 선택하고 나머지 후보를 보존합니다. 없는 항목은 미기재로 보존하며 완전분류·부분분류·검토필요를 구분합니다. 의심·대안·근거 부족과 동일 명사에 대한 상충 규칙은 검토합니다. 추천순위는 통계적 확률이 아니며 대표 선택은 유일한 고장이나 원인 확정이 아닙니다."
+        "설비별 고장은 라인·상세설비까지 집계합니다. 최종 분류는 고장 분야·상세설비·고장 현상으로 표시하고 조치는 따로 기록합니다. 확인된 항목을 기준으로 완전분류·부분분류·검토필요를 구분합니다. 의심·대안·근거 부족과 상충 규칙은 검토합니다."
     )
     notes.append(
         "고장이력과 상세 분류는 한 기록당 한 행입니다. 검토 중인 후보는 확정 부품으로 합산하지 않으며, 정지시간은 이력당 한 번만 집계합니다."

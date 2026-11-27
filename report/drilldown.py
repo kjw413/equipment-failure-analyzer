@@ -1,4 +1,4 @@
-"""Scoped Excel selectors and line → module → part ranking over retained facts."""
+"""Scoped Excel selectors and line → detailed-equipment ranking."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from core.issue_analysis import ALL, FACT_COLUMNS, issue_summary
 from report.formatting import bounded_int
 
 MAIN_SHEET = "02.팀별 주요이슈"
-FIELDS = ("factory", "team", "asset", "module", "part")
+FIELDS = ("factory", "team", "asset", "module")
 
 
 def build_ranks(issues, filters):
@@ -18,20 +18,20 @@ def build_ranks(issues, filters):
     b = issues.b
     state = b.wb.create_sheet("_drill_state")
     state.append(["조회 단계", "값"])
-    asset, module = filters["asset"], filters["module"]
+    asset = filters["asset"]
     b.cache.set(
         state,
         "B2",
-        f'=IF(OR({asset}="{ALL}",{asset}=""),"asset",IF(OR({module}="{ALL}",{module}=""),"module","part"))',
+        f'=IF(OR({asset}="{ALL}",{asset}=""),"asset","module")',
         "asset",
     )
-    b.cache.set(state, "B3", '=IF(B2="asset","라인",IF(B2="module","상세설비","세부부품"))', "라인")
+    b.cache.set(state, "B3", '=IF(B2="asset","라인","상세설비")', "라인")
     state.sheet_state = "hidden"
     rank = b.wb.create_sheet("_issue_rank")
     rank.append(["항목", "건수", "시간유효", "정지시간", "검토", "건수순위", "시간순위", "단계"])
     tables = {
         field: issue_summary(issues.facts, [field]).sort_values(field)
-        for field in ("asset", "module", "part")
+        for field in ("asset", "module")
     }
     end = max(2, 1 + sum(len(t) for t in tables.values()))
     row = 2
@@ -90,7 +90,6 @@ def install_controls(builder):
     if MAIN_SHEET not in book:
         return
     ws = book[MAIN_SHEET]
-    ws["J8"] = "세부부품"
     for address in ("B27", "H27"):
         builder.cache.set(ws, address, "='_drill_state'!B3", "라인")
     top_n = bounded_int(

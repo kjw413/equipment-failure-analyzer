@@ -284,8 +284,9 @@ def test_factory_team_filters_apply_to_all_three_outputs(store, line_file, tmp_p
     assert marked[SHEETS["source_review"]]["A2"].fill.patternType is None
     assert marked[SHEETS["source_review"]]["A4"].fill.patternType is None
     marked.close()
+    pdf = export_pdf(result, tmp_path / "filtered-check.pdf")
     pypdf = pytest.importorskip("pypdf")
-    text = "\n".join(page.extract_text() or "" for page in pypdf.PdfReader(files.pdf).pages)
+    text = "\n".join(page.extract_text() or "" for page in pypdf.PdfReader(pdf).pages)
     assert "공장 필터" in text and "서울공장" in text and "팀 필터" in text and "포장팀" in text
     assert "부산공장" not in text
     assert line_file.read_bytes() == before

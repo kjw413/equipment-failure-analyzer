@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.classification_catalog import fault_catalog_categories
+from core.classification_catalog import equipment_classification_categories
 from core.config import ConfigStore
 from core.corrections import (
     COMPONENT_FIELD,
@@ -42,6 +42,7 @@ from core.equipment_names import (
     resolve_group,
     validate_names,
 )
+from core.failure_modes import UNKNOWN_PART
 from core.i18n import FIELD_LABELS, K
 from core.models import UserError
 from core.rules import RULE_COLUMNS, read_rules, write_rules
@@ -545,23 +546,27 @@ class RuleEditor(QDialog):
         self.resize(1250, 630)
         layout = QVBoxLayout(self)
         note = QLabel(
-            K["rule_help"]
-            + "\n이 표는 분야·부품군·세부 부품을 찾는 규칙입니다. 분야·상세설비·세부 부품·고장 현상은 독립 선택하며 조치는 별도로 기록합니다. "
+            K["rule_help"] + "\n분야와 일치 조건을 편집합니다. "
             "상세설비 이름·별칭은 classification_catalog.json의 equipment_types에서 관리합니다."
         )
         note.setWordWrap(True)
         layout.addWidget(note)
         rules = read_rules(self.path)
-        self.table = QTableWidget(len(rules), len(RULE_COLUMNS))
-        rule_labels = {"major": "분야", "middle": "부품군", "minor": "부품 종류"}
-        self.table.setHorizontalHeaderLabels([rule_labels.get(key, key) for key in RULE_COLUMNS])
+        self.columns = [key for key in RULE_COLUMNS if key not in ("middle", "minor")]
+        self.table = QTableWidget(len(rules), len(self.columns))
+        self.table.setHorizontalHeaderLabels(
+            ["분야" if key == "major" else key for key in self.columns]
+        )
         self.table.setAlternatingRowColors(True)
         for row, rule in enumerate(rules):
-            for col, key in enumerate(RULE_COLUMNS):
+            for col, key in enumerate(self.columns):
                 value = int(rule[key]) if key == "enabled" else rule[key]
-                self.table.setItem(row, col, QTableWidgetItem(str(value)))
-        for col in range(len(RULE_COLUMNS)):
-            self.table.setColumnWidth(col, 230 if 5 <= col <= 8 else 120)
+                item = QTableWidgetItem(str(value))
+                if key == "id":
+                    item.setData(Qt.ItemDataRole.UserRole, (rule["middle"], rule["minor"]))
+                self.table.setItem(row, col, item)
+        for col, key in enumerate(self.columns):
+            self.table.setColumnWidth(col, 230 if key in ("context", "symptom", "exclude") else 120)
         layout.addWidget(self.table)
         buttons = QHBoxLayout()
         add = QPushButton(K["add"])
@@ -586,12 +591,17 @@ class RuleEditor(QDialog):
     def save(self):
         rows = []
         for row in range(self.table.rowCount()):
-            rows.append(
-                {
-                    key: self.table.item(row, col).text() if self.table.item(row, col) else ""
-                    for col, key in enumerate(RULE_COLUMNS)
-                }
-            )
+            rule = {
+                key: self.table.item(row, col).text() if self.table.item(row, col) else ""
+                for col, key in enumerate(self.columns)
+            }
+            if rule["id"].strip():
+                identifier = self.table.item(row, self.columns.index("id"))
+                rule["middle"], rule["minor"] = identifier.data(Qt.ItemDataRole.UserRole) or (
+                    "기타",
+                    UNKNOWN_PART,
+                )
+            rows.append(rule)
         try:
             write_rules(self.path, rows)
         except Exception as exc:
@@ -627,7 +637,7 @@ class CorrectionDialog(QDialog):
         ):
             self.initial.update(dict.fromkeys(FIELDS, ""))
         self.categories = ClassificationPathIndex(
-            fault_catalog_categories(rules or [], equipment_types)
+            equipment_classification_categories(rules or [], equipment_types)
         )
         self.patch = {}
         self.cleared = False
@@ -683,14 +693,14 @@ class CorrectionDialog(QDialog):
         layout.addWidget(self.candidate_error)
         form = QFormLayout()
         self.edits = {}
-        self.confirm = QCheckBox("위 분야·상세설비·세부 부품·고장 현상을 사용자확정으로 저장")
+        self.confirm = QCheckBox("위 고장 분야·상세설비·고장 현상을 사용자확정으로 저장")
         self.confirm.setToolTip(
             "체크하지 않고 분류를 그대로 두면 분류는 저장하지 않습니다. 시간·일자만 고칠 때는 비워 두세요."
         )
         self.classification_picker = ClassificationPicker(self.categories, self.initial)
         self.classification_picker.changed.connect(lambda: self.confirm.setChecked(True))
         form.addRow(
-            "최종 분류 한 건\n설비 → 부품 → 현상 → 분야 확인\n각 항목 독립 선택",
+            "최종 분류 한 건\n상세설비 · 고장 현상 · 고장 분야\n각 항목 독립 선택",
             self.classification_picker,
         )
         form.addRow("", self.confirm)

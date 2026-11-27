@@ -147,7 +147,8 @@ def test_source_codes_categories_and_legacy_report_projection(store, tmp_path):
                 else 6
             )
             headers = {cell.value: cell.column for cell in ws[header_row]}
-            for name in ("고장 분야", "상세설비·모듈", "세부 부품", "고장 현상"):
+            assert "세부 부품" not in headers
+            for name in ("고장 분야", "상세설비·모듈", "고장 현상"):
                 assert not any(
                     ws.cell(row, headers[name]).value
                     in {K["review"], K["code_missing"], K["rule_unmatched"]}
@@ -157,8 +158,10 @@ def test_source_codes_categories_and_legacy_report_projection(store, tmp_path):
     assert source.read_bytes() == before
     assert result.selected.event_id.tolist() == source_event_ids
     assert result.selected.record_id.is_unique
-    assert len(result.tables["fault_detail"]) == len(result.selected) == 5
-    assert result.tables["fault_detail"].record_id.is_unique
+    assert (
+        len(result.selected.loc[result.selected.kind.eq(K["fault"])]) == len(result.selected) == 5
+    )
+    assert result.selected.loc[result.selected.kind.eq(K["fault"])].record_id.is_unique
     assert result.tables["type"]["count"].sum() == 5
     assert result.tables["type"].total_minutes.sum() == 50
     assert result.metrics["total_minutes"] == 50

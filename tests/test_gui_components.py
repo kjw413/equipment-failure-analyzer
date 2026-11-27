@@ -22,7 +22,13 @@ from gui.inline_editor import ClassificationCellEditor, classification_patch
 from gui.main_window import MainWindow
 from gui.widgets import FrameModel, TablePane
 
-FIELDS = ("major", "detail_equipment", "middle", "minor")
+FIELDS = ("major", "detail_equipment", "minor")
+
+
+def public(member):
+    return {key: member[key] for key in FIELDS}
+
+
 MEMBERS = [
     {"detail_equipment": "상세설비 미상", "major": "기계", "middle": "타이밍벨트", "minor": "마모"},
     {
@@ -83,8 +89,6 @@ def record():
 
 def select(picker, value):
     for key in FIELDS:
-        if key == "middle":
-            picker.group_combo.setCurrentIndex(0)
         combo = picker.combos[key]
         found = combo.findData(value.get(key, ""))
         assert found >= 0, (key, value)
@@ -109,11 +113,11 @@ def test_candidates_start_unselected_and_opening_never_saves_first_rank(app, rec
     assert not hasattr(editor, "component_picker")
     assert not hasattr(editor, "multiple_confirm")
     assert editor.candidate_list.rowCount() == 2
-    assert "원문 근거 2" in editor.candidate_list.item(1, 5).text()
+    assert "원문 근거 2" in editor.candidate_list.item(1, 4).text()
     assert all(
         "%" not in editor.candidate_list.item(row, column).text()
         for row in range(2)
-        for column in range(6)
+        for column in range(5)
     )
     assert not saved
     editor.close()
@@ -132,16 +136,16 @@ def test_second_rank_requires_apply_and_preserves_other_saved_fields(app, record
         editor = CorrectionDialog(record, existing, rules=RULES)
         picker = editor.classification_picker
     editor.candidate_list.selectRow(1)
-    assert picker.value() == MEMBERS[1]
+    assert picker.value() == public(MEMBERS[1])
     assert not saved
     if kind == "popup":
         editor.apply()
-        assert saved == [MEMBERS[1]]
+        assert saved == [public(MEMBERS[1])]
     else:
         assert editor.patch == {}
         editor.validate_and_accept()
         assert editor.result() == QDialog.DialogCode.Accepted
-        assert editor.patch == MEMBERS[1]
+        assert editor.patch == public(MEMBERS[1])
     editor.close()
 
 
@@ -154,9 +158,8 @@ def test_apply_without_selection_and_invalid_path_are_rejected(app, record):
     assert not saved and "모두 선택" in editor.error.text()
     editor.choose_candidate(
         {
-            "detail_equipment": "상세설비 미상",
+            "detail_equipment": "없는 설비",
             "major": "기계",
-            "middle": "없는 부품",
             "minor": "마모",
         }
     )
@@ -194,12 +197,12 @@ def test_deferred_candidate_can_be_selected_without_a_separate_save_click(app, r
         position = editor.candidate_list.visualItemRect(item).center()
         QTest.mouseClick(editor.candidate_list.viewport(), Qt.MouseButton.LeftButton, pos=position)
         QTest.mouseDClick(editor.candidate_list.viewport(), Qt.MouseButton.LeftButton, pos=position)
-    assert saved == [MEMBERS[1]]
+    assert saved == [public(MEMBERS[1])]
     assert not editor.isVisible()
 
 
 @pytest.mark.parametrize("kind", ["popup", "dialog"])
-def test_unknown_symptom_candidate_fills_part_only_until_observed_symptom_chosen(
+def test_unknown_symptom_candidate_fills_equipment_only_until_observed_symptom_chosen(
     app, record, kind, monkeypatch
 ):
     record["classification_candidates"] = json.dumps(
@@ -216,7 +219,7 @@ def test_unknown_symptom_candidate_fills_part_only_until_observed_symptom_chosen
         editor = CorrectionDialog(record, rules=RULES)
         picker = editor.classification_picker
     editor.candidate_list.selectRow(0)
-    assert picker.value() == {**MEMBERS[0], "minor": ""}
+    assert picker.value() == {**public(MEMBERS[0]), "minor": ""}
     if kind == "popup":
         editor.apply()
         assert not saved
@@ -226,10 +229,10 @@ def test_unknown_symptom_candidate_fills_part_only_until_observed_symptom_chosen
     select(picker, MEMBERS[0])
     if kind == "popup":
         editor.apply()
-        assert saved == [MEMBERS[0]]
+        assert saved == [public(MEMBERS[0])]
     else:
         editor.validate_and_accept()
-        assert editor.patch == MEMBERS[0]
+        assert editor.patch == public(MEMBERS[0])
     editor.close()
 
 
@@ -268,7 +271,7 @@ def test_legacy_multiple_saved_choices_are_candidates_and_replaced_with_one_fina
     replacement = CorrectionDialog(record, legacy, rules=RULES)
     replacement.candidate_list.selectRow(1)
     replacement.validate_and_accept()
-    assert replacement.patch == {**MEMBERS[1], COMPONENT_FIELD: None}
+    assert replacement.patch == {**public(MEMBERS[1]), COMPONENT_FIELD: None}
     replacement.close()
     with pytest.raises(UserError, match="하나"):
         classification_patch(record, legacy, "multiple", {}, MEMBERS)
@@ -277,38 +280,22 @@ def test_legacy_multiple_saved_choices_are_candidates_and_replaced_with_one_fina
 def test_current_single_edit_remains_local_and_does_not_change_other_overrides(app):
     current = {**MEMBERS[0], "classification_mode": "single", "status": K["manual"]}
     dialog = CorrectionDialog(current, {**MEMBERS[0], "minutes": "12"}, rules=RULES)
-    assert dialog.classification_picker.value() == MEMBERS[0]
+    assert dialog.classification_picker.value() == public(MEMBERS[0])
     assert not dialog.confirm.isChecked()
     select(dialog.classification_picker, MEMBERS[1])
     dialog.validate_and_accept()
-    assert dialog.patch == MEMBERS[1]
+    assert dialog.patch == public(MEMBERS[1])
     dialog.close()
 
 
-def test_searchable_parts_preserve_phenomena_and_reject_unregistered_values(app):
-    picker = ClassificationPicker(CATEGORIES)
-    assert picker.combos["middle"].isEditable()
-    assert all(not picker.combos[field].isEditable() for field in FIELDS if field != "middle")
-    picker.set_value(
-        {
-            "detail_equipment": "상세설비 미상",
-            "major": "기계",
-            "middle": "근접센서",
-            "minor": "마모",
-        }
-    )
-    assert picker.validate_path()["minor"] == "마모"
+def test_equipment_selection_preserves_phenomena_and_rejects_unregistered_values(app):
+    picker = ClassificationPicker(CATEGORIES, MEMBERS[0])
+    assert set(picker.combos) == set(FIELDS)
+    assert all(not combo.isEditable() for combo in picker.combos.values())
     with pytest.raises(UserError):
-        picker.set_value({"middle": "미등록 부품"})
-    picker.set_value(MEMBERS[0])
+        picker.set_value({"detail_equipment": "등록되지 않은 설비"})
     picker.combos["major"].setCurrentIndex(picker.combos["major"].findData("전기·제어"))
-    assert picker.value() == {
-        "major": "전기·제어",
-        "detail_equipment": MEMBERS[0]["detail_equipment"],
-        "middle": MEMBERS[0]["middle"],
-        "minor": MEMBERS[0]["minor"],
-    }
-    assert picker.validate_path()["major"] == "전기·제어"
+    assert picker.validate_path() == {**public(MEMBERS[0]), "major": "전기·제어"}
     picker.close()
 
 
@@ -328,7 +315,7 @@ def test_review_and_full_record_tables_keep_candidates_and_share_single_choice_p
         assert editor.candidate_list.currentRow() == -1
         editor.candidate_list.selectRow(1)
         editor.apply()
-        assert saved == [MEMBERS[1]]
+        assert saved == [public(MEMBERS[1])]
         label = pane.model.headerData(column, Qt.Orientation.Horizontal)
         assert "최종 분류" in label and "조합" not in label
         pane.close()

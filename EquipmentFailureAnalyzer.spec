@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(SPECPATH)
+ICON = ROOT / "assets" / "equipment-failure.ico"
 # Dependency discovery must not collect stale DLLs from unrelated tools on PATH.
 # Qt and scientific-package hooks add their own wheel directories explicitly.
 windows = Path(os.environ.get("SystemRoot", "C:/Windows"))
@@ -19,12 +20,8 @@ a = Analysis(
     [str(ROOT / "main.py")],
     pathex=[str(ROOT)],
     binaries=[],
-    datas=[(str(ROOT / "config"), "config")],
-    hiddenimports=[
-        "matplotlib.backends.backend_qtagg",
-        "reportlab.pdfbase._fontdata",
-        "reportlab.pdfbase.ttfonts",
-    ],
+    datas=[(str(ROOT / "config"), "config"), (str(ICON), "assets")],
+    hiddenimports=["matplotlib.backends.backend_qtagg"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -39,6 +36,7 @@ exe = EXE(
     a.datas,
     [],
     name="EquipmentFailureAnalyzer",
+    icon=str(ICON),
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

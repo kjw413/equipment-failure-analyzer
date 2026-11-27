@@ -33,14 +33,14 @@ from PySide6.QtWidgets import (
 )
 
 from core.classification_candidates import parse_candidates
-from core.classification_catalog import fault_catalog_categories
+from core.classification_catalog import equipment_classification_categories
 from core.config import ConfigStore, output_root
-from core.corrections import FIELDS, validate
+from core.corrections import COMPONENT_FIELD, FIELDS, validate
 from core.defaults_merge import describe
 from core.equipment_breakdown import type_breakdown
 from core.equipment_names import organization_filter_choices
 from core.excel_loader import load_excel, validate_path
-from core.fault_components import CATEGORY_FIELDS
+from core.fault_components import CATEGORY_FIELDS, PUBLIC_CATEGORY_FIELDS
 from core.i18n import UNMATCHED, K
 from core.models import AnalysisOptions, UserError
 from core.preprocessing import event_ids
@@ -57,6 +57,8 @@ from gui.theme import STYLE
 from gui.widgets import DropArea, TablePane
 from report.export_bundle import export_bundle, report_paths
 from version import VERSION
+
+GRID_CLASSIFICATION_FIELDS = {*CATEGORY_FIELDS, COMPONENT_FIELD}
 
 
 class MainWindow(QMainWindow):
@@ -77,7 +79,7 @@ class MainWindow(QMainWindow):
         self._pending_grid_update_queued = False
         self._confirmed_overrides = self.config.get("overrides", {})
         self._classification_categories = ClassificationPathIndex(
-            fault_catalog_categories(
+            equipment_classification_categories(
                 self.config["rules"],
                 self.config.get("classification_catalog", {}).get("equipment_types"),
             )
@@ -263,7 +265,6 @@ class MainWindow(QMainWindow):
         self.last_results_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         results = QMenu(self.last_results_button)
         self.open_button = results.addAction("Excel 열기", self.open_excel)
-        self.pdf_button = results.addAction("PDF 열기", self.open_pdf)
         self.output_button = results.addAction("결과 폴더 열기", self.open_output)
         self.last_results_button.setMenu(results)
         run.addWidget(self.last_results_button)
@@ -286,29 +287,8 @@ class MainWindow(QMainWindow):
         pane = TablePane(sort_policy="grouped")
         self.panes["equipment_types"] = pane
         self.panes["detailed_equipment"] = TablePane(
-            description="라인·상세설비별 고장이력입니다. 부품이 미기재이거나 최종 분류를 검토 중이어도 확인된 상세설비는 포함합니다. 미확인 설비는 '상세설비 미상'으로 표시하며 각 이력·정지시간은 한 번 집계합니다."
+            description="라인·상세설비별 고장이력입니다. 최종 분류를 검토 중이어도 확인된 상세설비는 포함합니다. 미확인 설비는 '상세설비 미상'으로 표시하며 각 이력·정지시간은 한 번 집계합니다."
         )
-        component_note = (
-            "고장이력 한 건의 최종 분류는 하나입니다. "
-            "미확정 추천 후보는 부품별 확정 건수에 포함하지 않습니다. "
-            f"정지시간은 부품별로 중복 배분하지 않으며 {K['type_tab']} 탭에서 확인하세요."
-        )
-        for key, title in (
-            ("component", K["component_tab"]),
-            ("component_trend", K["component_trend_tab"]),
-        ):
-            pane = TablePane(
-                description=component_note,
-                sort_policy="period" if key == "component_trend" else "auto",
-            )
-            self.panes[key] = pane
-        fault_detail = TablePane(
-            sort_policy="source",
-            description="한 고장이력을 부품·증상별로 나눈 표입니다. 같은 기록의 정지시간을 반복 배분하지 않습니다. "
-            "행을 더블클릭하면 원본 기록으로 이동하여 분류를 수정할 수 있습니다.",
-        )
-        fault_detail.table.doubleClicked.connect(self._open_fault_source)
-        self.panes["fault_detail"] = fault_detail
         self._build_chart_tab()
         self.navigation = WorkspaceNavigation(
             {**self.panes, "summary": self.summary, "chart": self.chart_page}
@@ -399,9 +379,10 @@ class MainWindow(QMainWindow):
         self.status_label.setWordWrap(True)
         self.status_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.progress = QProgressBar()
+        self.progress.setAccessibleName("작업 진척률")
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
-        self.progress.setMaximumWidth(300)
+        self.progress.setFixedWidth(160)
         status.addWidget(self.status_label, 1)
         status.addWidget(self.progress)
         layout.addLayout(status)
@@ -567,7 +548,7 @@ class MainWindow(QMainWindow):
         self.save_report_action.setToolTip(
             "대기 중인 분류를 보고서에 반영하려면 [분류 적용 및 재분석]을 먼저 누르세요."
             if pending
-            else "분석 Excel과 PDF를 저장합니다. 원본 검토표시는 Excel에 포함됩니다."
+            else "분석 Excel을 저장합니다. 원본 검토표시는 Excel에 포함됩니다."
         )
 
     def update_controls(self):
@@ -593,7 +574,7 @@ class MainWindow(QMainWindow):
             self.run_panel,
         ):
             widget.setVisible(has_file)
-        self.drop.setVisible(not has_file)
+        self.drop.set_file_loaded(has_file)
         self.advanced_panel.setVisible(has_file and self.advanced_toggle.isChecked())
         self.date_range.setVisible(self.limit_dates.isChecked())
         for key in ("detail", "review"):
@@ -606,7 +587,6 @@ class MainWindow(QMainWindow):
         for widget in (
             self.last_results_button,
             self.open_button,
-            self.pdf_button,
             self.output_button,
         ):
             widget.setEnabled(not busy and has_reports)
@@ -615,7 +595,6 @@ class MainWindow(QMainWindow):
         self.chart_equipment.setEnabled(not busy)
         self.date_from.setEnabled(not busy and has_file and self.limit_dates.isChecked())
         self.date_to.setEnabled(not busy and has_file and self.limit_dates.isChecked())
-        self.progress.setVisible(self.task is not None)
         self._update_condition_summary()
 
     def run_task(self, function, on_success):
@@ -849,7 +828,7 @@ class MainWindow(QMainWindow):
         self._selected_event_ids = set(result.selected.event_id)
         self._confirmed_overrides = result.config_snapshot.get("overrides", {})
         self._classification_categories = ClassificationPathIndex(
-            fault_catalog_categories(
+            equipment_classification_categories(
                 result.config_snapshot["rules"],
                 result.config_snapshot.get("classification_catalog", {}).get("equipment_types"),
             )
@@ -868,13 +847,7 @@ class MainWindow(QMainWindow):
             )
         for key in ("equipment", "line", "type"):
             self.panes[key].set_frame(result.tables[key])
-        for key in ("component", "component_trend", "fault_detail", "detailed_equipment"):
-            self.panes[key].set_frame(result.tables.get(key, pd.DataFrame()))
-        fault_pane = self.panes["fault_detail"]
-        if "record_id" in fault_pane.model.frame:
-            fault_pane.table.setColumnHidden(
-                fault_pane.model.frame.columns.get_loc("record_id"), False
-            )
+        self.panes["detailed_equipment"].set_frame(result.tables["detailed_equipment"])
         frames = []
         for equipment in result.tables["equipment"]["equipment"]:
             table = type_breakdown(result.selected, equipment)
@@ -921,7 +894,9 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def classification_frame(frame: pd.DataFrame, *, review: bool = False) -> pd.DataFrame:
-        frame = frame.copy()
+        frame = frame.drop(
+            columns=["middle", "part_group", "part_type", "part_key", "part_count"], errors="ignore"
+        )
         if "classification_mode" in frame:
             from core.known_classification import known_fields
 
@@ -933,12 +908,13 @@ class MainWindow(QMainWindow):
                 unresolved |= frame["classification_mode"].ne("single") & frame[
                     "classification_candidates"
                 ].map(lambda value: bool(parse_candidates(value)))
-            for key in CATEGORY_FIELDS:
+            for key in PUBLIC_CATEGORY_FIELDS:
                 if key in frame:
                     frame.loc[unresolved, key] = ""
             for index in frame.index[unresolved]:
                 for key, value in retained[index].items():
-                    frame.at[index, key] = value
+                    if key in PUBLIC_CATEGORY_FIELDS:
+                        frame.at[index, key] = value
             if "component_types" in frame:
                 frame.loc[unresolved, "component_types"] = "미확정 · 후보 선택 필요"
             if "type" in frame:
@@ -962,8 +938,6 @@ class MainWindow(QMainWindow):
         leading = [
             "major",
             "detail_equipment",
-            "part_group",
-            "middle",
             "minor",
             "repair_actions",
             "classification_missing_fields",
@@ -991,29 +965,6 @@ class MainWindow(QMainWindow):
         ]
         columns = [column for column in leading if column in frame]
         return frame.loc[:, columns + [column for column in frame if column not in columns]]
-
-    def _open_fault_source(self, index):
-        """A split classification row edits its one original event, never a copy."""
-        source = self.panes["fault_detail"]
-        row = source.proxy.mapToSource(index)
-        if not row.isValid():
-            return
-        event_id = source.model.frame.iloc[row.row()].get("event_id")
-        pane = self.panes["detail"]
-        frame = pane.model.frame
-        if "event_id" not in frame or not event_id:
-            return
-        matches = frame.index[frame["event_id"].eq(event_id)]
-        if matches.empty:
-            return
-        pane.search.clear()
-        position = frame.index.get_loc(matches[0])
-        column = frame.columns.get_loc("component_types")
-        original = pane.proxy.mapFromSource(pane.model.index(position, column))
-        self.show_page("detail")
-        pane.table.setCurrentIndex(original)
-        pane.table.selectRow(original.row())
-        pane.table.scrollTo(original)
 
     def _update_original_button(self, pane):
         record = pane.selected_record()
@@ -1047,7 +998,7 @@ class MainWindow(QMainWindow):
         default = output_root() / f"Equipment_Analysis_{datetime.now():%Y%m%d_%H%M%S}.xlsm"
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Excel + PDF \uc800\uc7a5",
+            "Excel 저장",
             str(default),
             "검색형 Excel (*.xlsm);;일반 Excel (*.xlsx)",
             options=QFileDialog.Option.DontConfirmOverwrite,
@@ -1055,12 +1006,11 @@ class MainWindow(QMainWindow):
         if not path:
             return
         paths = report_paths(path, source_path=self.loaded.path)
-        outputs = (paths.excel, paths.pdf)
-        existing = [p for p in outputs if p is not None and p.exists()]
+        existing = paths.excel.exists()
         if existing:
             message = (
                 "\ub2e4\uc74c \uae30\uc874 \uacb0\uacfc\ub97c \uad50\uccb4\ud560\uae4c\uc694?\n\n"
-                + "\n".join(str(p) for p in existing)
+                + str(paths.excel)
             )
             if (
                 QMessageBox.question(
@@ -1081,13 +1031,12 @@ class MainWindow(QMainWindow):
         self.last_reports = None
 
         def task(progress):
-            # One latest persisted snapshot feeds every output.
             result = run_analysis(loaded, config, options, lambda n, t: progress(int(n * 0.32), t))
             saved = export_bundle(
                 result,
                 paths.excel,
                 lambda n, t: progress(32 + int(n * 0.68), t),
-                overwrite=bool(existing),
+                overwrite=existing,
             )
             return result, saved
 
@@ -1098,10 +1047,9 @@ class MainWindow(QMainWindow):
         self.analysis_ready(result)
         self.last_reports = paths
         self.status_label.setText(
-            "Excel + PDF 생성 완료 (원본 검토표시는 Excel 별첨) | " + str(paths.excel.parent)
+            "Excel 생성 완료 (원본 검토표시는 Excel 별첨) | " + str(paths.excel.parent)
         )
-        outputs = ["Excel: " + str(paths.excel), "PDF: " + str(paths.pdf)]
-        self.notice(f"{len(outputs)}개의 결과파일을 저장했습니다.\n\n" + "\n\n".join(outputs))
+        self.notice(f"Excel 보고서를 저장했습니다.\n\n{paths.excel}")
 
     def edit_review_colors(self):
         try:
@@ -1197,8 +1145,6 @@ class MainWindow(QMainWindow):
         widths = {
             "major": 88,
             "detail_equipment": 135,
-            "part_group": 140,
-            "middle": 145,
             "minor": 150,
             "repair_actions": 190,
             "classification_missing_fields": 175,
@@ -1210,9 +1156,16 @@ class MainWindow(QMainWindow):
             "combination_decision": 108,
         }
         for index, key in enumerate(pane.model.frame.columns):
-            hidden = key in ("event_id", "record_id", "__source_row", "classification_schema") or (
-                not show_extra and key not in PRIMARY_FIELDS
-            )
+            hidden = key in (
+                "event_id",
+                "record_id",
+                "__source_row",
+                "classification_schema",
+                "component_details",
+                "classification_candidates",
+                "classification_known_fields",
+                "combination_key",
+            ) or (not show_extra and key not in PRIMARY_FIELDS)
             pane.table.setColumnHidden(index, hidden)
             if key in widths:
                 pane.table.setColumnWidth(index, widths[key])
@@ -1269,13 +1222,7 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _classification_only(patch):
-        return bool(patch) and set(patch) <= {
-            "major",
-            "detail_equipment",
-            "middle",
-            "minor",
-            "classification_components",
-        }
+        return bool(patch) and set(patch) <= GRID_CLASSIFICATION_FIELDS
 
     def _refresh_classification_categories(self):
         """Check external rule changes only when the optional comparison dialog opens."""
@@ -1293,7 +1240,7 @@ class MainWindow(QMainWindow):
         )
         if stamp != self._classification_catalog_stamp:
             self._classification_categories = ClassificationPathIndex(
-                fault_catalog_categories(
+                equipment_classification_categories(
                     read_rules(path),
                     self.store.read("classification_catalog.json").get("equipment_types"),
                 )
@@ -1312,7 +1259,7 @@ class MainWindow(QMainWindow):
             patch = self._pending_classifications.get(event_id)
             values = None
             if patch:
-                values = {field: patch.get(field) or "" for field in CATEGORY_FIELDS}
+                values = {field: patch.get(field) or "" for field in PUBLIC_CATEGORY_FIELDS}
                 category = " / ".join(values.values())
                 values.update(
                     classification_mode="staged",
@@ -1360,27 +1307,29 @@ class MainWindow(QMainWindow):
             )
             if error:
                 raise UserError(error)
-            if self._classification_only(patch):
+            deferred = patch if self._classification_only(patch) else {}
+            if "normalized" in patch and all(patch.get(key) for key in PUBLIC_CATEGORY_FIELDS):
+                deferred = {
+                    key: value for key, value in patch.items() if key in GRID_CLASSIFICATION_FIELDS
+                }
+            immediate = {key: value for key, value in patch.items() if key not in deferred}
+            if deferred:
                 current = dict(self._confirmed_overrides.get(event_id, {}))
-                merged = self.store._patch_override({event_id: current}, event_id, patch)
-                fields = (
-                    "major",
-                    "detail_equipment",
-                    "middle",
-                    "minor",
-                    "classification_components",
-                    "classification_schema",
+                merged = self.store._patch_override({event_id: current}, event_id, deferred)
+                changed = any(
+                    merged.get(key) != current.get(key)
+                    for key in (*GRID_CLASSIFICATION_FIELDS, "classification_schema")
                 )
-                if all(merged.get(key) == current.get(key) for key in fields):
-                    self._pending_classifications.pop(event_id, None)
-                else:
-                    self._pending_classifications[event_id] = dict(patch)
-                return True
-            self.store.update_override(event_id, patch)
+            if immediate:
+                self.store.update_override(event_id, immediate)
+                self.last_reports = None
+            if deferred and changed:
+                self._pending_classifications[event_id] = dict(deferred)
+            elif deferred:
+                self._pending_classifications.pop(event_id, None)
         except Exception as exc:
             self.show_error(exc)
             return False
-        self.last_reports = None
         return True
 
     def _grid_edit_saved(self, record, patch):
@@ -1485,10 +1434,6 @@ class MainWindow(QMainWindow):
         source_review = getattr(self.last_reports, "source_review", None)
         if source_review is not None:
             self.open_local_path(source_review)
-
-    def open_pdf(self):
-        if self.last_reports:
-            self.open_local_path(self.last_reports.pdf)
 
     def open_output(self):
         if self.last_reports:

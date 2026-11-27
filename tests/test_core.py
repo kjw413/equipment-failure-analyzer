@@ -170,7 +170,7 @@ def test_manual_override_survives_renaming(store, input_file):
     store.save_equipment_names({"IF18115": "NEW NAME"})
     after = analyze_file(store, input_file)
     row = after.selected.loc[after.selected.event_id.eq(event)].iloc[0]
-    assert row.type == "A / 상세설비 미상 / B / C"
+    assert row.type == "A / 상세설비 미상 / C"
     assert row.equipment == "NEW NAME"
     assert row["product"] == "Corrected product"
 

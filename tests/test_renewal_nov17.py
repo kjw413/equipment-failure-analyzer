@@ -24,9 +24,9 @@ def test_line_rankings_and_repaired_controls(organization_result, tmp_path):
         assert sum(row[4].value or 0 for row in rows) == 6
         assert sum(row[5].value or 0 for row in rows) == 144
         expected = {
-            "02.팀별 주요이슈": {"B7", "D7", "G7", "K7", "K8"},
+            "02.팀별 주요이슈": {"B7", "D7", "G7", "K7"},
             "04.고장비교": {"B7", "E7", "B9"},
-            "03.월별 주요이슈": {"B7", "D7", "F7", "J7", "J8", "B8", "D8"},
+            "03.월별 주요이슈": {"B7", "D7", "F7", "J7", "B8", "D8"},
         }
         for name, positions in expected.items():
             assert {
@@ -35,7 +35,7 @@ def test_line_rankings_and_repaired_controls(organization_result, tmp_path):
         assert "#REF!" not in formulas["_issue_filter_2"]["A2"].value
         assert "_Issue_comparison_mode" not in formulas["_issue_filter_2"]["A2"].value
         assert "$J$7" in formulas["_issue_filter_3"]["A2"].value
-        assert "$J$8" in formulas["_issue_filter_3"]["A2"].value
+        assert "$J$8" not in formulas["_issue_filter_3"]["A2"].value
         assert "생략" not in {c.value for row in summary for c in row if isinstance(c.value, str)}
         appendix = values[SHEETS["detail"]]
         assert appendix.column_dimensions["B"].hidden is False

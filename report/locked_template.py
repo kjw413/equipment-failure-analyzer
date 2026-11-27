@@ -268,7 +268,6 @@ def apply_locked_template(builder):
                     "D6": "D7",
                     "F6": "G7",
                     "K6": "K7",
-                    "K7": "K8",
                     "B7": "C10",
                     "D7": "E10",
                     "F7": "G10",
@@ -287,7 +286,7 @@ def apply_locked_template(builder):
             # install_fault_comparison populates the renewed sheet directly.
             pass
         else:
-            mapping.update({"B6": "B7", "D6": "D7", "F6": "F7", "K6": "J7", "B7": "J8"})
+            mapping.update({"B6": "B7", "D6": "D7", "F6": "F7", "K6": "J7"})
             count = sum(
                 source.cell(row, 2).data_type == "f" for row in range(10, source.max_row + 1)
             )
@@ -326,6 +325,18 @@ def apply_locked_template(builder):
             continue
         name = LOCKED_SHEETS[index]
         target = _copy_sheet(design[name], book)
+        if index in (1, 3):
+            caption, control = ("J8", "K8:L8") if index == 1 else ("I8", "J8:K8")
+            if control in target.merged_cells:
+                target.unmerge_cells(control)
+            target[caption].value = None
+            target[caption]._style = None
+            for row in target[control]:
+                for cell in row:
+                    cell.value = None
+                    cell._style = None
+        if index == 1:
+            target["A4"] = "공장·팀·라인·상세설비 필터를 선택하면 차트와 순위표가 갱신됩니다."
         if str(target.oddFooter.right.text).startswith("EFA "):
             target.oddFooter.right.text = f"EFA {VERSION}"
         targets[name] = target

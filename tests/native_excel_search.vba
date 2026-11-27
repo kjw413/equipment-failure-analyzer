@@ -97,7 +97,7 @@ Public Function VerifyComparisonSort() As String
     Check EFASearch.CommitSelection(ws.Range("E7"), AllValues), "Baseline line reset"
     Check EFASearch.CommitSelection(ws.Range("B9"), AllValues), "Comparison department reset"
     Check Application.Sum(table.Columns(5)) = facts.UsedRange.Rows.Count - 1, "All department counts reconcile"
-    Check Abs(Application.Sum(table.Columns(6)) - Application.Sum(facts.UsedRange.Columns(12))) < 0.00001, "All department minutes reconcile"
+    Check Abs(Application.Sum(table.Columns(6)) - Application.Sum(facts.UsedRange.Columns(11))) < 0.00001, "All department minutes reconcile"
     CheckComparisonCharts ws, table
     Check EFASearch.CommitSelection(ws.Range("B9"), baseline), "Comparison filtered to baseline department"
     Check Application.Count(table.Columns(5)) = 1, "Identical baseline and comparison department deduplicated"
@@ -139,20 +139,20 @@ Private Function FirstChoice(ByVal target As Range) As String
     Check False, "Expected a selectable value: " & target.Address
 End Function
 
-Private Sub ReadScopeTotals(ByVal sheet As Worksheet, ByRef rowCount As Long, ByRef minutes As Double, Optional ByVal monthly As Boolean = False)
-    Dim data As Variant, fields As Variant, columns As Variant, selected(0 To 4) As String
+Private Sub ReadScopeTotals(ByVal sheet As Worksheet, ByRef rowCount As Long, ByRef minutes As Double)
+    Dim data As Variant, fields As Variant, columns As Variant, selected(0 To 3) As String
     Dim row As Long, index As Long, matches As Boolean
     data = ThisWorkbook.Worksheets("_issue_facts").UsedRange.Value2
-    fields = Array("factory", "team", "asset", "module", "part")
-    columns = Array(3, 4, 5, 7, 8)
-    For index = 0 To 4
+    fields = Array("factory", "team", "asset", "module")
+    columns = Array(3, 4, 5, 7)
+    For index = 0 To UBound(fields)
         selected(index) = CStr(EFASearch.ControlCell(sheet, CStr(fields(index))).Value2)
     Next index
     rowCount = 0
     minutes = 0
     For row = 2 To UBound(data, 1)
-        matches = Not monthly Or Len(CStr(data(row, 14))) > 0
-        For index = 0 To 4
+        matches = True
+        For index = 0 To UBound(fields)
             If selected(index) <> AllValues And selected(index) <> CStr(data(row, columns(index))) Then
                 matches = False
                 Exit For
@@ -160,7 +160,7 @@ Private Sub ReadScopeTotals(ByVal sheet As Worksheet, ByRef rowCount As Long, By
         Next index
         If matches Then
             rowCount = rowCount + 1
-            If IsNumeric(data(row, 12)) Then minutes = minutes + CDbl(data(row, 12))
+            If IsNumeric(data(row, 11)) Then minutes = minutes + CDbl(data(row, 11))
         End If
     Next row
 End Sub
@@ -170,35 +170,6 @@ Private Sub CheckTeamTotals(ByVal sheet As Worksheet)
     ReadScopeTotals sheet, rowCount, minutes
     Check sheet.Range("C10").Value2 = rowCount, "Team count reconciles with report facts"
     If minutes > 0 Then Check Abs(sheet.Range("E10").Value2 - minutes) < 0.00001, "Team minutes reconcile with report facts"
-End Sub
-
-Private Sub CheckMonthlyTotals(ByVal sheet As Worksheet)
-    Dim rows As Range, rowCount As Long, minutes As Double
-    Set rows = ThisWorkbook.Names("_Period_Rows").RefersToRange
-    ReadScopeTotals sheet, rowCount, minutes, True
-    Check Application.Sum(rows.Offset(0, 1)) = rowCount, "Monthly counts reconcile with report facts"
-    Check Abs(Application.Sum(rows.Offset(0, 2)) - minutes) < 0.00001, "Monthly minutes reconcile with report facts"
-End Sub
-
-Private Sub CheckHistoryRows(ByVal history As Worksheet, ByVal expectedCount As Long)
-    Dim facts As Worksheet, flags As Worksheet, recordIds As Range, cell As Range
-    Dim idIndex As Long, row As Long, expected As Object
-    Set facts = ThisWorkbook.Worksheets("_issue_facts")
-    Set flags = ThisWorkbook.Worksheets("_issue_filter_1")
-    Set expected = CreateObject("Scripting.Dictionary")
-    For row = 2 To facts.Cells(facts.Rows.Count, 1).End(xlUp).Row
-        If flags.Cells(row, 1).Value2 = 1 Then expected.Add CStr(facts.Cells(row, 1).Value2), True
-    Next row
-    Check expected.Count = expectedCount, "History scope count " & CStr(expected.Count) & " expected " & CStr(expectedCount)
-    idIndex = Application.Match("원본 기록 ID", history.AutoFilter.Range.Rows(1), 0)
-    Set recordIds = history.AutoFilter.Range.Columns(idIndex)
-    Set recordIds = recordIds.Offset(1, 0).Resize(recordIds.Rows.Count - 1, 1)
-    Check Application.Subtotal(103, recordIds) = expectedCount, "Visible history count matches the selected part"
-    For Each cell In recordIds.Cells
-        If Not cell.EntireRow.Hidden Then
-            Check expected.Exists(CStr(cell.Value2)), "Visible history belongs to the new selection"
-        End If
-    Next cell
 End Sub
 
 Public Function VerifySearch() As String
@@ -247,11 +218,6 @@ Public Function VerifySearch() As String
     CheckTeamTotals sheet
     Check EFASearch.CommitSelection(target, AllValues), "Module reset"
     Set sheet = ThisWorkbook.Worksheets("03.월별 주요이슈")
-    Set target = EFASearch.ControlCell(sheet, "part")
-    Check EFASearch.BackToMonths(), "Monthly view"
-    Check EFASearch.CommitSelection(target, FirstChoice(target)), "Part selector"
-    CheckMonthlyTotals sheet
-    Check EFASearch.CommitSelection(target, AllValues), "Part reset"
     VerifySearch = "PASS; candidate_count=" & CStr(candidates) & "; exact_and_typo_matches; scoped_totals"
     Exit Function
 Failed:
@@ -262,17 +228,14 @@ Public Function VerifyDrilldown() As String
     Dim previousEvents As Boolean
     previousEvents = Application.EnableEvents
     On Error GoTo Failed
-    Dim main As Worksheet, trends As Worksheet, history As Worksheet, labels As Range, chart As ChartObject
-    Dim factory As Range, team As Range, asset As Range, moduleTarget As Range, part As Range
-    Dim timeLabel As String, timeMinutes As Double, partCount As Long
-    Dim previousAsset As String, nextLinePoint As Long
+    Dim main As Worksheet, labels As Range, chart As ChartObject
+    Dim factory As Range, team As Range, asset As Range, moduleTarget As Range
+    Dim timeLabel As String, timeMinutes As Double, lineName As String, chartLabels As Variant
     Set main = ThisWorkbook.Worksheets("02.팀별 주요이슈")
-    Set trends = ThisWorkbook.Worksheets("03.월별 주요이슈")
     Set factory = EFASearch.ControlCell(main, "factory")
     Set team = EFASearch.ControlCell(main, "team")
     Set asset = EFASearch.ControlCell(main, "asset")
     Set moduleTarget = EFASearch.ControlCell(main, "module")
-    Set part = EFASearch.ControlCell(main, "part")
     Set labels = ThisWorkbook.Names("_Drill_CountLabels").RefersToRange
     Check EFASearch.CommitSelection(factory, FirstChoice(factory)), "Factory selection"
     Check EFASearch.CommitSelection(team, FirstChoice(team)), "Scoped team selection"
@@ -284,63 +247,35 @@ Public Function VerifyDrilldown() As String
     If Len(CStr(main.Range("H28").Value2)) > 0 And IsNumeric(main.Range("K28").Value2) Then
         timeLabel = CStr(main.Range("H28").Value2)
         timeMinutes = main.Range("K28").Value2
-        Check EFASearch.FollowChart(main.ChartObjects(2).Chart, 1), "Time chart drill"
+        Check EFASearch.CommitSelection(asset, timeLabel), "Time leader selected by line filter"
         Check asset.Value2 = timeLabel And main.Range("E10").Value2 = timeMinutes, "Time leader selected exactly"
         Check EFASearch.CommitSelection(asset, AllValues), "Line reset after time branch"
     End If
     If Len(PreviewDirectory) > 0 Then main.ExportAsFixedFormat 0, PreviewDirectory & "\drill_line.pdf"
-    Check EFASearch.FollowChart(main.ChartObjects(1).Chart, 1), "Chart drill into line"
-    Check asset.Value2 <> AllValues, "Line selected from bar"
+    lineName = CStr(labels.Cells(1, 1).Value2)
+    Check Not EFASearch.ProbeChartDoubleClick(main.Name, 1, 1), "Team chart has no double-click navigation"
+    Check Not ThisWorkbook.ProbeSheetDoubleClick(labels.Cells(1, 1)), "Team rank table has no double-click navigation"
+    Check asset.Value2 = AllValues, "Data clicks leave the line filter unchanged"
+    Application.EnableEvents = True
+    asset.Value2 = "'" & lineName
+    Application.EnableEvents = False
+    Check asset.Value2 = lineName, "Line selected from the native filter"
     CheckTeamTotals main
     Check labels.Cells(1, 1).Offset(-1, 0).Value2 = "상세설비", "Module ranking label"
     Check Application.Sum(labels.Offset(0, 2)) = main.Range("C10").Value2, "Full module table reconciles"
+    Set chart = main.ChartObjects(1)
+    chartLabels = chart.Chart.SeriesCollection(1).XValues
+    Check CStr(chartLabels(LBound(chartLabels))) = CStr(labels.Cells(1, 1).Value2), "Line filter refreshes chart categories"
     If Len(PreviewDirectory) > 0 Then main.ExportAsFixedFormat 0, PreviewDirectory & "\drill_module.pdf"
-    Check EFASearch.FollowRank(labels.Cells(1, 1)), "Table drill into module"
-    Check moduleTarget.Value2 <> AllValues, "Module selected"
-    Check labels.Cells(1, 1).Offset(-1, 0).Value2 = "세부부품", "Part ranking label"
-    If Len(PreviewDirectory) > 0 Then main.ExportAsFixedFormat 0, PreviewDirectory & "\drill_part.pdf"
-    partCount = main.Cells(labels.Row, 4).Value2
-    Check EFASearch.FollowRank(labels.Cells(1, 1)), "Part drill opens records"
-    Check part.Value2 <> AllValues, "Part selected"
-    Set history = ThisWorkbook.Worksheets("별첨. 고장이력")
-    Check ActiveSheet.Name = history.Name, "History activated"
-    CheckHistoryRows history, partCount
-    Check EFASearch.ControlCell(trends, "asset").Value2 = asset.Value2 And EFASearch.ControlCell(trends, "part").Value2 = part.Value2, "Trend context synchronized"
-    CheckMonthlyTotals trends
-    previousAsset = CStr(asset.Value2)
+    Check EFASearch.CommitSelection(moduleTarget, CStr(labels.Cells(1, 1).Value2)), "Detailed-equipment filter selected"
+    CheckTeamTotals main
     Application.EnableEvents = True
     factory.Value2 = AllValues
     Application.EnableEvents = previousEvents
-    Check team.Value2 = AllValues And asset.Value2 = AllValues And moduleTarget.Value2 = AllValues And part.Value2 = AllValues, "Native parent edit resets children"
+    Check team.Value2 = AllValues And asset.Value2 = AllValues And moduleTarget.Value2 = AllValues, "Native parent edit resets children"
     CheckTeamTotals main
 
-    ' Keep the first drill's history filter active while switching to a different line.
-    Check history.FilterMode, "First history filter is still applied"
-    nextLinePoint = 1
-    If labels.Cells(nextLinePoint, 1).Value2 = previousAsset Then nextLinePoint = 2
-    Check Len(CStr(labels.Cells(nextLinePoint, 1).Value2)) > 0, "Alternate line available"
-    Set chart = main.ChartObjects(1)
-    main.Activate
-    chart.Activate
-    Check EFASearch.FollowChart(chart.Chart, nextLinePoint), "Switch to another line"
-    Check asset.Value2 <> previousAsset, "Alternate line selected"
-    chart.Activate
-    Check EFASearch.FollowChart(chart.Chart, 1), "Drill into alternate module"
-    partCount = main.Cells(labels.Row, 4).Value2
-    chart.Activate
-    Check EFASearch.FollowChart(chart.Chart, 1), "Reopen history from the active part chart"
-    Check ActiveSheet.Name = history.Name, "Alternate history activated"
-    CheckHistoryRows history, partCount
-    history.AutoFilter.Range.AutoFilter Field:=1, Criteria1:="=__EFA_QA_no_match__"
-    Check history.AutoFilter.FilterMode, "Additional history filter applied"
-    main.Activate
-    chart.Activate
-    Check EFASearch.FollowChart(chart.Chart, 1), "Reopen after filtering out the history rows"
-    CheckHistoryRows history, partCount
-    Check EFASearch.CommitSelection(factory, AllValues) And EFASearch.CommitSelection(asset, AllValues), "Team filters reset"
-    Check EFASearch.CommitSelection(EFASearch.ControlCell(trends, "factory"), AllValues), "Trend reset"
-    If history.AutoFilter.FilterMode Then history.AutoFilter.ShowAllData
-    VerifyDrilldown = "PASS; line_to_module_to_part; link_reopened_after_filter_change; empty_history_recovered; visible_history=" & CStr(partCount)
+    VerifyDrilldown = "PASS; team_filters_update_chart_and_table; no_click_navigation; parent_filter_resets_children"
     Exit Function
 Failed:
     VerifyDrilldown = "FAIL; " & CStr(Err.Number) & "; " & Err.Description

@@ -1,21 +1,15 @@
-"""PDF and pair-export regression tests, including failure/rollback paths."""
+"""PDF renderer regression tests."""
 
-import hashlib
 import json
-from pathlib import Path
 
 import pytest
-from openpyxl import load_workbook
 
 pypdf = pytest.importorskip("pypdf")
-from conftest import analyze_file, finalize_classifications
+from conftest import analyze_file
 
-import report.export_bundle as bundle
 from core.config import ConfigStore
 from core.models import AnalysisOptions, UserError
 from core.report_view import report_result
-from report.excel_report import SHEETS
-from report.export_bundle import export_bundle, report_paths
 from report.pdf_report import export_pdf, number, percent, summary_findings
 
 
@@ -23,30 +17,13 @@ def pdf_text(path):
     return "\n".join(page.extract_text() or "" for page in pypdf.PdfReader(path).pages)
 
 
-def test_bundle_generates_two_files_same_totals_and_name(store, input_file, tmp_path):
+def test_pdf_summary_uses_analysis_totals(store, input_file, tmp_path):
     result = analyze_file(store, input_file)
-    original = hashlib.sha256(input_file.read_bytes()).hexdigest()
-    files = export_bundle(result, tmp_path / "pair" / "analysis.xlsx")
-    assert {p.name for p in files.excel.parent.iterdir()} == {
-        files.excel.name,
-        files.pdf.name,
-    }
-    text = pdf_text(files.pdf)
+    text = pdf_text(export_pdf(result, tmp_path / "analysis.pdf"))
     assert "미확정 분류" in text and "검토 중에도 출력 가능" in text
     assert "VITAL#2" in text and "IF18115" not in text
     assert "95" in text and "32" in text
     assert "31.7" not in text
-    wb = load_workbook(files.excel, data_only=True)
-    assert wb["_report_metrics"]["A2"].value == 4
-    assert wb["_report_metrics"]["A3"].value == 95
-    assert "정지시간 합계 95분" in wb[SHEETS["summary"]]["A4"].value
-    assert files.source_review is None
-    assert len([ws for ws in wb if ws.sheet_state == "visible"]) == 8 and not any(
-        "\uc81c\ud488\ubcc4\ubd84\uc11d" in x for x in wb.sheetnames
-    )
-    wb.close()
-    assert hashlib.sha256(input_file.read_bytes()).hexdigest() == original
-    assert result.selected.iloc[0]["equipment_code"] == "IF18115"
 
 
 def test_pdf_uses_latest_saved_name_everywhere(store, input_file, tmp_path):
@@ -140,99 +117,3 @@ def test_ties_are_not_reported_as_a_unique_winner(store, input_file):
     rows = summary_findings(report_result(result))
     assert "\uac01 2\uac74" in rows[0][1]
     assert "VITAL#2" in rows[0][1] and "IF20000" in rows[0][1]
-
-
-def test_paths_use_one_common_stem(tmp_path):
-    files = report_paths(tmp_path / "Korean report.XLSX")
-    assert files.excel.name == "Korean report.xlsx"
-    assert files.pdf.name == "Korean report_\ucd5c\uc885\ubcf4\uace0\uc11c.pdf"
-
-
-def test_input_overwrite_forbidden(store, input_file):
-    with pytest.raises(UserError):
-        export_bundle(analyze_file(store, input_file), input_file, overwrite=True)
-
-
-@pytest.fixture
-def fake_writers(monkeypatch):
-    def excel(result, path, progress):
-        Path(path).write_bytes(b"new excel")
-        return Path(path)
-
-    def pdf(result, path, progress):
-        Path(path).write_bytes(b"new pdf")
-        return Path(path)
-
-    monkeypatch.setattr(bundle, "export_report", excel)
-    monkeypatch.setattr(bundle, "export_pdf", pdf)
-
-
-@pytest.mark.parametrize("target_index", [0, 1])
-def test_either_existing_file_prevents_unconfirmed_overwrite(
-    store, input_file, tmp_path, fake_writers, target_index
-):
-    result = analyze_file(store, input_file)
-    files = report_paths(tmp_path / "out.xlsx")
-    path = (files.excel, files.pdf)[target_index]
-    path.write_bytes(b"existing")
-    with pytest.raises(UserError):
-        export_bundle(result, files.excel)
-    assert path.read_bytes() == b"existing"
-
-
-def test_confirmed_overwrite_replaces_both_files(store, input_file, tmp_path, fake_writers):
-    result = finalize_classifications(store, input_file)
-    files = report_paths(tmp_path / "out.xlsx")
-    files.excel.write_bytes(b"old excel")
-    files.pdf.write_bytes(b"old pdf")
-    export_bundle(result, files.excel, overwrite=True)
-    assert files.excel.read_bytes() == b"new excel" and files.pdf.read_bytes() == b"new pdf"
-
-
-@pytest.mark.parametrize("existing", [False, True])
-def test_pdf_failure_leaves_no_half_pair(
-    store, input_file, tmp_path, monkeypatch, fake_writers, existing
-):
-    result = finalize_classifications(store, input_file)
-    files = report_paths(tmp_path / "out.xlsx")
-    if existing:
-        files.excel.write_bytes(b"old excel")
-        files.pdf.write_bytes(b"old pdf")
-
-    def fail(*args):
-        raise RuntimeError("PDF failed")
-
-    monkeypatch.setattr(bundle, "export_pdf", fail)
-    with pytest.raises(RuntimeError):
-        export_bundle(result, files.excel, overwrite=existing)
-    if existing:
-        assert files.excel.read_bytes() == b"old excel" and files.pdf.read_bytes() == b"old pdf"
-    else:
-        assert not files.excel.exists() and not files.pdf.exists()
-    assert not list(tmp_path.glob(".efa_export_*"))
-
-
-@pytest.mark.parametrize("existing", [False, True])
-def test_second_commit_failure_rolls_back_excel(
-    store, input_file, tmp_path, monkeypatch, fake_writers, existing
-):
-    result = finalize_classifications(store, input_file)
-    files = report_paths(tmp_path / "out.xlsx")
-    if existing:
-        files.excel.write_bytes(b"old excel")
-        files.pdf.write_bytes(b"old pdf")
-    original = bundle.os.replace
-
-    def fail_pdf(source, destination):
-        if Path(destination) == files.pdf:
-            raise PermissionError("Simulated PDF lock")
-        return original(source, destination)
-
-    monkeypatch.setattr(bundle.os, "replace", fail_pdf)
-    with pytest.raises(UserError):
-        export_bundle(result, files.excel, overwrite=existing)
-    if existing:
-        assert files.excel.read_bytes() == b"old excel" and files.pdf.read_bytes() == b"old pdf"
-    else:
-        assert not files.excel.exists() and not files.pdf.exists()
-    assert not list(tmp_path.glob(".efa_export_*"))

@@ -28,7 +28,6 @@ from report.classification import (
     classification_principles,
     classification_result,
     classification_review_count,
-    component_principles,
     evidence_excerpt,
 )
 from report.formatting import bounded_int, number, percent
@@ -296,55 +295,21 @@ class FinalReport:
             )
         )
 
-    def components(self):
-        table = self.result.tables.get("component")
-        if table is None or table.empty:
-            return
-        self.page("부록 B  부품별 발생 참고")
-        for principle in component_principles():
-            self.story.append(self.p(principle, "muted"))
-        self.story.append(self.p(f"최종 단일 부품 고장기록 TOP {self.top_n}", "h2"))
-        rows = []
-        for row in table.head(self.top_n).to_dict("records"):
-            rows.append(
-                [
-                    row.get("component_type", ""),
-                    number(row.get("count")),
-                    number(row.get("manual_count")),
-                    number(row.get("review_count")),
-                    percent(row.get("count_share")),
-                ]
-            )
-        self.story.append(
-            self.layout.table(
-                ["최종 부품", "기록 수", "사용자확정", "검토 후보 제외", "전체 고장 대비"],
-                rows,
-                [243, 58, 67, 65, self.width - 433],
-                (1, 2, 3, 4),
-            )
-        )
-        self.story.append(
-            self.p(
-                "미확정 후보·부품 미기재·제품·자재 대상은 실제 부품 건수에 포함하지 않습니다. 부품별 건수·정지시간은 Excel 02.팀별 주요이슈에서, 개별 분류와 조치는 별첨. 고장이력에서 확인합니다.",
-                "small",
-            )
-        )
-
     def fault_details(self):
-        table = self.result.tables.get("fault_detail")
-        if table is None or table.empty:
+        table = self.result.selected
+        if table.empty:
             return
-        self.page("부록 C  개별 분류 이력")
+        self.page("부록 B  개별 분류 이력")
         self.story.append(
             self.p(
-                "한 고장이력은 한 행과 최종 분류 하나를 갖습니다. 고장 분야 / 상세설비·모듈 / 부품군·세부 부품 / 고장 현상을 표시하며 조치는 별도 열에 보존합니다. "
+                "한 고장이력은 한 행과 최종 분류 하나를 갖습니다. 고장 분야·상세설비·고장 현상을 표시하며 조치는 별도 열에 보존합니다. "
                 "검토필요·미일치·분류 없는 기록도 한 행으로 보존하며, 미확정 후보는 최종 분류에 넣지 않습니다.",
                 "muted",
             )
         )
         self.story.append(
             self.p(
-                "고장 분야·설비·부품·현상은 독립 축입니다. 부품군은 종류 탐색용입니다. 교체·수리·조정 등 조치만으로 고장 현상이나 원인을 추정하지 않습니다.",
+                "교체·수리·조정 등 조치만으로 고장 현상이나 원인을 추정하지 않습니다.",
                 "muted",
             )
         )
@@ -355,9 +320,6 @@ class FinalReport:
                 ),
                 row.get("major", ""),
                 row.get("detail_equipment", ""),
-                "\n".join(
-                    value for value in (row.get("part_group", ""), row.get("middle", "")) if value
-                ),
                 row.get("minor", ""),
                 row.get("repair_actions", ""),
                 row.get("status", ""),
@@ -370,13 +332,12 @@ class FinalReport:
                     "라인·설비 / 기록 ID",
                     "고장 분야",
                     "상세설비·모듈",
-                    "부품군 / 세부 부품",
                     "고장 현상",
                     "조치",
                     "상태",
                 ],
                 rows,
-                [94, 54, 75, 106, 65, 61, self.width - 455],
+                [118, 70, 100, 80, 65, self.width - 433],
             )
         )
 
@@ -499,9 +460,7 @@ class FinalReport:
             bookmark_title=f"설비 {name} · 상세 분석 {index}/{total_groups}",
         )
         self.story.append(self.p(name, "title"))
-        self.story.append(
-            self.p("라인명 기준 · 상세설비 / 세부 부품 / 고장현상으로 사례를 구분합니다.", "small")
-        )
+        self.story.append(self.p("라인 기준으로 상세설비와 고장 현상을 봅니다.", "small"))
         total = selected["minutes"].sum(min_count=1)
         self.story.append(
             layout.kpis(
@@ -846,7 +805,6 @@ class FinalReport:
                 for index, name in enumerate(equipment, 1):
                     self.equipment(name, index, len(equipment))
                     progress(20 + int(50 * index / max(1, len(equipment))), "PDF 설비별 분석 작성")
-            self.components()
             if self.settings.get("include_record_appendix", False):
                 self.fault_details()
             progress(80, "PDF 페이지 생성")

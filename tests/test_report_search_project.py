@@ -85,9 +85,9 @@ def test_macro_report_keeps_values_charts_and_exact_lists(organization_result, t
 
 def test_macro_bundle_keeps_source_review_inside_one_workbook(organization_result, tmp_path):
     before = organization_result.loaded.path.read_bytes()
-    files = export_bundle(organization_result, tmp_path / "bundle.xlsm")
+    files = export_bundle(organization_result, tmp_path / "reports" / "bundle.xlsm")
     assert files.excel.suffix == ".xlsm"
-    assert files.pdf.read_bytes().startswith(b"%PDF")
+    assert list(files.excel.parent.iterdir()) == [files.excel]
     assert files.source_review is None
     with ZipFile(files.excel) as result:
         assert "xl/vbaProject.bin" in result.namelist()

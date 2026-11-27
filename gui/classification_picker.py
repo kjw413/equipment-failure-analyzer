@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from PySide6.QtCore import QStringListModel, Qt, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
-    QCompleter,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -22,28 +21,27 @@ from PySide6.QtWidgets import (
 
 from core.corrections import COMPONENT_FIELD
 from core.failure_modes import CLASSIFICATION_SCHEMA, UNKNOWN_SYMPTOM, manual_category
-from core.fault_components import CATEGORY_FIELDS, parse_components
+from core.fault_components import PUBLIC_CATEGORY_FIELDS, parse_components
 from core.models import UserError
-from core.public_taxonomy import REPAIR_ACTIONS, part_group
+from core.public_taxonomy import REPAIR_ACTIONS
 from gui.category_index import category_index
 
-FIELDS = CATEGORY_FIELDS
+FIELDS = PUBLIC_CATEGORY_FIELDS
 LABELS = {
     "major": "고장 분야",
     "detail_equipment": "상세설비·모듈",
-    "middle": "세부 부품",
     "minor": "고장 현상",
 }
 
 
 class ClassificationPicker(QWidget):
-    """Select independent semantic fields, using a derived group to browse parts."""
+    """Select the fields of one detailed-equipment fault."""
 
     changed = Signal()
 
     def __init__(
         self,
-        categories: Sequence[tuple[str, str, str, str]],
+        categories: Sequence[tuple[str, ...]],
         value: Mapping[str, str] | None = None,
         parent=None,
     ):
@@ -54,31 +52,11 @@ class ClassificationPicker(QWidget):
         self.legacy = original if any(original) and not self.index.matches(original) else None
         self.paths = self.categories + ((self.legacy,) if self.legacy else ())
         self._updating = False
-        self._group_filter = ""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
         row = QHBoxLayout()
-        self.group_combo = QComboBox()
-        self.group_combo.setObjectName("classification_part_group")
-        self.group_combo.setAccessibleName("부품군 탐색")
-        self.group_combo.setMinimumContentsLength(7)
-        self.group_combo.setSizeAdjustPolicy(
-            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
-        )
-        self.group_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.group_combo.addItem("부품군 전체", "")
-        for group in sorted({part_group(name) for name in self.index.menu_choices("middle", {})}):
-            if group:
-                self.group_combo.addItem(group, group)
-        self.group_combo.setToolTip(
-            "부품 목록을 좁히는 탐색 필터입니다. 부품을 선택하면 부품군이 자동 표시됩니다."
-        )
-        self.group_combo.currentIndexChanged.connect(self._group_changed)
         self.combos = {}
-        self._part_completion_model = QStringListModel(
-            list(self.index.menu_choices("middle", {})), self
-        )
 
         def add_selector(label, combo, stretch=1):
             column = QVBoxLayout()
@@ -90,15 +68,6 @@ class ClassificationPicker(QWidget):
         for index, key in enumerate(FIELDS):
             combo = QComboBox()
             combo.setObjectName(f"classification_{key}")
-            combo.setEditable(key == "middle")
-            if key == "middle":
-                combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-                completer = QCompleter(self._part_completion_model, combo)
-                completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-                completer.setFilterMode(Qt.MatchFlag.MatchContains)
-                completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
-                combo.setCompleter(completer)
-                completer.activated[str].connect(self._complete_part)
             combo.setMinimumContentsLength(7)
             combo.setSizeAdjustPolicy(
                 QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
@@ -107,8 +76,6 @@ class ClassificationPicker(QWidget):
             combo.setAccessibleName(LABELS[key])
             combo.currentIndexChanged.connect(lambda _, level=index: self._selection_changed(level))
             self.combos[key] = combo
-            if key == "middle":
-                add_selector("부품군 · 탐색", self.group_combo)
             add_selector(LABELS[key], combo, 2 if key == "minor" else 1)
         layout.addLayout(row)
         self.legacy_note = QLabel(
@@ -118,7 +85,7 @@ class ClassificationPicker(QWidget):
         self.legacy_note.setObjectName("muted")
         layout.addWidget(self.legacy_note)
         equipment_note = QLabel(
-            "설비 → 부품 → 고장 현상 → 분야 확인 순서로 입력할 수 있습니다. 각 항목은 독립 선택이며 부품군은 탐색 필터입니다. 조치는 별도로 기록합니다."
+            "고장 분야·상세설비·고장 현상을 선택하세요. 조치는 별도로 기록합니다."
         )
         equipment_note.setWordWrap(True)
         equipment_note.setObjectName("muted")
@@ -133,10 +100,6 @@ class ClassificationPicker(QWidget):
         combo.addItem(f"{LABELS[key]} 선택", "")
         active_choices = self.index.menu_choices(key, values)
         choices = set(active_choices)
-        if key == "middle" and self._group_filter:
-            choices = {name for name in choices if part_group(name) == self._group_filter}
-            if values.get(key) in active_choices:
-                choices.add(values[key])
         if (
             self.legacy
             and self.index.menu_context_matches(key, self.legacy, values)
@@ -150,34 +113,7 @@ class ClassificationPicker(QWidget):
         found = combo.findData(values.get(key, ""))
         combo.setCurrentIndex(found if found >= 0 else 0)
         combo.setEnabled(self.index.menu_enabled(key, values))
-        if key == "middle":
-            combo.completer().setModel(self._part_completion_model)
         combo.blockSignals(False)
-
-    def _group_changed(self, _=None):
-        if self._updating:
-            return
-        self._group_filter = str(self.group_combo.currentData() or "")
-        self._fill(FIELDS.index("middle"), self.value())
-
-    def _sync_group(self, part):
-        self._group_filter = part_group(part) if part else ""
-        self.group_combo.blockSignals(True)
-        self.group_combo.setCurrentIndex(max(0, self.group_combo.findData(self._group_filter)))
-        self.group_combo.blockSignals(False)
-
-    def _complete_part(self, name):
-        if name not in self.index.menu_choices("middle", {}):
-            return
-        values = self.value()
-        values["middle"] = name
-        self._updating = True
-        self._sync_group(name)
-        for level in range(len(FIELDS)):
-            self._fill(level, values)
-        self._updating = False
-        self._refresh_note()
-        self.changed.emit()
 
     def _refresh_note(self):
         selected = tuple(self.value()[key] for key in FIELDS)
@@ -191,8 +127,6 @@ class ClassificationPicker(QWidget):
         self._updating = True
         values = self.value()
         values = self.index.changed_selection(values, FIELDS[level], values[FIELDS[level]])
-        if FIELDS[level] == "middle":
-            self._sync_group(values["middle"])
         for child in range(len(FIELDS)):
             self._fill(child, values)
         self._updating = False
@@ -200,12 +134,7 @@ class ClassificationPicker(QWidget):
         self.changed.emit()
 
     def value(self) -> dict[str, str]:
-        return {
-            key: str(combo.currentData() or "")
-            if not combo.isEditable() or combo.currentText() == combo.itemText(combo.currentIndex())
-            else ""
-            for key, combo in self.combos.items()
-        }
+        return {key: str(combo.currentData() or "") for key, combo in self.combos.items()}
 
     def set_value(self, value: Mapping[str, str]):
         """Set an available path without treating initialization as user confirmation."""
@@ -214,11 +143,8 @@ class ClassificationPicker(QWidget):
             not value or value == self.legacy[level] for level, value in enumerate(selected)
         )
         if any(selected) and not legacy_match and not self.index.matches(selected):
-            raise UserError(
-                "현재 활성 규칙 목록에서 분야·상세설비·세부 부품·고장 현상을 선택하세요."
-            )
+            raise UserError("현재 활성 규칙 목록에서 고장 분야·상세설비·고장 현상을 선택하세요.")
         self._updating = True
-        self._sync_group(value.get("middle", ""))
         for level in range(len(FIELDS)):
             self._fill(level, dict(zip(FIELDS, selected)))
         self._updating = False
@@ -227,14 +153,14 @@ class ClassificationPicker(QWidget):
     def validate_path(self):
         value = self.value()
         if not all(value.values()):
-            raise UserError("분야·상세설비·세부 부품·고장 현상을 모두 선택하세요.")
+            raise UserError("고장 분야·상세설비·고장 현상을 모두 선택하세요.")
         if value["minor"] in (UNKNOWN_SYMPTOM, "증상 미기재", "현상 미기재", *REPAIR_ACTIONS):
             raise UserError(
                 "현상 미기재는 최종 분류로 확정할 수 없습니다. 실제 고장 현상을 선택하세요."
             )
         if tuple(value[key] for key in FIELDS) not in self.index:
             raise UserError(
-                "현재 활성 분류 목록에서 올바른 분야·상세설비·세부 부품·고장 현상을 선택하세요."
+                "현재 활성 분류 목록에서 올바른 고장 분야·상세설비·고장 현상을 선택하세요."
             )
         return value
 
@@ -304,14 +230,17 @@ def record_candidates(record, existing=None):
     """Keep recommendations and former multi-valued saves separate from the final value."""
     from core.classification_candidates import parse_candidates
 
-    candidates = parse_candidates(record.get("classification_candidates"))
+    candidates = []
     existing = existing or {}
     legacy = parse_components(existing.get(COMPONENT_FIELD))
     if not legacy and record.get("classification_mode") == "multiple":
         legacy = parse_components(record.get("component_details"))
-    seen = {tuple(item.get(key, "") for key in FIELDS) for item in candidates}
-    for item in legacy:
-        if record.get("classification_schema") == CLASSIFICATION_SCHEMA:
+    seen = set()
+    for item in parse_candidates(record.get("classification_candidates")) + legacy:
+        if (
+            not item.get("detail_equipment")
+            and record.get("classification_schema") == CLASSIFICATION_SCHEMA
+        ):
             item = manual_category(item, existing.get("classification_schema"))
         path = tuple(item.get(key, "") for key in FIELDS)
         if path in seen:
@@ -320,7 +249,7 @@ def record_candidates(record, existing=None):
             {
                 **item,
                 "rank": len(candidates) + 1,
-                "reason": "이전 복수 확정값입니다. 최종 분류 한 건을 다시 선택하세요.",
+                "reason": item.get("reason") or "이전 확정값입니다. 최종 분류를 다시 선택하세요.",
             }
         )
         seen.add(path)

@@ -46,6 +46,8 @@ def test_window_initialization_and_mapping_button(app, tmp_path):
     QTest.qWait(30)
     assert window.drop.acceptDrops()
     assert window.drop.isVisible()
+    assert window.progress.isVisible()
+    assert window.progress.value() == 0
     assert not window.file_settings_button.isVisible()
     assert window.names_button.isEnabled()
     assert not window.report_button.isEnabled()
@@ -169,7 +171,6 @@ def test_correction_dialog_saves_only_changed_fields(app):
     chosen = {
         "major": "기계",
         "detail_equipment": "상세설비 미상",
-        "middle": "타이밍벨트",
         "minor": "마모",
     }
     confirm.classification_picker.set_value(chosen)
@@ -203,13 +204,8 @@ def test_grid_classification_picker_uses_current_profile_rules_when_opened(analy
     pane.open_classification_editor(pane.proxy.index(0, column))
     editor = pane.classification_editor
     picker = editor.single_picker
-    chosen = {
-        "major": custom["major"],
-        "detail_equipment": "상세설비 미상",
-        "middle": custom["minor"],
-        "minor": "손상·파손",
-    }
-    for field in ("major", "detail_equipment", "middle", "minor"):
+    chosen = {"major": custom["major"], "detail_equipment": "상세설비 미상", "minor": "손상·파손"}
+    for field in chosen:
         combo = picker.combos[field]
         index = combo.findData(chosen[field])
         assert index >= 0
@@ -220,8 +216,7 @@ def test_grid_classification_picker_uses_current_profile_rules_when_opened(analy
 
 
 def test_rule_editor_shows_role_column(app, tmp_path):
-    from core.classifier import RULE_COLUMNS
-    from core.rules import ROLES
+    from core.rules import ROLES, RULE_COLUMNS, read_rules
     from gui.dialogs import RuleEditor
 
     store = ConfigStore(tmp_path / "profile")
@@ -229,15 +224,18 @@ def test_rule_editor_shows_role_column(app, tmp_path):
     headers = [
         editor.table.horizontalHeaderItem(i).text() for i in range(editor.table.columnCount())
     ]
-    labels = {"major": "분야", "middle": "부품군", "minor": "부품 종류"}
-    assert headers == [labels.get(key, key) for key in RULE_COLUMNS] and "role" in headers
+    fields = [key for key in RULE_COLUMNS if key not in ("middle", "minor")]
+    assert headers == ["분야" if key == "major" else key for key in fields]
     roles = {
-        editor.table.item(r, RULE_COLUMNS.index("role")).text()
-        for r in range(editor.table.rowCount())
+        editor.table.item(r, fields.index("role")).text() for r in range(editor.table.rowCount())
     }
     assert roles == {rule["role"] for rule in store.load()["rules"]}
     assert roles <= set(ROLES)
-    editor.reject()
+    original = read_rules(editor.path)
+    editor.table.item(0, fields.index("priority")).setText("123")
+    editor.save()
+    assert editor.changed
+    assert read_rules(editor.path) == [{**original[0], "priority": 123}, *original[1:]]
 
 
 def test_save_dialog_starts_in_output_folder(app, tmp_path, monkeypatch, input_file):
@@ -247,10 +245,15 @@ def test_save_dialog_starts_in_output_folder(app, tmp_path, monkeypatch, input_f
 
     monkeypatch.delenv("EFA_OUTPUT_DIR", raising=False)
     window = MainWindow(ConfigStore(tmp_path / "profile"))
+    window.show()
     window.load_path(input_file)
     while window.task is not None:
         QTest.qWait(50)
-    assert window.drop.isHidden()
+    assert window.progress.isVisible()
+    assert window.progress.value() == 100
+    assert window.drop.isVisible()
+    assert not window.drop.browse_button.isVisible()
+    assert window.browse_change_button.isVisible()
     assert not window.source_panel.isHidden()
     assert window.advanced_panel.isHidden()
     window.advanced_toggle.click()
@@ -285,6 +288,41 @@ def analyzed_window(app, tmp_path, input_file):
     window.analysis_ready(run_analysis(loaded, config, window.options()))
     yield window
     window.close()
+
+
+def test_drop_replaces_the_current_workbook(analyzed_window, app, tmp_path):
+    from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl
+    from PySide6.QtGui import QDragEnterEvent, QDropEvent
+
+    window = analyzed_window
+    window.show()
+    assert window.drop.isVisible() and window.drop.isEnabled()
+    replacement = tmp_path / "next-workbook.xlsx"
+    replacement.write_bytes(window.loaded.path.read_bytes())
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(str(replacement))])
+    position = window.drop.rect().center()
+    actions = (
+        Qt.DropAction.CopyAction,
+        mime,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    enter = QDragEnterEvent(position, *actions)
+    app.sendEvent(window.drop, enter)
+    assert enter.isAccepted()
+    drop = QDropEvent(QPointF(position), *actions)
+    app.sendEvent(window.drop, drop)
+    assert drop.isAccepted()
+    assert window.drop.isVisible() and not window.drop.isEnabled()
+    task = window.task
+    assert task is not None and task.wait(20_000)
+    QTest.qWait(30)
+
+    assert window.task is None
+    assert window.loaded.path == replacement
+    assert window.result is None and window.current_page_key() == "raw"
+    assert window.drop.isVisible() and window.drop.isEnabled()
 
 
 @pytest.mark.parametrize("choice", ["cancel", "apply", "invalid"])
@@ -337,7 +375,7 @@ def test_reanalysis_invalidates_previous_report_links(analyzed_window, tmp_path,
     paths = report_paths(tmp_path / "previous.xlsx")
     window.report_ready((window.result, paths))
     window.update_controls()
-    report_buttons = (window.open_button, window.pdf_button, window.output_button)
+    report_buttons = (window.open_button, window.output_button)
     assert not window.last_results_button.isHidden()
     assert all(button.isEnabled() for button in report_buttons)
 
@@ -408,11 +446,9 @@ def test_decision_fields_are_visible_in_details_and_prioritized_in_review(analyz
             assert pane.model.headerData(column, Qt.Orientation.Horizontal) == K[field]
             assert pane.model.index(0, column).data() == frame.iloc[0][field]
         assert not hasattr(pane, "score_note")
-    assert window.panes["review"].model.frame.columns[:6].tolist() == [
+    assert window.panes["review"].model.frame.columns[:4].tolist() == [
         "major",
         "detail_equipment",
-        "part_group",
-        "middle",
         "minor",
         "repair_actions",
     ]
@@ -457,7 +493,6 @@ def test_correction_dialog_explains_rule_evidence_without_auto_confirming(app):
     chosen = {
         "major": "기계",
         "detail_equipment": "상세설비 미상",
-        "middle": "타이밍벨트",
         "minor": "마모",
     }
     confirmed.classification_picker.set_value(chosen)

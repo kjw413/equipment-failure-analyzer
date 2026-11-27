@@ -60,5 +60,5 @@ def validate_final_classifications(result: AnalysisResult) -> None:
         return
     raise UserError(
         f"최종 분류가 확정되지 않은 고장이력 {len(pending):,}건이 있습니다. "
-        "[검토필요]에서 추천 후보를 확인하고 이력마다 대분류·상세설비·세부 부품·소분류 하나를 선택할 수 있습니다. 보고서 출력은 가능합니다."
+        "[검토필요]에서 추천 후보를 확인하고 이력마다 고장 분야·상세설비·고장 현상으로 최종 분류를 확정할 수 있습니다. 보고서 출력은 가능합니다."
     )

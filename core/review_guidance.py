@@ -38,15 +38,13 @@ def guidance(record, target_review: bool = True):
             "비가동코드 미기입: 원본의 비가동코드(중·소)가 비어 있고 고장 설명과 일치하는 분류 규칙도 없습니다."
         )
         actions.append(
-            "원본의 비가동코드 입력을 확인하고, 행 수정에서 대분류·상세설비·세부 부품·소분류를 확정하거나 분류 규칙을 보완하세요."
+            "원본의 비가동코드를 확인하고 고장 분야·상세설비·고장 현상을 확정하거나 분류 규칙을 보완하세요."
         )
     elif status == K["rule_unmatched"]:
         explanations.append(
             "규칙 미일치: 비가동코드는 입력됐지만 고장 설명과 일치하는 분류 규칙이 없습니다."
         )
-        actions.append(
-            "분류 규칙을 보완하거나 행 수정에서 대분류·상세설비·세부 부품·소분류를 확정하세요."
-        )
+        actions.append("분류 규칙을 보완하거나 고장 분야·상세설비·고장 현상을 확정하세요.")
     if status == K["review"]:
         decision_reason = str(record.get("classification_reason", "") or "")
         explanations.append(
@@ -74,7 +72,7 @@ def guidance(record, target_review: bool = True):
             )
         else:
             actions.append(
-                "일치한 분류 규칙·고장 근거와 원본 설명을 비교한 뒤 대분류·상세설비·세부 부품·소분류를 확정하세요."
+                "일치한 분류 규칙·고장 근거와 원본 설명을 비교한 뒤 고장 분야·상세설비·고장 현상을 확정하세요."
             )
     checks = [
         (
@@ -120,11 +118,11 @@ def guidance(record, target_review: bool = True):
     elif status == K["review"]:
         effect = "전체 이력·정지시간에는 한 건으로 포함되며 후보는 확정 부품으로 합산하지 않습니다. 검토 중에도 출력할 수 있으며 검토품질 시트에 정답을 적을 수 있습니다."
     elif status == K["partial"]:
-        effect = "확인된 항목과 미기재 항목을 구분하여 전체 이력·정지시간에 한 건으로 포함합니다. 미기재 부품은 실제 부품 건수에 포함하지 않습니다."
+        effect = "확인된 항목과 미기재 항목을 구분하여 전체 이력·정지시간에 한 건으로 포함합니다."
     else:
         effect = "기본 건수에 포함될 수 있으나 시간·날짜·설비별 집계의 정확도에 영향이 있습니다."
     if record.get("classification_known_fields"):
-        effect += " 확인된 분류 항목은 보존하며, 확인된 상세설비는 라인·상세설비별 통계에 포함합니다. 미확정 후보 부품은 확정 건수로 합산하지 않습니다."
+        effect += " 확인된 상세설비는 라인·상세설비별 통계에 포함합니다."
     if record.get("minutes") is None or str(record.get("minutes")).lower() == "nan":
         effect += " 정지시간 미집계 가능."
     return " / ".join(explanations), " / ".join(dict.fromkeys(actions)), effect

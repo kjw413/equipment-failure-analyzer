@@ -16,11 +16,12 @@ from core.public_taxonomy import part_group
 
 PART_CATEGORY_FIELDS = ("major", "middle", "minor")
 CATEGORY_FIELDS = ("major", "detail_equipment", "middle", "minor")
+PUBLIC_CATEGORY_FIELDS = ("major", "detail_equipment", "minor")
 COMPONENT_OVERRIDE = "classification_components"
 
 
 def type_label(component: dict) -> str:
-    fields = CATEGORY_FIELDS if component.get("detail_equipment") else PART_CATEGORY_FIELDS
+    fields = PUBLIC_CATEGORY_FIELDS if component.get("detail_equipment") else PART_CATEGORY_FIELDS
     return " / ".join(str(component[key]).strip() for key in fields)
 
 

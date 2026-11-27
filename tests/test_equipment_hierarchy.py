@@ -1,4 +1,4 @@
-"""Four public axes preserve evidence, old confirmations and one event total."""
+"""Detailed equipment preserves evidence, old confirmations and one event total."""
 
 import json
 from pathlib import Path
@@ -10,7 +10,7 @@ from core.classification_candidates import parse_candidates, rank_candidates
 from core.classification_catalog import (
     catalog_categories,
     catalog_signature,
-    fault_catalog_categories,
+    equipment_classification_categories,
 )
 from core.classification_completeness import missing_fields
 from core.equipment_taxonomy import EquipmentResolver
@@ -99,7 +99,7 @@ def test_unknown_machine_is_explicit_without_inventing_a_cause(hierarchy_classif
 def test_whole_machine_fault_does_not_invent_a_subpart(hierarchy_classifier):
     result = hierarchy_classifier("프리저 고장")
     assert result["status"] == K["partial"] and result["review_code"] == ""
-    assert result["classification_missing_fields"] == "고장 분야, 세부 부품"
+    assert result["classification_missing_fields"] == "고장 분야"
     member = parse_components(result["component_details"], strict=True)[0]
     assert member["major"] == "분야 미상"
     assert member["detail_equipment"] == "프리저"
@@ -326,28 +326,27 @@ def test_specific_alias_owns_generic_embedded_robot():
     assert [item[2] for item in resolver.mentions("로봇파렛타이져 모터 고장")] == ["파렛타이저"]
 
 
-def test_internal_parts_keep_three_fields_but_public_paths_have_four():
+def test_public_paths_stop_at_detailed_equipment_and_keep_observed_symptoms():
     rule = {"enabled": True, "major": "기계", "middle": "베어링·부싱", "minor": "베어링(종류 미상)"}
     assert catalog_categories([rule]) == [("기계", "베어링·부싱", "베어링(종류 미상)")]
-    choices = fault_catalog_categories([rule], [{"name": "제대기", "aliases": []}])
-    assert ("기계", "제대기", "베어링(종류 미상)", "손상·파손") in choices
-    assert ("기계", UNKNOWN_EQUIPMENT, "베어링(종류 미상)", "손상·파손") in choices
-    assert ("기계", "제대기", UNKNOWN_PART, "손상·파손") in choices
-    assert all(len(choice) == 4 for choice in choices)
+    choices = equipment_classification_categories([rule], [{"name": "제대기", "aliases": []}])
+    assert ("기계", "제대기", "손상·파손") in choices
+    assert ("기계", UNKNOWN_EQUIPMENT, "손상·파손") in choices
+    assert all(len(choice) == 3 and "베어링(종류 미상)" not in choice for choice in choices)
 
 
-def test_manual_part_choices_do_not_depend_on_detail_equipment():
+def test_manual_symptom_choices_do_not_depend_on_detail_equipment():
     rules = [{"enabled": True, "major": "기계", "middle": "이송", "minor": "컨베어"}]
-    choices = fault_catalog_categories(
+    choices = equipment_classification_categories(
         rules, [{"name": "컨베어", "aliases": []}, {"name": "필러", "aliases": []}]
     )
     index = category_index(choices)
     by_equipment = {
-        equipment: index.menu_choices("middle", {"detail_equipment": equipment})
+        equipment: index.menu_choices("minor", {"detail_equipment": equipment})
         for equipment in ("컨베어", "필러", UNKNOWN_EQUIPMENT)
     }
     assert by_equipment["컨베어"] == by_equipment["필러"] == by_equipment[UNKNOWN_EQUIPMENT]
-    assert "세부 부품 미기재" in by_equipment["컨베어"]
+    assert "손상·파손" in by_equipment["컨베어"]
 
 
 def test_equipment_is_part_of_candidate_and_member_identity():

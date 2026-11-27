@@ -34,7 +34,7 @@ def test_repeated_general_problem_keeps_machine_without_inventing_part(classifie
     assert result["major"] == "분야 미상"
     assert result["middle"] == "세부 부품 미기재"
     assert result["minor"] == "고장·이상"
-    assert set(missing_fields(result)) == {"major", "middle"}
+    assert set(missing_fields(result)) == {"major"}
     assert result["part_count"] == 0
     assert result["repair_actions"] == ""  # '조치 완료' does not mean replacement.
     assert len(parse_components(result["component_details"])) == 1
@@ -172,7 +172,7 @@ def test_current_pipeline_and_report_keep_known_axes_and_equipment_statistics(
     projected = classification_result(result)
     after = projected.selected.loc[projected.selected.source_row.eq(5)].iloc[0]
     assert known_fields(after.to_dict()) == {"detail_equipment": "컨베어"}
-    details = projected.tables["fault_detail"]
+    details = projected.selected
     assert (
         details.loc[details.record_id.eq(pending.record_id), "detail_equipment"].iloc[0] == "컨베어"
     )

@@ -30,7 +30,7 @@ def test_excel_has_one_detail_row_per_fault_including_pending_classifications(
 ):
     original_hash = sha256(split_result.loaded.path.read_bytes()).hexdigest()
     source = split_result.selected.loc[split_result.selected.source_row.eq(4)].iloc[0]
-    rows = split_result.tables["fault_detail"]
+    rows = split_result.selected
     members = rows.loc[rows.record_id.eq(source.record_id)]
     assert len(members) == 1 and members.event_id.nunique() == 1
     assert members.iloc[0].status == K["partial"]
@@ -52,7 +52,7 @@ def test_excel_has_one_detail_row_per_fault_including_pending_classifications(
     assert not any(pending.iloc[0][key] for key in ("major", "middle", "minor"))
     assert len(parse_components(protected.classification_candidates)) == 2
     assert len(rows) == len(split_result.selected) and rows.record_id.is_unique
-    assert not any("minutes" in key for key in rows)
+    assert {"component", "fault_detail"}.isdisjoint(split_result.tables)
     assert split_result.metrics["selected_rows"] == 4
     assert split_result.metrics["total_minutes"] == 95
     workbook = load_workbook(export_report(split_result, tmp_path / "split.xlsx"), data_only=True)
@@ -61,19 +61,19 @@ def test_excel_has_one_detail_row_per_fault_including_pending_classifications(
         assert "별첨. 부품증상상세" not in workbook
         sheet = workbook[SHEETS["detail"]]
         headers = [cell.value for cell in sheet[6]]
-        assert DISPLAY["middle"] in headers and DISPLAY["minor"] in headers
+        assert DISPLAY["middle"] not in headers and DISPLAY["minor"] in headers
         assert any("정지시간" in str(value) for value in headers)
         record_column = headers.index(DISPLAY.get("record_id", "record_id")) + 1
-        middle_column = headers.index(DISPLAY["middle"]) + 1
+        module_column = headers.index(DISPLAY["detail_equipment"]) + 1
         minor_column = headers.index(DISPLAY["minor"]) + 1
         observed = {
-            (sheet.cell(row, middle_column).value, sheet.cell(row, minor_column).value)
+            (sheet.cell(row, module_column).value, sheet.cell(row, minor_column).value)
             for row in range(7, sheet.max_row + 1)
             if sheet.cell(row, record_column).value == source.record_id
         }
-        assert observed == {("실린더(종류 미상)", "손상·파손")}
+        assert observed == {(source.detail_equipment, "손상·파손")}
         pending_values = {
-            (sheet.cell(row, middle_column).value, sheet.cell(row, minor_column).value)
+            (sheet.cell(row, module_column).value, sheet.cell(row, minor_column).value)
             for row in range(7, sheet.max_row + 1)
             if sheet.cell(row, record_column).value == protected.record_id
         }
@@ -103,9 +103,9 @@ def test_pdf_explains_single_classification_and_preserves_pending_evidence(split
     reader = pypdf.PdfReader(export_pdf(split_result, tmp_path / "split.pdf"))
     compact = "".join("".join(page.extract_text() or "" for page in reader.pages).split())
     for expected in (
-        "부록C개별분류이력",
+        "부록B개별분류이력",
         "한고장이력은한행",
-        "고장분야/상세설비·모듈/세부부품/고장현상",
+        "고장분야·상세설비·고장현상",
         "실린더",
         "베어링",
         "손상",
@@ -113,10 +113,9 @@ def test_pdf_explains_single_classification_and_preserves_pending_evidence(split
         assert expected in compact
 
 
-def test_split_gui_rows_are_read_only_and_open_the_original_event(split_result, store, monkeypatch):
+def test_gui_displays_one_history_row_with_detailed_equipment(split_result, store, monkeypatch):
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
-    from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication
 
     from gui.main_window import MainWindow
@@ -126,16 +125,12 @@ def test_split_gui_rows_are_read_only_and_open_the_original_event(split_result, 
     window = MainWindow(store)
     window.loaded_ready(split_result.loaded)
     window.analysis_ready(split_result)
-    pane = window.panes["fault_detail"]
-    index = pane.proxy.index(0, pane.model.frame.columns.get_loc("middle"))
-    assert not (index.flags() & Qt.ItemFlag.ItemIsEditable)
-    row = pane.model.frame.iloc[pane.proxy.mapToSource(index).row()]
-    window.panes["detail"].search.setText("no matching record")
-    window._open_fault_source(index)
-    app.processEvents()
     detail = window.panes["detail"]
-    selected = detail.proxy.mapToSource(detail.table.currentIndex())
-    assert detail.model.frame.iloc[selected.row()].event_id == row.event_id
+    assert "fault_detail" not in window.panes
+    assert {"middle", "part_group"}.isdisjoint(detail.model.frame.columns)
+    assert detail.model.frame.event_id.is_unique
+    assert len(detail.model.frame) == len(split_result.selected)
+    window.show_page("detail")
+    app.processEvents()
     assert window.navigation.current_page_key() == "detail"
-    assert not detail.search.text()
     window.close()

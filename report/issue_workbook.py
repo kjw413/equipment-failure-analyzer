@@ -40,9 +40,9 @@ def criterion(cell):
 
 
 def report_issue_facts(records):
-    """Reporting stops at the part: different symptom wording shares one bucket."""
+    """Aggregate each detailed equipment regardless of the observed symptom."""
     facts = issue_facts(records)
-    facts["case"] = facts["module"] + " / " + facts["part"]
+    facts["case"] = facts["module"]
     return facts
 
 
@@ -93,17 +93,10 @@ class IssueWorkbook:
         ws.sheet_state = "hidden"
         lists = self.b.wb.create_sheet("_issue_lists")
         self.lists = {}
-        for index, key in enumerate(
-            ("factory", "team", "asset", "module", "part", "organization", "comparison_mode"), 1
-        ):
-            if key == "comparison_mode":
-                values = ["세부부품별", "상세설비별"]
-            else:
-                values = (
-                    self.org_labels
-                    if key == "organization"
-                    else [ALL, *sorted(set(self.facts[key]))]
-                )
+        for index, key in enumerate(("factory", "team", "asset", "module", "organization"), 1):
+            values = (
+                self.org_labels if key == "organization" else [ALL, *sorted(set(self.facts[key]))]
+            )
             if not values:
                 values = [ALL]
             for row, value in enumerate(values, 1):
@@ -146,7 +139,7 @@ class IssueWorkbook:
         edit.alignment = Alignment(horizontal="center", vertical="center")
         ws.row_dimensions[target.row].height = 22
         validation = DataValidation(type="list", formula1="=" + self.lists[key], allow_blank=False)
-        searchable = key in ("factory", "team", "asset", "module", "part")
+        searchable = key in ("factory", "team", "asset", "module")
         validation.errorTitle = "목록에서 선택"
         validation.error = "목록의 값 또는 (전체)를 선택하세요."
         validation.showErrorMessage = True
@@ -155,8 +148,6 @@ class IssueWorkbook:
         validation.prompt = (
             "매크로 보고서는 셀 선택 시 검색창이 열립니다. 검색 후 후보 하나를 선택하세요. 기본 목록도 사용할 수 있습니다. (전체)로 해제합니다."
             if searchable
-            else "세부부품별은 라인·상세설비·부품 조건, 상세설비별은 라인·상세설비 조건을 적용합니다."
-            if key == "comparison_mode"
             else "목록에서 항목을 선택하세요."
         )
         validation.errorStyle = "stop"
@@ -266,7 +257,7 @@ class IssueWorkbook:
         ws = self.sheet("organization_issues", "공장·팀·라인의 주요 고장이슈")
         for index, width in enumerate((6, 20, 20, 9, 12, 9) * 2, 1):
             ws.column_dimensions[get_column_letter(index)].width = width
-        fields = {"factory": "B6", "team": "D6", "asset": "F6", "module": "K6", "part": "K7"}
+        fields = {"factory": "B6", "team": "D6", "asset": "F6", "module": "K6"}
         for key, cell in fields.items():
             self.selector(
                 ws,
@@ -277,9 +268,8 @@ class IssueWorkbook:
                     "team": "팀",
                     "asset": "라인",
                     "module": "상세설비",
-                    "part": "세부부품",
                 }[key],
-                span={"asset": 3, "module": 2, "part": 2}.get(key, 1),
+                span={"asset": 3, "module": 2}.get(key, 1),
             )
         filters = self.filters(ws, fields)
         args = self.args(filters)
@@ -322,9 +312,7 @@ class IssueWorkbook:
             self.b.put(ws, 8, left, f"{label} TOP {self.top_n}", role="title").font = Font(
                 name="KoPubWorld돋움체 Medium", size=14, bold=True
             )
-            self.header(
-                ws, 9, ("순위", "상세설비 / 세부부품", "", "건수", "정지(분)", "비중"), left
-            )
+            self.header(ws, 9, ("순위", "라인", "", "건수", "정지(분)", "비중"), left)
             ws.merge_cells(start_row=9, start_column=left + 1, end_row=9, end_column=left + 2)
             for index in range(self.top_n):
                 row, case = 10 + index, order[index] if index < len(order) else ""
@@ -391,7 +379,7 @@ class IssueWorkbook:
         ws.print_area = f"A1:L{last + 2}"
 
     def comparison(self):
-        ws = self.sheet("issue_comparison", "동일 상세설비·세부부품의 공장·팀 비교", span=10)
+        ws = self.sheet("issue_comparison", "동일 상세설비의 공장·팀 비교", span=10)
         # Factory and team are already visible; retain their combined chart key privately.
         ws.column_dimensions["J"].hidden = True
         self.selector(
@@ -507,8 +495,8 @@ class IssueWorkbook:
         ws.print_area = f"A1:J{last + 2}"
 
     def trends(self):
-        ws = self.sheet("issue_trends", "세부부품의 월별 건수·정지시간")
-        fields = {"factory": "B6", "team": "D6", "asset": "F6", "module": "K6", "part": "B7"}
+        ws = self.sheet("issue_trends", "상세설비의 월별 건수·정지시간")
+        fields = {"factory": "B6", "team": "D6", "asset": "F6", "module": "K6"}
         for key, cell in fields.items():
             self.selector(
                 ws,
@@ -518,11 +506,10 @@ class IssueWorkbook:
                     "factory": "공장",
                     "team": "팀",
                     "asset": "라인",
-                    "part": "세부부품",
                     "module": "상세설비",
                 }[key],
                 ALL,
-                span={"asset": 3, "module": 2, "part": 11}.get(key, 1),
+                span={"asset": 3, "module": 2}.get(key, 1),
             )
         ws.merge_cells("A8:L8")
         self.b.put(ws, 8, 1, "월별 고장 현황", role="title").font = Font(

@@ -30,7 +30,7 @@ Public Function VerifyFaultComparison(ByVal evidence As String) As String
     For i = 2 To units.Cells(units.Rows.Count, 1).End(xlUp).Row
         Set modules = CreateObject("Scripting.Dictionary")
         For j = 2 To UBound(FactsData, 1)
-            If FactsData(j, 16) = units.Cells(i, 1).Value2 Then modules(CStr(FactsData(j, 7))) = True
+            If FactsData(j, 15) = units.Cells(i, 1).Value2 Then modules(CStr(FactsData(j, 7))) = True
         Next j
         If modules.Count > 1 Then
             line1 = CStr(units.Cells(i, 1).Value2)
@@ -90,7 +90,7 @@ Public Function VerifyFaultComparison(ByVal evidence As String) As String
     phase = "missing and zero time"
     original = facts.UsedRange.Value2
     For i = 2 To UBound(FactsData, 1)
-        If FactsData(i, 16) = line1 And FactsData(i, 7) = module1 Then facts.Cells(i, 12).ClearContents
+        If FactsData(i, 15) = line1 And FactsData(i, 7) = module1 Then facts.Cells(i, 11).ClearContents
     Next i
     FactsData = facts.UsedRange.Value2
     Application.CalculateFull
@@ -98,7 +98,7 @@ Public Function VerifyFaultComparison(ByVal evidence As String) As String
     Check state.Range("B6").Value2 = "", "All missing baseline minutes are unavailable"
     VerifyView ws, evidence & "/fault_missing_time.pdf"
     For i = 2 To UBound(FactsData, 1)
-        If FactsData(i, 16) = line1 And FactsData(i, 7) = module1 Then facts.Cells(i, 12).Value2 = 0
+        If FactsData(i, 15) = line1 And FactsData(i, 7) = module1 Then facts.Cells(i, 11).Value2 = 0
     Next i
     FactsData = facts.UsedRange.Value2
     Application.CalculateFull
@@ -186,7 +186,7 @@ Private Sub VerifyMetrics(ByVal ws As Worksheet)
             If level = "부서" Or FactsData(i, 5) = baseLine Then
                 If level <> "상세설비" Or FactsData(i, 7) = ws.Range("I7").Value2 Then
                     baseCount = baseCount + 1
-                    If Not IsEmpty(FactsData(i, 12)) And IsNumeric(FactsData(i, 12)) Then baseValid = baseValid + 1: baseTime = baseTime + CDbl(FactsData(i, 12))
+                    If Not IsEmpty(FactsData(i, 11)) And IsNumeric(FactsData(i, 11)) Then baseValid = baseValid + 1: baseTime = baseTime + CDbl(FactsData(i, 11))
                 End If
             End If
         End If
@@ -203,7 +203,7 @@ Private Sub VerifyMetrics(ByVal ws As Worksheet)
                     If level = "부서" Or FactsData(i, 5) = ws.Cells(r, 3).Value2 Then
                         If level <> "상세설비" Or FactsData(i, 7) = ws.Cells(r, 12).Value2 Then
                             count = count + 1
-                            If Not IsEmpty(FactsData(i, 12)) And IsNumeric(FactsData(i, 12)) Then valid = valid + 1: total = total + CDbl(FactsData(i, 12))
+                            If Not IsEmpty(FactsData(i, 11)) And IsNumeric(FactsData(i, 11)) Then valid = valid + 1: total = total + CDbl(FactsData(i, 11))
                         End If
                     End If
                 End If
@@ -234,8 +234,8 @@ Private Sub VerifyCandidates(ByVal ws As Worksheet, ByVal address As String, ByV
         org = "[" & CStr(FactsData(i, 3)) & "] " & CStr(FactsData(i, 4))
         If ws.Range(organization).Value2 = "(전체)" Or org = ws.Range(organization).Value2 Then
             If Len(parent) = 0 Then
-                expected(CStr(FactsData(i, 16))) = True
-            ElseIf FactsData(i, 16) = ws.Range(parent).Value2 Then
+                expected(CStr(FactsData(i, 15))) = True
+            ElseIf FactsData(i, 15) = ws.Range(parent).Value2 Then
                 expected(CStr(FactsData(i, 7))) = True
             End If
         End If
@@ -263,11 +263,12 @@ Private Sub VerifyRelatedViews()
     Set trends = ThisWorkbook.Worksheets("03.월별 주요이슈")
     Set facts = ThisWorkbook.Worksheets("_issue_facts")
     Check EFASearch.ControlCell(main, "asset").Address(False, False) = "G7", "Edited team filter position"
-    Check EFASearch.ControlCell(main, "part").Address(False, False) = "K8", "Edited team part position"
-    Check EFASearch.ControlCell(trends, "part").Address(False, False) = "J8", "Edited month part position"
-    Check ThisWorkbook.Names("_Period_Back").RefersToRange.Address(False, False) = "L7:L8", "Renewed return button"
+    Check EFASearch.ControlCell(main, "module").Address(False, False) = "K7", "Team detailed-equipment selector"
+    Check EFASearch.ControlCell(trends, "module").Address(False, False) = "J7", "Month detailed-equipment selector"
+    Check EFASearch.ControlCell(trends, "asset").Address(False, False) = "F7", "Month line selector"
     name = CStr(main.Range("B28").Value2)
-    Check EFASearch.FollowChart(main.ChartObjects(1).Chart, 1), "Team chart drills from edited table position"
+    Check Not EFASearch.FollowChart(main.ChartObjects(1).Chart, 1), "Team chart does not navigate"
+    Check EFASearch.CommitSelection(main.Range("G7"), name), "Leading line selected with the filter"
     Check main.Range("G7").Value2 = name, "Team leading line chosen"
     finish = facts.Cells(facts.Rows.Count, 1).End(xlUp).Row
     For r = 2 To finish
@@ -275,8 +276,8 @@ Private Sub VerifyRelatedViews()
     Next r
     Check main.Range("C10").Value2 = expected, "Team line drill count"
     Check EFASearch.CommitSelection(main.Range("G7"), "(전체)"), "Team reset"
-    name = CStr(facts.Cells(2, 8).Value2)
-    Check EFASearch.CommitSelection(trends.Range("J8"), name), "Month part selection"
+    name = CStr(facts.Cells(2, 7).Value2)
+    Check EFASearch.CommitSelection(trends.Range("J7"), name), "Month detailed-equipment selection"
     Set periodRows = ThisWorkbook.Names("_Period_Rows").RefersToRange
     Check periodRows.Row = 25, "Edited monthly table begins on row 24"
     first = periodRows.Row
@@ -284,17 +285,16 @@ Private Sub VerifyRelatedViews()
     Dim axisLabels As Variant
     axisLabels = trends.ChartObjects(1).Chart.SeriesCollection(1).XValues
     Check CStr(axisLabels(1)) = "'" & Right$(month, 5), "Short month chart label"
-    Check EFASearch.FollowPeriodChart(1), "Short chart label still drills into full month"
-    Check trends.Range("D8").Value2 = month, "Full month selection from chart"
-    Check EFASearch.BackToMonths(), "Return from chart drill"
+    Check Not EFASearch.FollowChart(trends.ChartObjects(1).Chart, 1), "Period chart does not navigate"
     total = trends.Cells(first, 2).Value2
     Application.EnableEvents = True
     trends.Range("D8").Value2 = month
     Check trends.Range("B8").Value2 = "일별", "Edited month selector activates daily view"
-    Check trends.Range("J8").Value2 = name, "Month selection preserves part selector"
+    Check trends.Range("J7").Value2 = name, "Month selection preserves the detailed-equipment selector"
     Check Abs(Application.Sum(trends.Range("B" & first & ":B" & first + 30)) - total) < 0.00001, "Month-day reconciliation after template move"
-    Check EFASearch.BackToMonths(), "Monthly return"
-    Check EFASearch.CommitSelection(trends.Range("J8"), "(전체)"), "Month part reset"
+    trends.Range("B8").Value2 = "월별"
+    Check trends.Range("B8").Value2 = "월별", "Monthly return with the unit filter"
+    Check EFASearch.CommitSelection(trends.Range("J7"), "(전체)"), "Month detailed-equipment reset"
     Application.EnableEvents = False
 End Sub
 

@@ -6,20 +6,28 @@ import logging
 import sys
 from logging.handlers import RotatingFileHandler
 
-from core.config import ConfigStore, user_root
+from core.config import ConfigStore, resource_root, user_root
 from version import APP_ID, APP_NAME, VERSION
 
 
 def main() -> int:
     from PySide6.QtCore import QLockFile, QTimer
-    from PySide6.QtGui import QFont
+    from PySide6.QtGui import QFont, QIcon
     from PySide6.QtWidgets import QApplication, QMessageBox
+
+    organization_name = "LocalManufacturingTools"
+    if sys.platform == "win32" and not getattr(sys, "frozen", False):
+        from ctypes import windll
+
+        # Give the source app its own taskbar identity before Qt creates any windows.
+        windll.shell32.SetCurrentProcessExplicitAppUserModelID(f"{organization_name}.{APP_ID}")
 
     app = QApplication(sys.argv)
     app.setApplicationName(APP_ID)
-    app.setOrganizationName("LocalManufacturingTools")
+    app.setOrganizationName(organization_name)
     app.setApplicationVersion(VERSION)
-    app.setFont(QFont("Malgun Gothic", 10))
+    app.setFont(QFont(["BinggraeⅡ", "빙그레체Ⅱ", "Malgun Gothic"], 10))
+    app.setWindowIcon(QIcon(str(resource_root() / "assets" / "equipment-failure.ico")))
     # One writer per user profile prevents concurrent auto-save races.
     root = user_root()
     root.mkdir(parents=True, exist_ok=True)

@@ -9,6 +9,7 @@ from openpyxl import load_workbook
 
 from core.classification_candidates import parse_candidates
 from core.classification_completeness import missing_fields
+from core.component_analysis import component_tables
 from core.failure_classification import FaultClassifier
 from core.failure_modes import UNKNOWN_EQUIPMENT, UNKNOWN_SYMPTOM
 from core.fault_components import CATEGORY_FIELDS, parse_components
@@ -280,7 +281,7 @@ def test_analysis_keeps_one_history_and_only_one_final_classification_per_record
     assert result.metrics["total_minutes"] == 95
     assert result.tables["type"]["count"].sum() == 4
     assert result.tables["type"]["total_minutes"].sum() == 95
-    details = result.tables["fault_detail"]
+    details = result.selected.loc[result.selected.kind.eq(K["fault"])]
     first_three = result.selected.iloc[:3]
     selected_details = details.loc[details["record_id"].isin(first_three.record_id)]
     assert len(selected_details) == 3
@@ -295,9 +296,11 @@ def test_analysis_keeps_one_history_and_only_one_final_classification_per_record
     for index in (0, 1):
         assert_top_representative(first_three.iloc[index])
         assert len(recommendations(first_three.iloc[index])) == 2
-    assert {"event_id", "major", "middle", "minor", "evidence", "actions"} <= set(details)
-    assert not any("minutes" in column for column in details)
-    parts = result.tables["component"]
+    assert {"event_id", "major", "detail_equipment", "minor", "evidence", "repair_actions"} <= set(
+        details
+    )
+    assert {"component", "fault_detail"}.isdisjoint(result.tables)
+    parts = component_tables(result.selected)["component"]
     assert parts["count"].sum() == 3
     bearings = parts.loc[parts.component_type.str.contains("베어링(종류 미상)", regex=False)]
     assert bearings["count"].sum() == 1

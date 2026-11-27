@@ -18,7 +18,7 @@ if exist "wheels\*.whl" (
     ".venv\Scripts\python.exe" -m pip install -r requirements.txt
 )
 if errorlevel 1 goto failure
-".venv\Scripts\python.exe" -c "import PySide6, pandas, numpy, openpyxl, matplotlib, PIL, reportlab"
+".venv\Scripts\python.exe" -c "import PySide6, pandas, numpy, openpyxl, matplotlib, PIL"
 if errorlevel 1 goto failure
 echo Setup complete. Use START.bat in the project folder.
 if /i not "%~1"=="--no-pause" pause

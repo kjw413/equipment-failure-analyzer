@@ -108,20 +108,20 @@ def hierarchy_result(store, input_file):
     return replace(result, selected=records, tables={**result.tables, **component_tables(records)})
 
 
-def test_four_axes_export_in_order_and_preserve_cached_totals(hierarchy_result, tmp_path):
+def test_equipment_and_phenomenon_columns_preserve_cached_totals(hierarchy_result, tmp_path):
     before = hierarchy_result.selected.copy(deep=True)
     workbook = load_workbook(
         export_report(hierarchy_result, tmp_path / "four_axes.xlsx"), data_only=True
     )
     try:
-        fields = ["detail_equipment", "part_group", "middle", "minor"]
+        fields = ["detail_equipment", "minor"]
         positions = [DETAIL_COLS.index(key) for key in fields]
         assert positions == list(range(positions[0], positions[0] + len(fields)))
         detail = workbook[SHEETS["detail"]]
         assert detail[f"{OUTPUT_D['detail_equipment']}6"].value == DISPLAY["detail_equipment"]
         assert detail[f"{OUTPUT_D['detail_equipment']}7"].value in {"컨베어", "필러"}
         assert detail[f"{OUTPUT_D['detail_equipment_source']}7"].value == "원문 고장 문맥"
-        assert detail[f"{OUTPUT_D['part_group']}7"].value == "베어링·부싱"
+        assert {"part_group", "middle", "component_details"}.isdisjoint(DETAIL_COLS)
         assert detail[f"{OUTPUT_D['repair_actions']}7"].value == "교체"
         assert workbook["_report_metrics"]["A3"].value == hierarchy_result.metrics["total_minutes"]
         assert "별첨. 부품증상상세" not in workbook
@@ -132,7 +132,7 @@ def test_four_axes_export_in_order_and_preserve_cached_totals(hierarchy_result, 
             if dimension.hidden
             for index in range(dimension.min, dimension.max + 1)
         }
-        assert detail[f"{OUTPUT_D['component_details']}6"].column in hidden_columns
+        assert detail[f"{OUTPUT_D['recorded_actions']}6"].column in hidden_columns
         assert all(detail[f"{OUTPUT_D[key]}6"].column not in hidden_columns for key in fields)
     finally:
         workbook.close()
@@ -146,7 +146,7 @@ def test_pending_report_clears_all_four_final_axes(hierarchy_result):
     assert all(projected.selected.iloc[0][key] == "" for key in CATEGORY_FIELDS)
     assert projected.selected.iloc[0].part_group == ""
     assert projected.selected.iloc[0].repair_actions == "교체"
-    assert projected.tables["fault_detail"].iloc[0].repair_actions == "교체"
+    assert "fault_detail" not in projected.tables
 
 
 def test_explicitly_cleared_action_does_not_reappear_from_original_evidence(
@@ -197,7 +197,7 @@ def test_explicit_previous_schema_is_preserved_as_review_candidates(
     assert selected.loc[index].component_count == 1
 
 
-def test_pdf_exposes_equipment_and_part_axes(hierarchy_result, tmp_path):
+def test_pdf_exposes_equipment_and_phenomenon_axes(hierarchy_result, tmp_path):
     pypdf = pytest.importorskip("pypdf")
     path = export_pdf(hierarchy_result, tmp_path / "four_axes.pdf")
     compact = "".join(
@@ -206,13 +206,10 @@ def test_pdf_exposes_equipment_and_part_axes(hierarchy_result, tmp_path):
     for expected in (
         "고장분야",
         "상세설비",
-        "부품군",
-        "세부부품",
         "고장현상",
         "조치",
         "컨베어",
         "필러",
-        "베어링",
         "교체",
     ):
         assert expected in compact
@@ -256,8 +253,7 @@ def test_partial_projection_keeps_known_part_and_missing_axis_without_review(par
     assert projected.metrics["auto_processed_rows"] == len(before)
     assert projected.metrics["review_rows"] == 0
     assert projected.metrics["unresolved_classification_rows"] == 0
-    assert len(projected.tables["fault_detail"]) == len(before)
-    assert projected.tables["component"]["count"].sum() == len(before)
+    assert {"component", "fault_detail"}.isdisjoint(projected.tables)
     pd.testing.assert_frame_equal(before, partial_result.selected)
 
 
@@ -273,7 +269,7 @@ def test_partial_excel_has_separate_counts_and_retains_missing_field(partial_res
             if row[DETAIL_COLS.index("status") + 1] == K["partial"]
         ]
         assert len(partial) == 1
-        assert partial[0][DETAIL_COLS.index("middle") + 1] == "베어링"
+        assert partial[0][DETAIL_COLS.index("detail_equipment") + 1] in {"컨베어", "필러"}
         assert partial[0][DETAIL_COLS.index("minor") + 1] == UNKNOWN_SYMPTOM
         assert partial[0][DETAIL_COLS.index("classification_missing_fields") + 1] == "고장 현상"
         review = workbook[SHEETS["review"]]

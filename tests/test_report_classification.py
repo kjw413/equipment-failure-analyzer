@@ -57,16 +57,12 @@ def workbook_text(workbook):
 
 
 def test_decision_columns_follow_visible_history_fields():
-    assert len(DETAIL_COLS) == 64
+    assert {"part_group", "middle", "part_count"}.isdisjoint(DETAIL_COLS)
     assert len(DETAIL_COLS) == len(set(DETAIL_COLS))
     assert tuple(DETAIL_COLS[: len(VISIBLE_DETAIL_COLS)]) == VISIBLE_DETAIL_COLS
     assert set(DECISION_FIELDS) <= set(DETAIL_COLS[len(VISIBLE_DETAIL_COLS) :])
-    assert {
-        "classification_candidates",
-        "classification_known_fields",
-        "recorded_actions",
-        "fault_detail_evidence",
-    } <= set(DETAIL_COLS)
+    assert {"classification_candidates", "classification_known_fields"}.isdisjoint(DETAIL_COLS)
+    assert {"recorded_actions", "fault_detail_evidence"} <= set(DETAIL_COLS)
     assert "classification_schema" not in DETAIL_COLS
     assert not set(LEGACY_SCORE_FIELDS).intersection(DETAIL_COLS)
 
@@ -107,8 +103,7 @@ def test_pdf_exposes_rule_reason_and_candidates(decision_result, tmp_path):
         "수동확정",
         "후보별 근거",
         "1순위 대표 자동선택",
-        "정확도나 확률이 아닙니다",
-        "다른 실제 고장이 없다는 뜻이 아닙니다",
+        "이력 건수와 정지시간은 기록당 한 번 집계합니다",
     ):
         assert "".join(phrase.split()) in compact
     assert "근거점수" not in compact and "격차" not in compact

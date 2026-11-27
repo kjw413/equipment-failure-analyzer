@@ -6,11 +6,12 @@ import json
 import math
 
 import pandas as pd
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 
 from core.failure_modes import UNKNOWN_SYMPTOM
-from core.fault_components import CATEGORY_FIELDS as CLASSIFICATION
+from core.fault_components import CATEGORY_FIELDS, parse_components
 from core.fault_components import COMPONENT_OVERRIDE as COMPONENT_FIELD
-from core.fault_components import parse_components
+from core.fault_components import PUBLIC_CATEGORY_FIELDS as CLASSIFICATION
 from core.i18n import UNMATCHED, K
 from core.known_classification import known_fields
 from core.models import UserError
@@ -18,8 +19,10 @@ from core.public_taxonomy import parse_repair_actions
 
 FIELDS = (
     *CLASSIFICATION,
+    "middle",
     COMPONENT_FIELD,
     "repair_actions",
+    "normalized",
     "target",
     "product",
     "work_date",
@@ -49,10 +52,10 @@ def component_override(value, *, multiple: bool = False) -> str:
     if multiple or len(components) > 1:
         raise UserError("고장이력 한 건에는 최종 분류 하나만 확정할 수 있습니다.")
     if any(not all(component.get(key) for key in CLASSIFICATION) for component in components):
-        raise UserError("대분류·상세설비·세부 부품·소분류를 모두 선택하세요.")
+        raise UserError("고장 분야·상세설비·고장 현상을 모두 선택하세요.")
     return (
         json.dumps(
-            [{key: component[key] for key in CLASSIFICATION} for component in components],
+            [{key: component[key] for key in CATEGORY_FIELDS} for component in components],
             ensure_ascii=False,
             separators=(",", ":"),
         )
@@ -97,9 +100,9 @@ def validate(values: dict[str, str], *, confirm_components: bool = False) -> str
     else:
         parts = [values.get(key, "").strip() for key in CLASSIFICATION]
         if any(parts) and not all(parts):
-            return "대분류·상세설비·세부 부품·소분류를 모두 선택하거나 모두 비우세요."
+            return "고장 분야·상세설비·고장 현상을 모두 선택하거나 모두 비우세요."
         if all(parts) and any(part in PLACEHOLDERS for part in parts):
-            return "검토 상태 대신 실제 대분류·상세설비·세부 부품·소분류를 선택하세요. 증상을 확인할 수 없으면 검토 상태로 남겨두세요."
+            return "고장 분야·상세설비·고장 현상을 확인하세요. 현상을 확인할 수 없으면 검토 상태로 두세요."
         if values.get("minor") in {"교체", "수리", "조정", "점검", "청소", "급유"}:
             return "조치는 고장 현상 대신 조치 내역에서 선택하세요."
     if "repair_actions" in values:
@@ -107,6 +110,10 @@ def validate(values: dict[str, str], *, confirm_components: bool = False) -> str
             parse_repair_actions(values["repair_actions"], strict=True)
         except ValueError as exc:
             return str(exc)
+    if len(values.get("normalized", "")) > 32_767 or ILLEGAL_CHARACTERS_RE.search(
+        values.get("normalized", "")
+    ):
+        return "표준화 내용은 32,767자 이하로 입력하고 제어 문자는 제거하세요."
     if values.get("work_date", "").strip():
         from core.parsing import parse_date
 
@@ -147,6 +154,8 @@ def correction_patch(
             patch[COMPONENT_FIELD] = None
     elif not any(parts) and any(existing.get(key) for key in CLASSIFICATION):
         patch.update({key: None for key in CLASSIFICATION})
+        if "middle" in existing:
+            patch["middle"] = None
     elif existing.get(COMPONENT_FIELD) and not values[COMPONENT_FIELD]:
         # Clearing all saved component rows removes only that classification override.
         patch[COMPONENT_FIELD] = None
