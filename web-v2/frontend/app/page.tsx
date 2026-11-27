@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, ChartNoAxesCombined, Check, ClipboardCheck, Columns3, Database, FileSpreadsheet, FolderOpen, Gauge, List, LoaderCircle, Settings2, X } from "lucide-react";
+import { BadgeCheck, ChartSpline, Check, Factory, FileChartColumn, FileSpreadsheet, FolderOpen, GitCompareArrows, History, LoaderCircle, Sheet, SlidersHorizontal, TableProperties, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { BreakdownTables, ChartPanel, ComparisonPanel, Metrics } from "./analytics";
 import { DataGrid, Empty, type Filter } from "./data-grid";
@@ -10,15 +10,15 @@ import { ReportPanel, SettingsPanel } from "./settings";
 import { Conditions, SourcePanel } from "./source";
 
 const items = [
-  { key: "overview", title: "분석 개요", icon: Gauge },
-  { key: "breakdown", title: "집계표", icon: Columns3 },
-  { key: "trend", title: "기간별 추이", icon: ChartNoAxesCombined },
-  { key: "compare", title: "고장 비교", icon: Activity },
-  { key: "review", title: "분류 검수", icon: ClipboardCheck },
-  { key: "history", title: "고장이력", icon: List },
-  { key: "raw", title: "원본 데이터", icon: Database },
-  { key: "report", title: "보고서", icon: FileSpreadsheet },
-  { key: "settings", title: "기준정보 · 설정", icon: Settings2 },
+  { key: "overview", title: "분석 개요", icon: Factory },          // 공장·설비 전체 현황
+  { key: "breakdown", title: "집계표", icon: TableProperties },    // 행·열 머리가 있는 집계 테이블
+  { key: "trend", title: "기간별 추이", icon: ChartSpline },       // 시간 흐름의 연속 곡선
+  { key: "compare", title: "고장 비교", icon: GitCompareArrows },  // 두 대상을 맞대어 비교
+  { key: "review", title: "분류 검수", icon: BadgeCheck },         // 자동 분류를 사람이 확인·승인
+  { key: "history", title: "고장이력", icon: History },            // 되감는 시계 — 과거 기록
+  { key: "raw", title: "원본 데이터", icon: Sheet },               // 가공 전 Excel 시트
+  { key: "report", title: "보고서", icon: FileChartColumn },       // 차트가 들어간 보고서
+  { key: "settings", title: "기준정보 · 설정", icon: SlidersHorizontal }, // 분석 기준값 조정
 ] as const;
 type PageKey = typeof items[number]["key"];
 const resultPages = new Set<PageKey>(["breakdown", "trend", "compare", "review", "history"]);
@@ -207,27 +207,40 @@ export default function Home() {
   return (
     <div className="workspace">
       <aside className="sidebar">
-        <button className="brand" type="button" onClick={() => navigate("overview")} aria-label="설비 고장 분석기 홈">
-          <span className="brand-icon"><Activity size={22} strokeWidth={2.2} /></span>
-          <span>설비 고장 분석기<small>버전 2</small></span>
+        <button className="brand" type="button" onClick={() => navigate("overview")} aria-label="빙그레 설비 고장 분석기 홈">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/binggrae-logo-white.png" alt="빙그레" />
+          <span className="brand-name">설비 고장 분석기<small>v2</small></span>
         </button>
         <nav aria-label="작업 메뉴">
           {items.map(({ key, title, icon: Icon }) => <button type="button" key={key}
             aria-current={key === page ? "page" : undefined}
-            onClick={() => navigate(key)}><Icon size={18} aria-hidden /><span>{title}</span>
+            onClick={() => navigate(key)}><Icon size={18} strokeWidth={1.75} aria-hidden /><span>{title}</span>
             {key === "review" && pendingCount > 0 && <span className="nav-count">{display(pendingCount)}</span>}
           </button>)}
         </nav>
         <div className="connection"><span className={connected ? "online-dot" : "offline-dot"} />{booting ? "연결 중" : connected ? "분석 서버 연결됨" : "분석 서버 연결 필요"}</div>
       </aside>
       <main className="main" id="main">
-        <div className="page-header">
+        {page === "overview" ? <header className="page-header hero">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="hero-mark" src="/brand/binggrae-b-white.png" alt="" aria-hidden />
+          <div>
+            <div className="hero-eyebrow">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/binggrae-logo-white.png" alt="빙그레" /><i /><span>Maintenance Analytics</span>
+            </div>
+            <h1>설비 고장 분석기</h1>
+            <p>고장이력 Excel을 올리면 설비 · 고장유형별 정지시간을 집계하고, 검수와 보고서까지 한 번에 이어집니다.</p>
+            {source && <span className="hero-file"><FileSpreadsheet size={15} />{source.name}</span>}
+          </div>
+        </header> : <div className="page-header">
           <div>
             <h1>{heading}</h1>
             {source && <p className="page-source"><FileSpreadsheet size={16} />{source.name}</p>}
           </div>
-          {analysis && page !== "report" && <button className="button secondary compact-report" onClick={() => navigate("report")}><FileSpreadsheet size={17} /> 보고서</button>}
-        </div>
+          {analysis && page !== "report" && <button className="button secondary compact-report" onClick={() => navigate("report")}><FileChartColumn size={17} /> 보고서</button>}
+        </div>}
         <div className="page-content" aria-busy={busy}>
           {task && <div className="notice work" role="status"><LoaderCircle className="spinner" size={18} /> {task}</div>}
           {error && <div className="notice error" role="alert">{error}{!connected && <button className="button secondary" disabled={busy} onClick={() => void load()}>다시 연결</button>}</div>}

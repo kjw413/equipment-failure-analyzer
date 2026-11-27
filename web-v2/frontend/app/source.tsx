@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, FileSpreadsheet, FolderOpen, Play, SlidersHorizontal, Upload } from "lucide-react";
+import { ChevronDown, FileSpreadsheet, FileUp, FolderOpen, Play, SlidersHorizontal } from "lucide-react";
 import { useRef, useState } from "react";
 import { display, type AnalysisOptions, type Mapping, type Source } from "./lib";
 
@@ -87,7 +87,7 @@ export function SourcePanel({
           const file = event.dataTransfer.files[0];
           if (!busy && file) onUpload(file);
         }}>
-        <span className="upload-icon"><Upload size={25} /></span>
+        <span className="upload-icon"><FileUp size={24} strokeWidth={1.75} /></span>
         <strong>Excel 파일을 여기에 놓으세요</strong>
         <span className="muted">.xlsx, .xlsm · 최대 100 MB</span>
         <button className="button primary" disabled={busy} onClick={() => input.current?.click()}>파일 선택</button>
